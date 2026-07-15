@@ -1,0 +1,233 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "generar_rutina",
+      "description": "Llama a esta herramienta para CREAR, ARMAR o DISEÑAR DESDE CERO su rutina o mesociclo. REGLA DE DIAGNÓSTICO ESTRICTA: Antes de invocar esta herramienta, es OBLIGATORIO haber ejecutado 'evaluar_perfil_fisico' y 'evaluar_nivel_fuerza'. Una vez tengas los resultados de ambas evaluaciones, usa ese diagnóstico para definir matemáticamente el campo 'nivel' (principiante, intermedio o avanzado) y redacta un 'contexto_usuario' profundo que incluya su FFMI y sus ratios de fuerza. Tienes ESTRICTAMENTE PROHIBIDO invocar esta herramienta si el usuario solo pide VER, MOSTRAR o CONSULTAR un plan ya generado (usa 'consultar_rutina_futura' para eso).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dias": {
+            "type": "integer",
+            "description": "Días por semana que entrenará. Soporta estrictamente splits científicos y autoregulados de 3, 4, 5, 6 o 7 días."
+          },
+          "meta": {
+            "type": "string",
+            "description": "El objetivo principal del usuario (ej. hipertrofia, powerlifting, powerbuilding)."
+          },
+          "tipo_periodizacion": {
+            "type": "string",
+            "enum": ["DUP", "tradicional"],
+            "description": "El modelo de estructuración científica de la carga: 'DUP' (Ondulante Diaria, donde cada grupo muscular cicla Potencia, Hipertrofia y Fuerza independientemente) o 'tradicional' (Por bloques lineales clásicos: Acumulamiento=Hipertrofia, Fuerza=Fuerza, Realizacion=Potencia)."
+          },
+          "peso_kg": { "type": "number", "description": "Peso actual del usuario en kg." },
+          "porcentaje_grasa": { "type": "number", "description": "Porcentaje de grasa corporal del usuario (ej. 15, 18)." },
+          "rm_banca_kg": { "type": "number", "description": "1RM real o estimado del atleta en Press de Banca Plano." },
+          "rm_sentadilla_kg": { "type": "number", "description": "1RM real o estimado del atleta en Sentadilla Libre." },
+          "rm_peso_muerto_kg": { "type": "number", "description": "1RM real o estimado del atleta en Peso Muerto." },
+          "rm_dominadas_kg": {
+            "type": "number",
+            "description": "1RM real o estimado del atleta en Dominadas (Pull-ups). Si el atleta hace repeticiones con su peso corporal o usa lastre, usa PRIMERO la herramienta 'calcular_rm_exacto' (con tipo 'calistenia_pura' o 'lastrado') para obtener esta marca total antes de generar la rutina."
+          },
+          "nivel": {
+            "type": "string",
+            "enum": ["principiante", "intermedio", "avanzado", "élite"],
+            "description": "El nivel de fuerza real del atleta calculado OBLIGATORIAMENTE por la herramienta 'evaluar_nivel_fuerza'."
+          },
+          "contexto_usuario": { "type": "string", "description": "Detalles extra relevantes: FFMI, lesiones, dolores, variantes preferidas, material disponible." }
+        },
+        "required": [
+          "dias", "meta", "tipo_periodizacion", "peso_kg", "porcentaje_grasa",
+          "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg", "rm_dominadas_kg",
+          "nivel", "contexto_usuario"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "evaluar_nivel_fuerza",
+      "description": "OBLIGATORIO ANTES DE CREAR UNA RUTINA: Analiza las marcas de 1RM del atleta en relación con su peso corporal, género y edad. Determina su nivel de fuerza real (principiante, intermedio, avanzado, élite) utilizando estándares científicos de ratios de fuerza. Usa el resultado de esta herramienta, junto con 'evaluar_perfil_fisico', para definir el campo 'nivel' y enriquecer el 'contexto_usuario' cuando finalmente llames a 'generar_rutina'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "peso_kg": { "type": "number", "description": "Peso corporal actual en kg." },
+          "genero": { "type": "string", "enum": ["hombre", "mujer"], "description": "Género del atleta." },
+          "edad": { "type": "integer", "description": "Edad del atleta en años." },
+          "rm_banca_kg": { "type": "number", "description": "1RM calculado en Press de Banca." },
+          "rm_sentadilla_kg": { "type": "number", "description": "1RM calculado en Sentadilla." },
+          "rm_peso_muerto_kg": { "type": "number", "description": "1RM calculado en Peso Muerto." }
+        },
+        "required": ["peso_kg", "genero", "edad", "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_rutina_futura",
+      "description": "OBLIGATORIO Y ESTRICTO: Llama a esta herramienta INMEDIATAMENTE cuando el atleta pida VER, MOSTRAR o CONSULTAR su plan de entrenamiento recién creado, pregunte por entrenamientos futuros, quiera ver qué le toca mañana, o pida revisar la estructura de una semana siguiente. REGLA DE HIERRO: El atleta usa una periodización DUP ondulante matemática impredecible. TIENES ESTRICTAMENTE PROHIBIDO intentar adivinar, sumar porcentajes, deducir secuencias o calcular mentalmente los ejercicios de semanas o días siguientes. NO puedes asumir que la progresión es lineal basándote en el historial del chat. Tu ÚNICA acción permitida para mostrarle su rutina o responder es ejecutar esta herramienta para extraer los datos reales y crudos del JSON.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "semana": {
+            "type": "integer",
+            "description": "El número de la semana absoluta que el usuario desea inspeccionar (ej: si está en la semana 1 y pide la siguiente semana, pasa 2)."
+          },
+          "dia": {
+            "type": "string",
+            "description": "Opcional. El identificador del día específico si el usuario pregunta por un entrenamiento concreto (ej: 'dia_1', 'dia_2'). Si quiere ver la semana completa, no envíes este parámetro."
+          }
+        },
+        "required": [
+          "semana"
+        ]
+      }
+    }
+  },
+  {
+  "name": "avanzar_dia",
+  "description": "Avanza el estado del usuario al siguiente día de entrenamiento.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "forzar": {
+        "type": "boolean",
+        "description": "true SOLO si el atleta insiste explícitamente en avanzar otra vez el mismo día después de que le avisaste del candado."
+      }
+    }
+  }
+},
+  {
+    "type": "function",
+    "function": {
+      "name": "calcular_rm_exacto",
+      "description": "ESTRICTO: Usa esta herramienta SIEMPRE que el atleta te dé repeticiones y peso. PROHIBIDO hacer cálculos mentales.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "nombre_ejercicio": {
+            "type": "string",
+            "description": "Nombre exacto del ejercicio (Ej: 'Press Banco Plano', 'Sentadilla')"
+          },
+          "tipo_ejercicio": {
+            "type": "string",
+            "enum": ["peso_libre", "maquina", "lastrado", "calistenia_pura"]
+          },
+          "repeticiones": { "type": "integer" },
+          "peso_levantado": { "type": "number" }
+        },
+        "required": ["nombre_ejercicio", "tipo_ejercicio", "repeticiones", "peso_levantado"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_libro_cientifico",
+      "description": "ESTRICTO Y OBLIGATORIO: Herramienta de consulta fisiológica. Úsala en DOS casos: 1) Cuando el atleta pregunte directamente sobre teoría (hipertrofia, volumen, biomecánica). 2) USO PROACTIVO (CRÍTICO): Cuando detectes que el atleta está fallando, perdiendo velocidad (VBT), expresando fatiga extrema, o estancado. Antes de modificar su rutina o decirle qué hacer, DEBES usar esta herramienta para buscar cómo la ciencia (periodización, fatiga, descargas) resuelve ese problema específico.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pregunta_teorica": {
+            "type": "string",
+            "description": "El concepto técnico o problema fisiológico a investigar. Ej: 'ajuste de volumen por fatiga acumulada', 'estrategias de descarga en powerlifting', 'pérdida de velocidad en VBT y daño del sistema nervioso'."
+          }
+        },
+        "required": ["pregunta_teorica"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "registrar_serie_completada",
+      "description": "OBLIGATORIO: Usa esta función SIEMPRE que el atleta te reporte que acaba de terminar una serie de un ejercicio con sus pesos, repeticiones, RPE o datos del VBT. Esto guardará su serie en su diario analítico SQL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": { "type": "string", "description": "Nombre exacto del ejercicio (ej. 'Press Banco Plano')." },
+          "peso_kg": { "type": "number", "description": "Carga en kilogramos. Si es peso corporal, pon 0." },
+          "repeticiones": { "type": "integer", "description": "Reps completadas en esa serie." },
+          "rpe_reportado": { "type": "number", "description": "RPE subjetivo o calculado (ej. 8, 8.5)." },
+          "vbt_velocidad_media": { "type": "number", "description": "Velocidad media en m/s (si la da)." },
+          "vbt_velocidad_pico": { "type": "number", "description": "Velocidad pico máxima en m/s (si la da)." },
+          "vbt_perdida_velocidad": { "type": "number", "description": "Fatiga intra-serie o pérdida de velocidad (porcentaje %)." },
+          "rom_cm": { "type": "number", "description": "Rango de movimiento en centímetros (si lo da el VBT)." },
+          "dolor_articular": { "type": "string", "description": "Si el atleta menciona molestias (ej. 'rodilla', 'hombro'). Si no, null." },
+          "calidad_tecnica": { "type": "string", "enum": ["perfecta", "buena", "deterioro_leve", "fallo_tecnico"], "description": "Tu evaluación de la técnica." }
+        },
+        "required": ["ejercicio", "peso_kg", "repeticiones"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_historial_narrativo",
+      "description": "Usa esta herramienta cuando el atleta te pregunte cosas sobre su progreso histórico a largo plazo, dolores antiguos, cómo le fue en mesociclos pasados, o cuando quieras comparar si un estancamiento actual ya le había pasado hace meses de manera psicológica o fisiológica.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "contexto_a_buscar": {
+            "type": "string",
+            "description": "El patrón o recuerdo específico que quieres buscar en sus bitácoras pasadas. Ej: 'estancamiento en press banca semana 4', 'lesión o molestia de hombro', 'sensaciones en periodización ondulante'."
+          }
+        },
+        "required": ["contexto_a_buscar"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "evaluar_perfil_fisico",
+      "description": "OBLIGATORIO DURANTE EL ONBOARDING: Calcula ÚNICAMENTE el FFMI (Nivel de Masa Muscular). ADVERTENCIA: Esta herramienta NO calcula 1RM. Las marcas de fuerza (peso y reps) DEBES procesarlas obligatoriamente llamando a la herramienta 'calcular_rm_exacto' por cada ejercicio que el usuario te dé.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "peso_kg": { "type": "number", "description": "Peso del usuario en kilogramos." },
+          "altura_m": { "type": "number", "description": "Altura del usuario en metros (ej. 1.75)." },
+          "porcentaje_grasa": { "type": "number", "description": "Porcentaje de grasa corporal estimado." },
+          "genero": { "type": "string", "enum": ["hombre", "mujer"], "description": "Género biológico." }
+        },
+        "required": ["peso_kg", "altura_m", "porcentaje_grasa", "genero"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_expediente_personal",
+      "description": "ESTRICTO Y OBLIGATORIO: Usa esta herramienta siempre que el atleta hable sobre sus datos base (nombre, edad, peso corporal), de su entorno o de cómo evoluciona su vida y entrenamiento. Debes invocarla para buscar en su expediente si el usuario menciona: 1) Cambios de peso corporal (si subió o bajó de peso). 2) Fluctuaciones en su fuerza (si siente que su fuerza aumentó o disminuyó). 3) Estado anímico o físico (si se ha sentido bien, mal, estresado o cansado). 4) Cambios en su entorno de entrenamiento (si se cambió de gimnasio, si cambió de material o barras). 5) Preferencias y deseos de cambio (si quiere cambiar o sustituir ejercicios). 6) Estilo de vida y equipo (hábitos de sueño, uso de cinto, straps, rodilleras o dolores crónicos del pasado). Esta herramienta te devolverá sus notas del expediente para que personalices la respuesta al máximo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "concepto_a_buscar": {
+            "type": "string",
+            "description": "El término específico, cambio, hábito, entorno o dato físico a rastrear en las notas. Ejemplos: 'cambio de gimnasio', 'aumento de fuerza', 'bajar de peso', 'nombre edad', 'molestia hombro', 'equipo cinto'."
+          }
+        },
+        "required": ["concepto_a_buscar"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "guardar_en_expediente_personal",
+      "description": "ACCIÓN DE ESCRITURA OBLIGATORIA (MEMORIA PERMANENTE). Funciona como una ESPONJA DE CONTEXTO. Tienes prohibido asumir que recordarás datos solo leyendo el chat. DEBES usar esta herramienta para ESCRIBIR en la base de datos vectorial CUALQUIER dato, por mínimo que sea, que el atleta mencione y que sirva para personalizar su entrenamiento. Esto abarca un espectro total: 1) Físico (peso, edad, altura). 2) Biomecánica y Salud (lesiones, dolores, molestias pasadas o actuales). 3) Estilo de vida y Entorno (calidad de sueño, nivel de estrés, en qué horario entrena, si su gimnasio está lleno, si trabaja sentado). 4) Nutrición (si hace ayuno, si está en déficit/superávit, suplementos). 5) Gustos y Equipo (ejercicios que odia o ama, si prefiere barra a mancuernas, si usa cinturón, rodilleras o magnesio). ¡CUALQUIER DATO ÚTIL DEBE SER GUARDADO!",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dato_a_guardar": {
+            "type": "string",
+            "description": "La afirmación exacta que se guardará en ChromaDB. DEBE estar redactada en tercera persona, ser un dato duro, explícito, atemporal y autocontenido. MAL EJEMPLO: 'No le gusta ese ejercicio'. BUEN EJEMPLO: 'El atleta odia las sentadillas búlgaras y prefiere prensa'. OTRO EJEMPLO: 'El atleta entrena a las 6 AM en ayunas y tiene poco tiempo'."
+          }
+        },
+        "required": ["dato_a_guardar"]
+      }
+    }
+  }
+]

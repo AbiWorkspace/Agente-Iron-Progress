@@ -1,0 +1,242 @@
+{
+    "semana_1": {
+        "dia_1_fuerza": {
+            "series": 5,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 11,
+            "porcentaje_1RM": 70.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 7,
+            "reps": 3,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 5.0
+        }
+    },
+    "semana_2": {
+        "dia_1_fuerza": {
+            "series": 5,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 10,
+            "porcentaje_1RM": 71.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 3,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_3": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 9,
+            "porcentaje_1RM": 73.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 3,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 5.0
+        }
+    },
+    "semana_4": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 7,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 9.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 5,
+            "reps": 8,
+            "porcentaje_1RM": 73.0,
+            "rpe_objetivo": 7.0
+        },
+        "dia_3_potencia": {
+            "series": 5,
+            "reps": 3,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_5": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 7,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 10.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 8,
+            "porcentaje_1RM": 75.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 7,
+            "reps": 2,
+            "porcentaje_1RM": 83.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_6": {
+        "dia_1_fuerza": {
+            "series": 3,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 5,
+            "reps": 7,
+            "porcentaje_1RM": 75.0,
+            "rpe_objetivo": 7.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 2,
+            "porcentaje_1RM": 83.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_7": {
+        "dia_1_fuerza": {
+            "series": 3,
+            "reps": 7,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 9.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 5,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 7,
+            "reps": 3,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 5.0
+        }
+    },
+    "semana_8": {
+        "dia_1_fuerza": {
+            "series": 3,
+            "reps": 7,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 10.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 5,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 3,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_9": {
+        "dia_1_fuerza": {
+            "series": 5,
+            "reps": 6,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 3,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 5.0
+        }
+    },
+    "semana_10": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 6,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 4,
+            "reps": 7,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 9.0
+        },
+        "dia_3_potencia": {
+            "series": 5,
+            "reps": 3,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_11": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 6,
+            "porcentaje_1RM": 81.0,
+            "rpe_objetivo": 9.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 3,
+            "reps": 7,
+            "porcentaje_1RM": 76.0,
+            "rpe_objetivo": 8.0
+        },
+        "dia_3_potencia": {
+            "series": 7,
+            "reps": 2,
+            "porcentaje_1RM": 83.0,
+            "rpe_objetivo": 6.0
+        }
+    },
+    "semana_12": {
+        "dia_1_fuerza": {
+            "series": 4,
+            "reps": 6,
+            "porcentaje_1RM": 83.0,
+            "rpe_objetivo": 10.0
+        },
+        "dia_2_hipertrofia": {
+            "series": 3,
+            "reps": 7,
+            "porcentaje_1RM": 78.0,
+            "rpe_objetivo": 9.0
+        },
+        "dia_3_potencia": {
+            "series": 6,
+            "reps": 2,
+            "porcentaje_1RM": 83.0,
+            "rpe_objetivo": 6.0
+        }
+    }
+}

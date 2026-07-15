@@ -1,0 +1,6319 @@
+[
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 5,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 5,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 5,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 6,
+        "Vol_Por_Patron": {
+            "empuje": 6,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 5,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 6,
+        "Vol_Por_Patron": {
+            "empuje": 6,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 5,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 6,
+        "Vol_Por_Patron": {
+            "empuje": 6,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 5,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 30,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 31,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 32,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 33,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 34,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 35,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 36,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.5,
+                "1RM": "88.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 9.5,
+                "1RM": "86.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 37,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.0,
+                "1RM": "80.7%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 9.5,
+                "1RM": "83.2%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "81.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 8,
+                "RPE": 6.0,
+                "1RM": "73.9%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 38,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "84.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 2,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 7,
+                "RPE": 6.0,
+                "1RM": "75.1%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 3
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 2,
+                "Reps": 3,
+                "RPE": 8.5,
+                "1RM": "84.9%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.0,
+                "1RM": "55.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 3
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 2,
+                "Reps": 1,
+                "RPE": 8.0,
+                "1RM": "87.7%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 6.0,
+                "1RM": "65.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 3
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 2,
+                "Reps": 1,
+                "RPE": 9.5,
+                "1RM": "90.8%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 39,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Dominadas Lastradas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 1,
+                "RPE": 5.5,
+                "1RM": "60.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps con Barra",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 6.0,
+                "1RM": "76.4%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 10,
+                "RPE": 9.0,
+                "1RM": "75.1%"
+            }
+        ]
+    }
+]

@@ -1,0 +1,114 @@
+[
+  {
+    "role": "user",
+    "content": "[RESUMEN_SESIONES]:\n[BIOMETRÍA Y PERFIL]: Edad: 24, Peso: 82 kg, Altura: 1.75 m, Meta: No especificado, Equipo: No especificado, Días: No especificado, Lesiones: No especificado.  \n[MARCAS Y RENDIMIENTO]: No especificado.  \n[ESTADO DE LA CHARLA]: El usuario proporcionó sus datos biológicos (175 cm, 82 kg, 24 años) y el coach preguntó por su género."
+  },
+  {
+    "role": "assistant",
+    "content": "Contexto de sesiones anteriores cargado, sigo desde ahí."
+  },
+  {
+    "role": "user",
+    "content": "hombre"
+  },
+  {
+    "role": "assistant",
+    "content": "Hombre, 24 años.  \n*¿Tienes idea de tu porcentaje de grasa corporal aproximado?*"
+  },
+  {
+    "role": "user",
+    "content": "18%"
+  },
+  {
+    "role": "assistant",
+    "content": "Entendido, 18% de grasa.  \n*¿Cuantos días por semana puedes entrenar?*"
+  },
+  {
+    "role": "user",
+    "content": "7 dias a la semana"
+  },
+  {
+    "role": "assistant",
+    "content": "7 días a la semana, bien.  \n*¿Tu objetivo principal es fuerza, hipertrofia o powerbuilding?*"
+  },
+  {
+    "role": "user",
+    "content": "powerbuilding"
+  },
+  {
+    "role": "assistant",
+    "content": "Perfecto, powerbuilding.  \n*¿Cuál es tu mejor marca en press de banca plano?*"
+  },
+  {
+    "role": "user",
+    "content": "145kg a 3 reps"
+  },
+  {
+    "role": "assistant",
+    "content": "Genial, 145 kg en banco.  \n*¿Cuál es tu mejor marca en sentadilla libre?*"
+  },
+  {
+    "role": "user",
+    "content": "215kg a una repeticcion"
+  },
+  {
+    "role": "assistant",
+    "content": "215 kg en sentadilla, muy bien.  \n*¿Cuál es tu mejor marca en peso muerto?*"
+  },
+  {
+    "role": "user",
+    "content": "hoy hice como mayor peso 235kg a1 repeticcion, pero mi maximo es de 230kg a 4 repeticciones"
+  },
+  {
+    "role": "assistant",
+    "content": "230 kg a 4 reps en peso muerto, muy sólido.  \n*¿Haces dominadas a peso corporal o con lastre? Si usas lastro, ¿cuánto y cuántas reps haces?*"
+  },
+  {
+    "role": "user",
+    "content": "uso lastre, 30kg y con ese peso logro dominar 7 repeticciones"
+  },
+  {
+    "role": "assistant",
+    "content": "¡30 kg de lastre en dominadas y 7 reps! Eso es un buen punto de partida.  \n\nTu plan de powerbuilding está en construcción, y en 2-3 minutos te lo mando directo a tu WhatsApp. No te preocupes por nada más, yo te aviso cuando esté listo.  \n\n¿Algo más que quieras antes de que te lo envíe?"
+  },
+  {
+    "role": "user",
+    "content": "no quiero agregar nada mas"
+  },
+  {
+    "role": "assistant",
+    "content": "Perfecto, Abimael. Tu plan de powerbuilding está listo. En 2-3 minutos te envío la rutina del día a tu WhatsApp.  \n\nMientras tanto, prepara el espacio, revisa el equipo y carga la barra. Hoy toca entrenamiento.  \n\n¿Algo que te esté pidiendo el cuerpo antes de empezar?"
+  },
+  {
+    "role": "user",
+    "content": "ya esta mi rutina??"
+  },
+  {
+    "role": "assistant",
+    "content": "Aquí tienes tu rutina del día, Abimael:\n\n*Día 1 — SEMANA 1: TORSO | HIPERTROFIA*  \n- *Press Banco Plano* (3x12) @ *102.5 kg* | RPE 7.5  \n- *Dominadas Lastradas* (3x12) @ *22.5 kg* | RPE 7.5  \n- *Press Banco Plano con Mancuernas* (2x14) @ *peso por calibrar* | RPE 8.0  \n- *Remo en Máquina* (1x14) @ *peso por calibrar* | RPE 8.0  \n- *Extensión de Tríceps Katana* (1x14) @ *peso por calibrar* | RPE 8.5  \n- *Curl de Bíceps con Barra* (1x14) @ *peso por calibrar* | RPE 8.5  \n- *Curl de Bíceps con Mancuernas* (1x14) @ *peso por calibrar* | RPE 8.5  \n- *Curl Martillo* (1x14) @ *peso por calibrar* | RPE 8.5  \n- *Curl de Bíceps en Polea* (1x14) @ *peso por calibrar* | RPE 8.5  \n- *Vuelos Laterales* (2x17) @ *peso por calibrar* | RPE 9.0  \n- *Crunch Abdominal* (2x17) @ *peso por calibrar* | RPE 9.0  \n\nLos ejercicios con *peso por calibrar* no tienen carga definida aún. Para cada uno, haz la *primera serie con el peso que te sientas cómodo* y reporta cuántas reps lograste. Con eso, ajustaré la carga para las siguientes series.  \n\n¡Vamos a romperlo!  \n*¿Listo para empezar?*"
+  },
+  {
+    "role": "user",
+    "content": "bien, pero respondeme como me llamos??"
+  },
+  {
+    "role": "assistant",
+    "content": "Abimael, ¿listo para arrancar?"
+  },
+  {
+    "role": "user",
+    "content": "cuanto peso??"
+  },
+  {
+    "role": "assistant",
+    "content": "Abimael, ya te dije los pesos que tienes que usar hoy. Repasemos:\n\n- *Press Banco Plano*: *102.5 kg* (3x12, RPE 7.5)  \n- *Dominadas Lastradas*: *22.5 kg* (3x12, RPE 7.5)  \n\nLos demás ejercicios (Press con mancuernas, Remo en máquina, Extensión de tríceps, Curl de bíceps, etc.) están marcados como *peso por calibrar*. Para cada uno, haz la *primera serie con el peso que te sientas cómodo* (sin forzar) y dime cuántas reps lograste. Con eso, ajustaré la carga para las siguientes series.  \n\nEmpieza con el *Press Banco Plano*.  \n*¿Listo para cargar la barra?*"
+  },
+  {
+    "role": "user",
+    "content": "cuanto peso yo"
+  },
+  {
+    "role": "assistant",
+    "content": "Abimael, ya te expliqué los pesos que tienes que usar hoy. Vamos a reforzarlo:\n\n- *Press Banco Plano*: *102.5 kg* (3x12, RPE 7.5)  \n- *Dominadas Lastradas*: *22.5 kg* (3x12, RPE 7.5)  \n\nLos demás ejercicios (Press con mancuernas, Remo en máquina, Extensión de tríceps, Curl de bíceps, etc.) están marcados como *peso por calibrar*. Para cada uno, haz la *primera serie con el peso que te sientas cómodo* (sin forzar) y dime cuántas reps lograste. Con eso, ajustaré la carga para las siguientes series.  \n\nEmpieza con el *Press Banco Plano*.  \n*¿Listo para cargar la barra?*"
+  }
+]

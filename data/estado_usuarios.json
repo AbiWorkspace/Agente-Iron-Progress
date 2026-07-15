@@ -1,0 +1,14 @@
+{
+    "527291395298": {
+        "semana": 1,
+        "dia": 1,
+        "fecha_programada": "2026-07-14",
+        "ultima_fecha_completada": "",
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "estado_generacion": "lista",
+        "meta": "powerbuilding",
+        "dias": 7,
+        "generacion_ts": 1784080491.4688554
+    }
+}

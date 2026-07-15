@@ -1,0 +1,6 @@
+# Ocultar secretos
+.env
+
+# Ocultar el entorno virtual
+.venv/
+__pycache__/
