@@ -12,6 +12,7 @@ from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashb
 from services.conexion_entrenamiento_llm_orquestacion import recibir_peticion
 from services.calculadora_rm import calcular_1rm, TipoEjercicio
 from services.metricas_atleta import evaluar_perfil_completo
+from services.repositorio_atleta import repositorio   # v4: SQLite reemplaza a perfil_*.json / rms_*.json
 from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
 
@@ -63,6 +64,12 @@ RESTRICCION_RE = re.compile(
 # v3 — Fallo 3 del informe: velocidades VBT (0.255, 0.270...) que el modelo
 # "leía" con narrativa en vez de aritmética. Se analizan en código.
 VELOCIDAD_RE = re.compile(r"\b0[.,]\d{2,3}\b")
+
+# v4.1 — fin de sesión: pista suave para que el modelo considere avanzar_dia
+FIN_SESION_RE = re.compile(
+    r"\b(?:ya\s+)?(?:termin[ée]|acab[ée])\b(?:.*\b(?:entren\w*|sesi[oó]n|rutina|por\s+hoy|todo)\b)?"
+    r"|\blisto\s+por\s+hoy\b|\bfin\s+de\s+la\s+sesi[oó]n\b",
+    re.IGNORECASE)
 
 PORCENTAJE_RE = re.compile(r"([\d.]+)\s*%")
 _ACCESORIO_KEYWORDS = ("mancuerna", "copa", "goblet", "maquina", "máquina", "polea",
@@ -165,40 +172,45 @@ else:
 
 # ==============================================================================
 # ALMACÉN CANÓNICO DE RM Y PERFILES
+# v4: los datos viven en SQLite (services/repositorio_atleta.py). Estas funciones
+# conservan EXACTAMENTE las mismas firmas y formas de retorno que la versión
+# JSON, así que el resto del orquestador no cambia. El repositorio migra solo
+# los perfil_*.json / rms_*.json existentes la primera vez (los renombra a
+# *.json.migrado, no borra nada) y además guarda HISTORIAL fechado de cada
+# marca y cada cambio de perfil: el dataset del futuro modelo de rendimiento.
 # ==============================================================================
 def ruta_rms(numero_usuario: str) -> str:
+    """Legado: solo por compatibilidad con scripts viejos (reset_usuario, etc.)."""
     return os.path.join(carpeta_data, f"rms_{numero_usuario}.json")
 
-def ruta_perfil(u): return os.path.join(carpeta_data, f"perfil_{u}.json")
+def ruta_perfil(u):
+    """Legado: solo por compatibilidad con scripts viejos."""
+    return os.path.join(carpeta_data, f"perfil_{u}.json")
 
 def _norm_ej(nombre) -> str:
     return re.sub(r"\s+", " ", str(nombre).strip().lower())
 
 def cargar_rms(numero_usuario: str) -> dict:
-    try:
-        with open(ruta_rms(numero_usuario), "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return repositorio.obtener_rms(numero_usuario)
 
-def guardar_rm(numero_usuario: str, ejercicio: str, rm) -> None:
-    rms = cargar_rms(numero_usuario)
-    rms[_norm_ej(ejercicio)] = round(float(rm), 1)
-    with open(ruta_rms(numero_usuario), "w", encoding="utf-8") as f:
-        json.dump(rms, f, indent=2, ensure_ascii=False)
+def guardar_rm(numero_usuario: str, ejercicio: str, rm,
+               peso_origen=None, reps_origen=None, fuente: str = "chat") -> None:
+    """v4: cada guardado INSERTA una marca fechada (historial completo en SQL)."""
+    try:
+        repositorio.guardar_rm(numero_usuario, ejercicio, rm,
+                               peso_origen=peso_origen, reps_origen=reps_origen,
+                               fuente=fuente)
+    except Exception as e:
+        print(f"[REPO-ERROR] guardar_rm({ejercicio}): {e}")
 
 def cargar_perfil(u) -> dict:
-    try:
-        with open(ruta_perfil(u), "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return repositorio.obtener_perfil(u)
 
 def actualizar_perfil(u, **campos):
-    p = cargar_perfil(u)
-    p.update({k: v for k, v in campos.items() if v is not None})
-    with open(ruta_perfil(u), "w", encoding="utf-8") as f:
-        json.dump(p, f, indent=2, ensure_ascii=False)
+    try:
+        repositorio.actualizar_perfil(u, **campos)
+    except Exception as e:
+        print(f"[REPO-ERROR] actualizar_perfil: {e}")
 
 def _actualizar_estado_json(numero_usuario: str, **campos):
     try:
@@ -278,11 +290,13 @@ def _calcular_y_guardar_rm(numero_usuario: str, ejercicio_canonico: str,
         return None
     try:
         if reps == 1:
-            guardar_rm(numero_usuario, ejercicio_canonico, float(peso))
+            guardar_rm(numero_usuario, ejercicio_canonico, float(peso),
+                       peso_origen=peso, reps_origen=1, fuente="onboarding")
             return round(float(peso), 1)
         # TODO: si tu enum tiene un tipo específico para dominadas lastradas, úsalo aquí.
         rm = calcular_1rm(TipoEjercicio("peso_libre"), reps, float(peso))
-        guardar_rm(numero_usuario, ejercicio_canonico, rm)
+        guardar_rm(numero_usuario, ejercicio_canonico, rm,
+                   peso_origen=peso, reps_origen=reps, fuente="onboarding")
         log(numero_usuario, "RM-GUARDADO", f"{ejercicio_canonico}: {peso}kg x {reps} -> 1RM {rm}")
         return round(float(rm), 1)
     except Exception as e:
@@ -320,7 +334,7 @@ def parsear_batch_rms(numero_usuario: str, mensaje: str) -> list[str]:
         # dominadas solo a peso corporal (lastre 0)
         if campo_detectado == "rm_dominadas" and re.search(
                 r"peso corporal|sin lastre|sin peso|solo mis", parte):
-            guardar_rm(numero_usuario, "dominadas", 0)
+            guardar_rm(numero_usuario, "dominadas", 0, fuente="onboarding_default")
             guardados.append("dominadas: solo peso corporal (lastre 0 kg)")
             continue
         marca = _parsear_marca(parte)
@@ -429,14 +443,14 @@ def procesar_respuesta_onboarding(numero_usuario: str, campo: str, mensaje: str)
         if campo == "rm_dominadas" and re.search(
                 r"peso corporal|sin lastre|sin peso|solo mis|\bcero\b|\bninguna\b|"
                 r"no\s+hago|no\s+me\s+salen|no\s+puedo|\bnada\b|\bnunca\b", msg):
-            guardar_rm(numero_usuario, "dominadas", 0)
+            guardar_rm(numero_usuario, "dominadas", 0, fuente="onboarding_default")
             log(numero_usuario, "ONB-DEFAULT", "dominadas lastre 0 (peso corporal / no hace)")
             return True, "dominadas a peso corporal (lastre 0 kg)"
 
         # Red de seguridad general: principiante que no conoce su marca -> barra vacía
         if re.search(r"no\s+(?:la\s+)?(?:s[eé]|tengo)|\bcero\b|\bprincipiante\b|"
                      r"primera\s+vez|nunca\s+h[ae]", msg):
-            guardar_rm(numero_usuario, RM_CANONICO[campo], 20)
+            guardar_rm(numero_usuario, RM_CANONICO[campo], 20, fuente="onboarding_default")
             log(numero_usuario, "ONB-DEFAULT", f"{RM_CANONICO[campo]}: barra vacía 20kg (no sabe marca)")
             return True, f"{RM_CANONICO[campo]}: barra vacía (20 kg) por no saber su marca"
 
@@ -664,6 +678,54 @@ def evaluar_nivel_fuerza(args: dict) -> dict:
     )
     return {"nivel_sugerido": nivel_global, "reporte_texto": reporte}
 
+# v4.1 — el modelo a veces deforma el nombre de la herramienta ("calcular_rm",
+# "registrar serie", "Consultar_Rutina"). Antes eso caía al manejador de
+# desconocidas y costaba un ciclo entero; ahora se corrige en silencio.
+_ALIAS_TOOLS = {
+    "calcular_rm": "calcular_rm_exacto",
+    "calcular_1rm": "calcular_rm_exacto",
+    "calcular_rm_maximo": "calcular_rm_exacto",
+    "registrar_serie": "registrar_serie_completada",
+    "guardar_serie": "registrar_serie_completada",
+    "registrar_set": "registrar_serie_completada",
+    "consultar_rutina": "consultar_rutina_futura",
+    "ver_rutina": "consultar_rutina_futura",
+    "mostrar_rutina": "consultar_rutina_futura",
+    "consultar_plan": "consultar_rutina_futura",
+    "consultar_expediente": "consultar_expediente_personal",
+    "guardar_expediente": "guardar_en_expediente_personal",
+    "guardar_en_expediente": "guardar_en_expediente_personal",
+    "guardar_dato": "guardar_en_expediente_personal",
+    "consultar_libro": "consultar_libro_cientifico",
+    "consultar_ciencia": "consultar_libro_cientifico",
+    "consultar_historial": "consultar_historial_narrativo",
+    "guardar_dato_personal": "guardar_en_expediente_personal",
+    "calcular_rm_exact": "calcular_rm_exacto",
+    "biblioteca_cientifica": "consultar_libro_cientifico",
+    "evaluar_perfil": "evaluar_perfil_fisico",
+    "evaluar_fuerza": "evaluar_nivel_fuerza",
+    "avanzar": "avanzar_dia",
+    "siguiente_dia": "avanzar_dia",
+    "actualizar_rm": "actualizar_1rm",
+    "generar_plan": "generar_rutina",
+    "crear_rutina": "generar_rutina",
+}
+
+def _normalizar_nombre_tool(nombre: str, usuario: str = "") -> str:
+    limpio = re.sub(r"[\s\-]+", "_", str(nombre).strip().lower())
+    if limpio in _ALIAS_TOOLS:
+        if usuario:
+            log(usuario, "TOOL-ALIAS", f"'{nombre}' -> '{_ALIAS_TOOLS[limpio]}'")
+        return _ALIAS_TOOLS[limpio]
+    return limpio
+
+def _num_seguro(v, defecto=None):
+    """Convierte '150', '150kg', ' 3 reps ' o 150 a número; None si no hay dígitos."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    m = re.search(r"(\d+(?:[.,]\d+)?)", str(v or ""))
+    return float(m.group(1).replace(",", ".")) if m else defecto
+
 def _extraer_tool(tool) -> tuple[str, dict]:
     try:
         if hasattr(tool, "function"):
@@ -760,8 +822,22 @@ UMBRAL_RAG = 1.2
 def consultar_literatura_cientifica(pregunta: str) -> str:
     if not db_cientifica: return "Error: Base de datos científica no disponible."
     try:
-        resultados = db_cientifica.similarity_search_with_score(pregunta, k=1)
-        textos = [f"- {doc.page_content[:400]}" for doc, score in resultados if score < UMBRAL_RAG]
+        # v4: k=3 con deduplicación — un solo fragmento de 400 chars era muy poco
+        # para sustentar una recomendación; ahora se citan hasta 3 pasajes y el libro.
+        resultados = db_cientifica.similarity_search_with_score(pregunta, k=3)
+        vistos, textos = set(), []
+        for doc, score in resultados:
+            if score >= UMBRAL_RAG:
+                continue
+            frag = doc.page_content[:600].strip()
+            clave = frag[:80]
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            meta = doc.metadata or {}
+            fuente = meta.get("source") or meta.get("fuente") or ""
+            sufijo = f"\n  [Fuente: {os.path.basename(str(fuente))}]" if fuente else ""
+            textos.append(f"- {frag}{sufijo}")
         return "\n\n".join(textos) if textos else "No se encontró evidencia científica relevante."
     except Exception as e:
         return f"Error al leer la base de datos: {e}"
@@ -770,9 +846,14 @@ def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str) -> st
     if not db_memoria_atleta: return "Error: Base de datos histórica no disponible."
     try:
         resultados = db_memoria_atleta.similarity_search_with_score(
-            pregunta, k=1, filter={"numero_usuario": str(numero_usuario)})
-        textos = [doc.page_content for doc, score in resultados if score < UMBRAL_RAG]
-        return "\n\n".join(f"- {t}" for t in textos) if textos else "No hay registros narrativos previos."
+            pregunta, k=3, filter={"numero_usuario": str(numero_usuario)})
+        vistos, textos = set(), []
+        for doc, score in resultados:
+            if score >= UMBRAL_RAG or doc.page_content in vistos:
+                continue
+            vistos.add(doc.page_content)
+            textos.append(f"- {doc.page_content}")
+        return "\n\n".join(textos) if textos else "No hay registros narrativos previos."
     except Exception as e:
         return f"Error al leer el historial: {e}"
 
@@ -780,19 +861,37 @@ def consultar_expediente_atleta(numero_usuario: str, concepto: str) -> str:
     if not db_perfil_atleta: return "Error: base de datos no disponible."
     try:
         resultados = db_perfil_atleta.similarity_search_with_score(
-            concepto, k=1, filter={"numero_usuario": {"$eq": str(numero_usuario)}})
-        textos = [doc.page_content for doc, score in resultados if score < UMBRAL_RAG]
-        return "\n".join(f"- {t}" for t in textos) if textos else "Sin datos en expediente."
+            concepto, k=3, filter={"numero_usuario": {"$eq": str(numero_usuario)}})
+        vistos, textos = set(), []
+        for doc, score in resultados:
+            if score >= UMBRAL_RAG or doc.page_content in vistos:
+                continue
+            vistos.add(doc.page_content)
+            textos.append(f"- {doc.page_content}")
+        return "\n".join(textos) if textos else "Sin datos en expediente."
     except Exception as e:
         return f"Error al leer expediente: {e}"
 
 def guardar_dato_en_expediente(numero_usuario: str, texto_dato: str):
     if not db_perfil_atleta or not texto_dato.strip(): return
     try:
+        # v4: anti-duplicados — la nota de la rodilla se guardaba una y otra vez
+        # y luego el RAG la recuperaba en cada turno (el "loro"). Si ya existe un
+        # dato casi idéntico, no se vuelve a insertar.
+        previos = db_perfil_atleta.similarity_search_with_score(
+            texto_dato, k=1, filter={"numero_usuario": {"$eq": str(numero_usuario)}})
+        if previos and previos[0][1] < 0.25:
+            log(numero_usuario, "EXPEDIENTE",
+                f"dato casi idéntico ya existía; no se duplica: {_trunc(texto_dato, 90)}")
+            return
+    except Exception:
+        pass
+    try:
         db_perfil_atleta.add_texts(
             texts=[texto_dato],
             metadatas=[{"numero_usuario": str(numero_usuario), "fecha": datetime.now().strftime("%Y-%m-%d")}]
         )
+        log(numero_usuario, "EXPEDIENTE", f"guardado: {_trunc(texto_dato, 90)}")
     except Exception as e:
         print(f"[ERROR RAG PERFIL]: {e}")
 
@@ -860,11 +959,26 @@ def cargar_herramientas() -> list:
     if _herramientas_cache: return _herramientas_cache
     try:
         with open(ruta_tools, "r", encoding="utf-8") as f:
-            _herramientas_cache = json.load(f)
-            return _herramientas_cache
+            crudas = json.load(f)
+        normalizadas = []
+        for t in crudas:
+            if isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict):
+                normalizadas.append(t)
+            elif isinstance(t, dict) and "name" in t:
+                # v4.1 FIX CRÍTICO: una entrada sin el envoltorio {"type":"function",
+                # "function":{...}} (así estaba avanzar_dia) corrompe/degrada el
+                # registro de herramientas en Ollama. Se normaliza al vuelo.
+                normalizadas.append({"type": "function", "function": t})
+                print(f"[TOOLS] ⚠ Entrada sin envoltorio normalizada: '{t.get('name')}' "
+                      f"(corrige tools.json para que todas usen type/function)")
+        _herramientas_cache = normalizadas
+        print(f"[TOOLS] {len(normalizadas)} herramientas registradas: "
+              f"{[t['function'].get('name') for t in normalizadas]}")
+        return _herramientas_cache
     except Exception as e:
         print(f"[ERROR tools.json]: {e}")
         return []
+
 
 def historial_usuario(numero_usuario: str) -> str:
     return os.path.join(carpeta_data, f"historial_{numero_usuario}.json")
@@ -1257,13 +1371,22 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # ==========================================================================
     # MODO NORMAL (rutina activa / charla) — señales e interceptores
     # ==========================================================================
+    # v4.1: vocabulario ampliado — "ya terminé", "me duele el hombro" o "dormí mal"
+    # eran clasificados como casuales y se quedaban SIN herramientas (avanzar_dia,
+    # expediente...). Además, un mensaje largo nunca es casual aunque no matchee.
     PALABRAS_ENTRENAMIENTO = {
         "rutina", "plan", "serie", "ejercicio", "rm", "banca", "sentadilla",
-        "muerto", "dominada", "rpe", "kg", "rep", "entreno", "entrena",
-        "peso", "dolor", "lesion", "semana", "dia", "siguiente", "mañana", "hazme",
-        "crear", "mesociclo", "hoy", "toca", "gym", "entrenar", "marca", "pr", "récord", "record"
+        "muerto", "dominada", "rpe", "kg", "rep", "entreno", "entrena", "entrenar",
+        "peso", "dolor", "duele", "molest", "lesion", "lesión", "semana", "dia", "día",
+        "siguiente", "mañana", "hazme", "crear", "cambiar", "cambio", "sustitu",
+        "mesociclo", "hoy", "toca", "gym", "gimnasio", "marca", "pr", "récord", "record",
+        "termin", "acab", "descans", "dormí", "dormi", "sueño", "estres", "estrés",
+        "fatiga", "cansad", "hombro", "rodilla", "espalda", "codo", "muñeca", "cadera",
+        "cinturon", "cinturón", "straps", "magnesio", "barra", "mancuern", "polea",
+        "maquina", "máquina", "video", "veloc", "prefiero", "odio", "calent", "deficit", "déficit"
     }
-    es_casual = not any(p in texto_puro for p in PALABRAS_ENTRENAMIENTO)
+    es_casual = (not any(p in texto_puro for p in PALABRAS_ENTRENAMIENTO)
+                 and len(texto_puro) <= 60)
 
     consulta_rutina = None
     serie = None
@@ -1322,6 +1445,13 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     if serie and not rutina_vacia:
         contenido_mensaje += f"\n\n[SEÑAL CRÍTICA]: Serie detectada. Peso: {serie['peso']}kg | Reps: {serie['reps']}. OBLIGATORIO: Llama 'registrar_serie_completada' y 'calcular_rm_exacto'."
 
+    # v4.1 — pista de fin de sesión (no obligatoria: el modelo decide con su criterio)
+    if (not onboarding_activo and not bloque_onboarding and not rutina_vacia
+            and not serie and FIN_SESION_RE.search(texto_puro)):
+        contenido_mensaje += ("\n\n[SEÑAL]: El atleta parece haber TERMINADO su sesión de hoy. "
+                              "Si es así, felicítalo y llama 'avanzar_dia' para mover su calendario.")
+        log(numero_usuario, "FIN-SESION", "pista de avanzar_dia inyectada")
+
     # v3 — Fallo 3 (ceguera aritmética): velocidades VBT analizadas por Python
     if not onboarding_activo and not bloque_onboarding:
         bloque_vel = _analizar_velocidades(texto_puro)
@@ -1379,6 +1509,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         loop_count = 0
         mensajes_orquestador = list(historial_memoria[numero_usuario])
 
+        # v4.1 — RED DE HERRAMIENTAS: si el interceptor detectó una serie con
+        # [SEÑAL CRÍTICA] y el modelo respondió SIN tool_calls, se le recuerda UNA
+        # vez. Evita que una serie reportada se pierda sin registrar.
+        if (tools_de_turno and serie and not (mensaje_salida.get("tool_calls") or [])
+                and "[SEÑAL CRÍTICA]" in contenido_mensaje):
+            log(numero_usuario, "TOOL-NUDGE", "serie con señal ignorada; recordatorio único")
+            mensajes_orquestador.append(mensaje_salida)
+            mensajes_orquestador.append({"role": "user", "content":
+                f"[SISTEMA]: Detecté una serie del atleta ({serie['peso']}kg x {serie['reps']}). "
+                "Llama AHORA a registrar_serie_completada y calcular_rm_exacto con esos datos "
+                "y después redacta tu respuesta."})
+            resp_nudge = await chat_llm(mensajes_orquestador, tools=mis_herramientas,
+                                        opciones=opciones_turno, quien="nudge-serie")
+            mensaje_salida = resp_nudge.get("message", {})
+            texto_final = mensaje_salida.get("content", "") or ""
+            loop_count += 1
+
         while tools_de_turno and loop_count < max_loops:
             calls = mensaje_salida.get("tool_calls") or []
             if not calls:
@@ -1393,110 +1540,127 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             for tool in calls:
                 nombre, args = _extraer_tool(tool)
                 if not nombre: continue
+                nombre = _normalizar_nombre_tool(nombre, numero_usuario)
                 log(numero_usuario, "TOOL", f"{nombre}({_trunc(args, 160)})")
 
-                if nombre == "generar_rutina":
-                    resultado_rutina = await _handle_generar_rutina(args, numero_usuario, "")
-                    texto_herramientas_agregado += resultado_rutina
-                    necesita_reinvocacion = True
-
-                elif nombre == "avanzar_dia":
-                    if avanzar_estado_usuario(numero_usuario, forzar=bool(args.get("forzar"))):
-                        nuevo_estado = obtener_estado_usuario(numero_usuario)
-                        nueva_rutina = obtener_rutina_del_json(
-                            numero_usuario, nuevo_estado["semana"], nuevo_estado["dia"], solo_hoy=True)
-                        texto_herramientas_agregado += f"[SISTEMA: DÍA AVANZADO]\nSemana {nuevo_estado['semana']}, Día: {nuevo_estado['dia']}.\nNueva rutina:\n{nueva_rutina}\n"
-                    else:
-                        texto_herramientas_agregado += "[SISTEMA]: CANDADO ACTIVO — el calendario ya avanzó hoy. NO afirmes que avanzaste. Explícaselo con naturalidad y pregúntale si de verdad quiere forzar otro avance hoy (si insiste, vuelve a llamar avanzar_dia con forzar=true).\n"
-                    necesita_reinvocacion = True
-
-                elif nombre == "evaluar_nivel_fuerza":
-                    resultado = evaluar_nivel_fuerza(args)
-                    actualizar_perfil(numero_usuario, genero=args.get("genero"), edad=args.get("edad"))
-                    texto_herramientas_agregado += f"[LABORATORIO FUERZA]:\n{resultado['reporte_texto']}\n"
-                    necesita_reinvocacion = True
-
-                elif nombre == "consultar_rutina_futura":
-                    try:
-                        semana_req = int(args.get("semana") or estado_hoy["semana"])
-                        dia_req = args.get("dia")
-                        resultado_consulta = obtener_rutina_del_json(
-                            numero_usuario, semana_req, dia_req, solo_hoy=(dia_req is not None)
-                        )
-                        texto_herramientas_agregado += f"[SISTEMA - RUTINA]:\n{resultado_consulta}\n"
-                        necesita_reinvocacion = True
-                    except Exception as e:
-                        texto_herramientas_agregado += f"[SISTEMA - ERROR]: {e}\n"
+                # v4.1: una excepción dentro de UNA herramienta ya no aborta el
+                # turno completo hacia el mensaje enlatado; se reporta y se sigue.
+                try:
+                    if nombre == "generar_rutina":
+                        resultado_rutina = await _handle_generar_rutina(args, numero_usuario, "")
+                        texto_herramientas_agregado += resultado_rutina
                         necesita_reinvocacion = True
 
-                elif nombre == "actualizar_1rm":
-                    texto_herramientas_agregado += "[SISTEMA]: Esa vía quedó deshabilitada. Registra el PR con calcular_rm_exacto (ejercicio, peso y reps literales); eso ya lo guarda.\n"
-                    necesita_reinvocacion = True
-
-                elif nombre == "calcular_rm_exacto":
-                    try:
-                        reps = int(args.get("repeticiones") or 1)
-                        peso = float(args.get("peso_levantado") or 0.0)
-                        ejercicio = args.get("nombre_ejercicio", "este ejercicio")
-                        if not (1 <= reps <= 15):
-                            texto_herramientas_agregado += f"[CALCULADORA 1RM — RECHAZADO]: {reps} repeticiones está fuera del rango confiable (1-15) para estimar un 1RM. NO se guardó nada. Pregúntale al atleta si la cifra es correcta antes de reintentar.\n"
+                    elif nombre == "avanzar_dia":
+                        if avanzar_estado_usuario(numero_usuario, forzar=bool(args.get("forzar"))):
+                            nuevo_estado = obtener_estado_usuario(numero_usuario)
+                            nueva_rutina = obtener_rutina_del_json(
+                                numero_usuario, nuevo_estado["semana"], nuevo_estado["dia"], solo_hoy=True)
+                            texto_herramientas_agregado += f"[SISTEMA: DÍA AVANZADO]\nSemana {nuevo_estado['semana']}, Día: {nuevo_estado['dia']}.\nNueva rutina:\n{nueva_rutina}\n"
                         else:
-                            tipo_str = args.get("tipo_ejercicio") or "peso_libre"
-                            resultado = calcular_1rm(TipoEjercicio(tipo_str), reps, peso)
-                            guardar_rm(numero_usuario, ejercicio, resultado)
-                            texto_herramientas_agregado += f"✅ [CÁLCULO EXITOSO]: 1RM de {ejercicio} = {resultado} kg. Quedó guardado en su ficha; no lo vuelvas a preguntar.\n"
-                    except Exception as e:
-                        texto_herramientas_agregado += f"[CALCULADORA 1RM — ERROR]: {repr(e)}.\n"
-                    necesita_reinvocacion = True
+                            texto_herramientas_agregado += "[SISTEMA]: CANDADO ACTIVO — el calendario ya avanzó hoy. NO afirmes que avanzaste. Explícaselo con naturalidad y pregúntale si de verdad quiere forzar otro avance hoy (si insiste, vuelve a llamar avanzar_dia con forzar=true).\n"
+                        necesita_reinvocacion = True
 
-                elif nombre == "consultar_libro_cientifico":
-                    resultado = consultar_literatura_cientifica(args.get("pregunta_teorica", ""))
-                    texto_herramientas_agregado += f"[BIBLIOTECA CIENTÍFICA]:\n{resultado}\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "evaluar_nivel_fuerza":
+                        resultado = evaluar_nivel_fuerza(args)
+                        actualizar_perfil(numero_usuario, genero=args.get("genero"), edad=args.get("edad"))
+                        texto_herramientas_agregado += f"[LABORATORIO FUERZA]:\n{resultado['reporte_texto']}\n"
+                        necesita_reinvocacion = True
 
-                elif nombre == "evaluar_perfil_fisico":
-                    resultado = evaluar_perfil_completo(args)
-                    actualizar_perfil(numero_usuario, peso_kg=args.get("peso_kg"),
-                                      altura_m=args.get("altura_m"), porcentaje_grasa=args.get("porcentaje_grasa"),
-                                      genero=args.get("genero"))
-                    texto_herramientas_agregado += f"[LABORATORIO FFMI]:\n{resultado['reporte_texto']}\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "consultar_rutina_futura":
+                        try:
+                            semana_req = int(args.get("semana") or estado_hoy["semana"])
+                            dia_req = args.get("dia")
+                            resultado_consulta = obtener_rutina_del_json(
+                                numero_usuario, semana_req, dia_req, solo_hoy=(dia_req is not None)
+                            )
+                            texto_herramientas_agregado += f"[SISTEMA - RUTINA]:\n{resultado_consulta}\n"
+                            necesita_reinvocacion = True
+                        except Exception as e:
+                            texto_herramientas_agregado += f"[SISTEMA - ERROR]: {e}\n"
+                            necesita_reinvocacion = True
 
-                elif nombre == "consultar_expediente_personal":
-                    resultado = consultar_expediente_atleta(numero_usuario, args.get("concepto_a_buscar", ""))
-                    texto_herramientas_agregado += f"[EXPEDIENTE]:\n{resultado}\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "actualizar_1rm":
+                        texto_herramientas_agregado += "[SISTEMA]: Esa vía quedó deshabilitada. Registra el PR con calcular_rm_exacto (ejercicio, peso y reps literales); eso ya lo guarda.\n"
+                        necesita_reinvocacion = True
 
-                elif nombre == "registrar_serie_completada":
-                    guardar_serie_sql(numero_usuario, args)
-                    texto_herramientas_agregado += "[SQL]: Serie guardada.\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "calcular_rm_exacto":
+                        try:
+                            if serie:   # v4.1: backfill — si el modelo omitió args, usa el interceptor
+                                args.setdefault("peso_levantado", serie["peso"])
+                                args.setdefault("repeticiones", serie["reps"])
+                            reps = int(_num_seguro(args.get("repeticiones"), 1) or 1)
+                            peso = float(_num_seguro(args.get("peso_levantado"), 0.0) or 0.0)
+                            ejercicio = args.get("nombre_ejercicio", "este ejercicio")
+                            if not (1 <= reps <= 15):
+                                texto_herramientas_agregado += f"[CALCULADORA 1RM — RECHAZADO]: {reps} repeticiones está fuera del rango confiable (1-15) para estimar un 1RM. NO se guardó nada. Pregúntale al atleta si la cifra es correcta antes de reintentar.\n"
+                            else:
+                                tipo_str = args.get("tipo_ejercicio") or "peso_libre"
+                                resultado = calcular_1rm(TipoEjercicio(tipo_str), reps, peso)
+                                guardar_rm(numero_usuario, ejercicio, resultado,
+                                           peso_origen=peso, reps_origen=reps, fuente="pr_chat")
+                                texto_herramientas_agregado += f"✅ [CÁLCULO EXITOSO]: 1RM de {ejercicio} = {resultado} kg. Quedó guardado en su ficha; no lo vuelvas a preguntar.\n"
+                        except Exception as e:
+                            texto_herramientas_agregado += f"[CALCULADORA 1RM — ERROR]: {repr(e)}.\n"
+                        necesita_reinvocacion = True
 
-                elif nombre == "guardar_en_expediente_personal":
-                    dato = args.get("dato_a_guardar", "")
-                    guardar_dato_en_expediente(numero_usuario, dato)
-                    texto_herramientas_agregado += f"[EXPEDIENTE]: Dato guardado.\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "consultar_libro_cientifico":
+                        resultado = consultar_literatura_cientifica(args.get("pregunta_teorica", ""))
+                        texto_herramientas_agregado += f"[BIBLIOTECA CIENTÍFICA]:\n{resultado}\n"
+                        necesita_reinvocacion = True
 
-                elif nombre == "consultar_historial_narrativo":
-                    contexto = args.get("contexto_a_buscar", "")
-                    resultado = consultar_memoria_historica_atleta(numero_usuario, contexto)
-                    texto_herramientas_agregado += f"[HISTORIAL NARRATIVO]:\n{resultado}\n"
-                    necesita_reinvocacion = True
+                    elif nombre == "evaluar_perfil_fisico":
+                        resultado = evaluar_perfil_completo(args)
+                        actualizar_perfil(numero_usuario, peso_kg=args.get("peso_kg"),
+                                          altura_m=args.get("altura_m"), porcentaje_grasa=args.get("porcentaje_grasa"),
+                                          genero=args.get("genero"))
+                        texto_herramientas_agregado += f"[LABORATORIO FFMI]:\n{resultado['reporte_texto']}\n"
+                        necesita_reinvocacion = True
 
-                else:
-                    # v3 — caso no contemplado: el modelo inventó/deformó un nombre de
-                    # herramienta. Antes esto caía en silencio -> respuesta vacía.
-                    # Ahora se le devuelve el menú real para que se recupere solo.
-                    log(numero_usuario, "TOOL-DESCONOCIDA", nombre)
+                    elif nombre == "consultar_expediente_personal":
+                        resultado = consultar_expediente_atleta(numero_usuario, args.get("concepto_a_buscar", ""))
+                        texto_herramientas_agregado += f"[EXPEDIENTE]:\n{resultado}\n"
+                        necesita_reinvocacion = True
+
+                    elif nombre == "registrar_serie_completada":
+                        if serie:   # v4.1: backfill desde el interceptor
+                            args.setdefault("peso_kg", serie["peso"])
+                            args.setdefault("repeticiones", serie["reps"])
+                        guardar_serie_sql(numero_usuario, args)
+                        texto_herramientas_agregado += "[SQL]: Serie guardada.\n"
+                        necesita_reinvocacion = True
+
+                    elif nombre == "guardar_en_expediente_personal":
+                        dato = args.get("dato_a_guardar", "")
+                        guardar_dato_en_expediente(numero_usuario, dato)
+                        texto_herramientas_agregado += f"[EXPEDIENTE]: Dato guardado.\n"
+                        necesita_reinvocacion = True
+
+                    elif nombre == "consultar_historial_narrativo":
+                        contexto = args.get("contexto_a_buscar", "")
+                        resultado = consultar_memoria_historica_atleta(numero_usuario, contexto)
+                        texto_herramientas_agregado += f"[HISTORIAL NARRATIVO]:\n{resultado}\n"
+                        necesita_reinvocacion = True
+
+                    else:
+                        # v3 — caso no contemplado: el modelo inventó/deformó un nombre de
+                        # herramienta. Antes esto caía en silencio -> respuesta vacía.
+                        # Ahora se le devuelve el menú real para que se recupere solo.
+                        log(numero_usuario, "TOOL-DESCONOCIDA", nombre)
+                        texto_herramientas_agregado += (
+                            f"[SISTEMA]: La herramienta '{nombre}' NO existe. Las válidas son: "
+                            "generar_rutina, consultar_rutina_futura, avanzar_dia, "
+                            "calcular_rm_exacto, registrar_serie_completada, evaluar_perfil_fisico, "
+                            "evaluar_nivel_fuerza, consultar_libro_cientifico, "
+                            "consultar_expediente_personal, guardar_en_expediente_personal, "
+                            "consultar_historial_narrativo. Si ninguna aplica a lo que intentabas, "
+                            "responde al atleta con texto normal usando lo que ya sabes.\n")
+                        necesita_reinvocacion = True
+                except Exception as e_tool:
+                    log(numero_usuario, "TOOL-ERROR", f"{nombre}: {type(e_tool).__name__}: {e_tool}")
                     texto_herramientas_agregado += (
-                        f"[SISTEMA]: La herramienta '{nombre}' NO existe. Las válidas son: "
-                        "generar_rutina, consultar_rutina_futura, avanzar_dia, "
-                        "calcular_rm_exacto, registrar_serie_completada, evaluar_perfil_fisico, "
-                        "evaluar_nivel_fuerza, consultar_libro_cientifico, "
-                        "consultar_expediente_personal, guardar_en_expediente_personal, "
-                        "consultar_historial_narrativo. Si ninguna aplica a lo que intentabas, "
-                        "responde al atleta con texto normal usando lo que ya sabes.\n")
+                        f"[SISTEMA - ERROR en {nombre}]: {e_tool}. Explícale al atleta que esa "
+                        "acción falló; NO afirmes que se realizó.\n")
                     necesita_reinvocacion = True
 
             if necesita_reinvocacion and texto_herramientas_agregado:
@@ -1684,7 +1848,7 @@ async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_base: st
     for ej, val in (("press banco plano", rm_banca), ("sentadilla", rm_sq),
                     ("peso muerto", rm_dl), ("dominadas", rm_dom)):
         if val is not None:
-            guardar_rm(numero_usuario, ej, val)
+            guardar_rm(numero_usuario, ej, val, fuente="generacion")
 
     _actualizar_estado_json(numero_usuario, estado_generacion="generando", meta=meta_backend,
                             dias=int(dias), generacion_ts=time.time())
