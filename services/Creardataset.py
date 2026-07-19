@@ -610,93 +610,388 @@ class MaquinaEstadosRep:
         propulsiva = propulsiva[propulsiva > self.cfg.umbral_ruido_prop]
         return float(np.mean(propulsiva)) if propulsiva.size else fallback
 
+# ==============================================================================
+# SPORT HUB HUD · Renderizado profesional sobre video (OpenCV)
+# ------------------------------------------------------------------------------
+# Mejoras clave respecto a la versión anterior:
+#   1. Anti-aliasing (cv2.LINE_AA) en TODO — es la diferencia #1 entre
+#      "script de OpenCV" y "broadcast graphics".
+#   2. Paneles semitransparentes (alpha blending) en vez de rectángulos sólidos.
+#   3. Esquinas redondeadas reales en paneles, pastillas y barras.
+#   4. Escalado relativo a la resolución del frame (se ve igual en 720p y 4K).
+#   5. Glow sutil en acentos (doble trazo grueso translúcido + trazo fino).
+#   6. Barra de progreso con marcador de umbral y cabeza redondeada.
+#   7. Sparkline de historial de velocidad (contexto temporal, muy "pro").
+#   8. Estela de trayectoria con desvanecimiento y color por velocidad.
+#   9. Tipografía jerarquizada: etiquetas pequeñas en gris, valores grandes.
+# ==============================================================================
 
-# ==============================================================================
-# RENDERIZADO (HUD y trayectoria)
-# ==============================================================================
-def _color_por_velocidad(v: float) -> tuple:
-    """Verde = explosivo, amarillo = medio, rojo = grinding."""
-    if v >= 0.75:
-        return (0, 255, 0)
-    if v >= 0.45:
-        return (0, 255, 255)
-    return (0, 80, 255)
 
-
-# ==============================================================================
-# RENDERIZADO – Sport Hub HUD
-# Paleta: fondo carbón · cian eléctrico · verde neón · ámbar · rojo alerta
-# ==============================================================================
+import cv2
+import numpy as np
 
 # ── Paleta centralizada (BGR) ─────────────────────────────────────────────────
 _HUB = {
-    "bg": (22, 16, 10),  # carbón profundo (fondo del panel)
-    "border": (65, 60, 50),  # borde exterior sutil
-    "sep": (50, 44, 38),  # separadores internos
-    "accent": (0, 220, 255),  # cian eléctrico (borde superior, halo, marca)
-    "green": (0, 240, 150),  # verde neón (reps, velocidad óptima)
-    "amber": (0, 170, 255),  # ámbar (fase excéntrica, alerta)   ← BGR
-    "red": (55, 55, 255),  # rojo alerta (fatiga alta)         ← BGR
-    "white": (235, 238, 248),  # texto principal
-    "muted": (115, 120, 148),  # etiquetas y elementos secundarios
+    "bg":      (24, 18, 12),    # carbón profundo (fondo del panel)
+    "bg_soft": (34, 27, 20),    # carbón elevado (tarjetas internas)
+    "border":  (70, 62, 52),    # borde exterior sutil
+    "sep":     (52, 46, 40),    # separadores internos / fondo de barras
+    "accent":  (255, 220, 0),   # cian eléctrico  (B=255, G=220, R=0)
+    "green":   (150, 240, 0),   # verde neón
+    "amber":   (0, 170, 255),   # ámbar
+    "red":     (55, 55, 255),   # rojo alerta
+    "white":   (245, 246, 250), # texto principal
+    "muted":   (150, 140, 120), # etiquetas secundarias
+    "shadow":  (0, 0, 0),
 }
 
-# ── Configuración de fases (color de pastilla + texto visible) ────────────────
+# NOTA: en tu versión original "accent" era (0, 220, 255) — en BGR eso es
+# NARANJA, no cian. Cian eléctrico en BGR es (255, 220, 0). Corregido aquí.
+
 _FASES = {
-    "concentrica": (_HUB["green"], "▲ CONCENTRICA"),
-    "excentrica": (_HUB["amber"], "▼ EXCENTRICA"),
-    "eccentrica": (_HUB["amber"], "▼ EXCENTRICA"),
-    "reposo": (_HUB["muted"], "  REPOSO"),
+    "concentrica": (_HUB["green"], "CONCENTRICA", 1),   # 1 = flecha arriba
+    "excentrica":  (_HUB["amber"], "EXCENTRICA", -1),   # -1 = flecha abajo
+    "eccentrica":  (_HUB["amber"], "EXCENTRICA", -1),
+    "reposo":      (_HUB["muted"], "REPOSO", 0),
 }
 
+_FONT = cv2.FONT_HERSHEY_DUPLEX
+_FONT_UI = cv2.FONT_HERSHEY_SIMPLEX
 
-# ── Utilidades de dibujo ──────────────────────────────────────────────────────
 
-def _txt(frame, text, pos, scale=0.5, color=(235, 238, 248),
-         thickness=1, shadow=False):
-    """Texto con sombra opcional para mejor legibilidad sobre video."""
-    font = cv2.FONT_HERSHEY_DUPLEX
+# ==============================================================================
+# UTILIDADES BASE
+# ==============================================================================
+
+def _s(frame, v: float) -> int:
+    """Escala un valor de diseño (pensado para 1080p) a la resolución real."""
+    return max(1, int(round(v * frame.shape[0] / 1080.0)))
+
+
+def _color_por_velocidad(v: float) -> tuple:
+    """Verde = explosivo, ámbar = medio, rojo = grinding.
+    Interpola suavemente entre los tres para evitar saltos bruscos."""
+    def lerp(c1, c2, t):
+        return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
+
+    if v >= 0.75:
+        return _HUB["green"]
+    if v >= 0.45:
+        t = (v - 0.45) / 0.30
+        return lerp(_HUB["amber"], _HUB["green"], t)
+    t = max(0.0, v / 0.45)
+    return lerp(_HUB["red"], _HUB["amber"], t)
+
+
+def _rounded_rect(img, x1, y1, x2, y2, radius, color, thickness=-1):
+    """Rectángulo con esquinas redondeadas, relleno o sólo borde."""
+    r = int(max(0, min(radius, (x2 - x1) // 2, (y2 - y1) // 2)))
+    if r == 0:
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
+        return
+    if thickness < 0:
+        cv2.rectangle(img, (x1 + r, y1), (x2 - r, y2), color, -1, cv2.LINE_AA)
+        cv2.rectangle(img, (x1, y1 + r), (x2, y2 - r), color, -1, cv2.LINE_AA)
+        for cx, cy in ((x1 + r, y1 + r), (x2 - r, y1 + r),
+                       (x1 + r, y2 - r), (x2 - r, y2 - r)):
+            cv2.circle(img, (cx, cy), r, color, -1, cv2.LINE_AA)
+    else:
+        cv2.ellipse(img, (x1 + r, y1 + r), (r, r), 180, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x2 - r, y1 + r), (r, r), 270, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x1 + r, y2 - r), (r, r), 90, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x2 - r, y2 - r), (r, r), 0, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x1 + r, y1), (x2 - r, y1), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x1 + r, y2), (x2 - r, y2), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x1, y1 + r), (x1, y2 - r), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x2, y1 + r), (x2, y2 - r), color, thickness, cv2.LINE_AA)
+
+
+def _panel(frame, x1, y1, x2, y2, alpha=0.82, radius=14, accent_top=True):
+    """Panel semitransparente estilo glassmorphism oscuro.
+    El alpha blending es lo que hace que el HUD 'flote' sobre el video
+    en vez de taparlo con un bloque sólido."""
+    r = _s(frame, radius)
+    overlay = frame.copy()
+    _rounded_rect(overlay, x1, y1, x2, y2, r, _HUB["bg"], -1)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+    _rounded_rect(frame, x1, y1, x2, y2, r, _HUB["border"], _s(frame, 1))
+
+    if accent_top:
+        # Filete de acento superior con glow sutil
+        glow = frame.copy()
+        cv2.line(glow, (x1 + r, y1), (x2 - r, y1), _HUB["accent"], _s(frame, 5), cv2.LINE_AA)
+        cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
+        cv2.line(frame, (x1 + r, y1), (x2 - r, y1), _HUB["accent"], _s(frame, 2), cv2.LINE_AA)
+
+
+def _txt(frame, text, pos, scale=0.5, color=None, thickness=1,
+         shadow=True, font=_FONT):
+    """Texto anti-aliased con sombra suave (offset 2px) para legibilidad."""
+    color = color or _HUB["white"]
+    sc = scale * frame.shape[0] / 1080.0
+    th = max(1, _s(frame, thickness))
     if shadow:
-        cv2.putText(frame, text, (pos[0] + 1, pos[1] + 1),
-                    font, scale, (0, 0, 0), thickness + 2)
-    cv2.putText(frame, text, pos, font, scale, color, thickness)
+        off = _s(frame, 2)
+        cv2.putText(frame, text, (pos[0] + off, pos[1] + off),
+                    font, sc, _HUB["shadow"], th + _s(frame, 1), cv2.LINE_AA)
+    cv2.putText(frame, text, pos, font, sc, color, th, cv2.LINE_AA)
 
 
-def _corners(frame, x1, y1, x2, y2, color, arm=14, thick=2):
-    """Marcador estilo HUD táctico."""
-    for (cx, cy, sx, sy) in [
-        (x1, y1, 1, 1),
-        (x2, y1, -1, 1),
-        (x1, y2, 1, -1),
-        (x2, y2, -1, -1),
-    ]:
-        cv2.line(frame, (cx, cy), (cx + sx * arm, cy), color, thick)
-        cv2.line(frame, (cx, cy), (cx, cy + sy * arm), color, thick)
+def _txt_size(frame, text, scale=0.5, thickness=1, font=_FONT):
+    sc = scale * frame.shape[0] / 1080.0
+    th = max(1, _s(frame, thickness))
+    (tw, thh), _ = cv2.getTextSize(text, font, sc, th)
+    return tw, thh
 
 
-def _bar(frame, x, y, w, h, ratio, color_fg):
-    """Barra de progreso minimalista."""
-    cv2.rectangle(frame, (x, y), (x + w, y + h), _HUB["sep"], -1)  # fondo
-    fill = max(0, int(min(ratio, 1.0) * w))
+# ==============================================================================
+# COMPONENTES DEL HUD
+# ==============================================================================
+
+def _corners(frame, x1, y1, x2, y2, color=None, arm=18, thick=2):
+    """Marcador táctico de esquinas con glow: el trazo grueso translúcido
+    debajo del fino crea el efecto 'neón' sin postprocesado."""
+    color = color or _HUB["accent"]
+    a, t = _s(frame, arm), _s(frame, thick)
+    segs = []
+    for (cx, cy, sx, sy) in [(x1, y1, 1, 1), (x2, y1, -1, 1),
+                             (x1, y2, 1, -1), (x2, y2, -1, -1)]:
+        segs.append(((cx, cy), (cx + sx * a, cy)))
+        segs.append(((cx, cy), (cx, cy + sy * a)))
+    glow = frame.copy()
+    for p1, p2 in segs:
+        cv2.line(glow, p1, p2, color, t + _s(frame, 4), cv2.LINE_AA)
+    cv2.addWeighted(glow, 0.30, frame, 0.70, 0, frame)
+    for p1, p2 in segs:
+        cv2.line(frame, p1, p2, color, t, cv2.LINE_AA)
+
+
+def _bar(frame, x, y, w, h, ratio, color_fg, threshold=None):
+    """Barra de progreso con extremos redondeados, cabeza brillante y
+    marcador opcional de umbral (línea vertical)."""
+    r = h // 2
+    _rounded_rect(frame, x, y, x + w, y + h, r, _HUB["sep"], -1)
+    ratio = float(np.clip(ratio, 0.0, 1.0))
+    fill = int(ratio * w)
+    if fill > h:
+        _rounded_rect(frame, x, y, x + fill, y + h, r, color_fg, -1)
+        # Cabeza más clara: da sensación de 'movimiento'
+        head = tuple(min(255, int(c * 1.35)) for c in color_fg)
+        cv2.circle(frame, (x + fill - r, y + r), r, head, -1, cv2.LINE_AA)
+    if threshold is not None:
+        tx = x + int(np.clip(threshold, 0, 1) * w)
+        cv2.line(frame, (tx, y - _s(frame, 3)), (tx, y + h + _s(frame, 3)),
+                 _HUB["white"], _s(frame, 1), cv2.LINE_AA)
+    _rounded_rect(frame, x, y, x + w, y + h, r, _HUB["border"], _s(frame, 1))
+
+
+def _pill(frame, text, x, y, color_bg, scale=0.42):
+    """Pastilla redondeada con texto oscuro sobre color sólido."""
+    px, py = _s(frame, 10), _s(frame, 7)
+    tw, th = _txt_size(frame, text, scale, 1, _FONT_UI)
+    x2, y2 = x + tw + px * 2, y + py
+    y1 = y - th - py
+    _rounded_rect(frame, x, y1, x2, y2, (y2 - y1) // 2, color_bg, -1)
+    _txt(frame, text, (x + px, y), scale=scale, color=(12, 12, 12),
+         shadow=False, font=_FONT_UI)
+    return tw + px * 3
+
+
+def _fase_pill(frame, fase: str, x, y, scale=0.46):
+    """Pastilla de fase con triángulo vectorial (▲/▼ de Hershey se ven mal)."""
+    color, label, direc = _FASES.get(fase, _FASES["reposo"])
+    px, py = _s(frame, 12), _s(frame, 8)
+    tri_w = _s(frame, 14) if direc else 0
+    tw, th = _txt_size(frame, label, scale, 1, _FONT_UI)
+    y1, y2 = y - th - py, y + py
+    x2 = x + tri_w + tw + px * 2 + (_s(frame, 6) if direc else 0)
+    _rounded_rect(frame, x, y1, x2, y2, (y2 - y1) // 2, color, -1)
+
+    tx = x + px
+    if direc:
+        cy = (y1 + y2) // 2
+        hw, hh = tri_w // 2, _s(frame, 5)
+        if direc > 0:
+            pts = np.array([[tx + hw, cy - hh], [tx, cy + hh], [tx + tri_w, cy + hh]])
+        else:
+            pts = np.array([[tx + hw, cy + hh], [tx, cy - hh], [tx + tri_w, cy - hh]])
+        cv2.fillPoly(frame, [pts], (12, 12, 12), cv2.LINE_AA)
+        tx += tri_w + _s(frame, 6)
+    _txt(frame, label, (tx, y), scale=scale, color=(12, 12, 12),
+         shadow=False, font=_FONT_UI)
+    return x2 - x
+
+
+def _metric(frame, label, value, x, y, vcolor=None, vscale=0.78, unit=""):
+    """Bloque etiqueta pequeña + valor grande (+ unidad pequeña opcional)."""
+    _txt(frame, label.upper(), (x, y), scale=0.34, color=_HUB["muted"],
+         shadow=False, font=_FONT_UI)
+    gap = _s(frame, 30)
+    _txt(frame, value, (x, y + gap), scale=vscale,
+         color=vcolor or _HUB["white"], thickness=1)
+    if unit:
+        vw, _ = _txt_size(frame, value, vscale)
+        _txt(frame, unit, (x + vw + _s(frame, 6), y + gap), scale=0.36,
+             color=_HUB["muted"], shadow=False, font=_FONT_UI)
+
+
+def _sparkline(frame, x, y, w, h, values, color=None, fill=True):
+    """Mini-gráfico del historial de velocidad. Da contexto temporal
+    inmediato: se ve si la serie está cayendo (fatiga) de un vistazo."""
+    if len(values) < 2:
+        return
+    color = color or _HUB["accent"]
+    vals = np.asarray(values, dtype=np.float32)
+    vmin, vmax = float(vals.min()), float(vals.max())
+    rng = (vmax - vmin) or 1.0
+    xs = np.linspace(x, x + w, len(vals)).astype(int)
+    ys = (y + h - ((vals - vmin) / rng) * h).astype(int)
+    pts = np.stack([xs, ys], axis=1)
+
     if fill:
-        cv2.rectangle(frame, (x, y), (x + fill, y + h), color_fg, -1)  # relleno
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (75, 70, 60), 1)  # borde fino
+        poly = np.vstack([pts, [[x + w, y + h], [x, y + h]]])
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [poly], color, cv2.LINE_AA)
+        cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
+
+    cv2.polylines(frame, [pts], False, color, _s(frame, 2), cv2.LINE_AA)
+    # Punto actual con halo
+    cx, cy = int(xs[-1]), int(ys[-1])
+    glow = frame.copy()
+    cv2.circle(glow, (cx, cy), _s(frame, 7), color, -1, cv2.LINE_AA)
+    cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
+    cv2.circle(frame, (cx, cy), _s(frame, 3), _HUB["white"], -1, cv2.LINE_AA)
 
 
-def _pill(frame, text, x, y, color_bg, scale=0.42, px=7, py=4):
-    """Texto encapsulado en una 'pastilla' de color sólido."""
-    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
-    cv2.rectangle(frame, (x - px, y - th - py), (x + tw + px, y + py), color_bg, -1)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (10, 10, 10), 1)
-    return tw + px * 2
+def _trail(frame, puntos, velocidades=None, max_pts=40):
+    """Estela de la trayectoria de la barra: se desvanece hacia el pasado
+    y se colorea por velocidad. Dibujar sobre overlay + blend por segmento
+    sería carísimo; un solo overlay con grosor decreciente rinde bien."""
+    if len(puntos) < 2:
+        return
+    pts = puntos[-max_pts:]
+    vels = (velocidades or [0.6] * len(pts))[-max_pts:]
+    n = len(pts)
+    overlay = frame.copy()
+    for i in range(1, n):
+        t = i / n                          # 0 = viejo, 1 = reciente
+        col = _color_por_velocidad(vels[i])
+        col = tuple(int(c * (0.35 + 0.65 * t)) for c in col)
+        th = max(1, int(_s(frame, 6) * t))
+        cv2.line(overlay, tuple(map(int, pts[i - 1])), tuple(map(int, pts[i])),
+                 col, th, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+    # Punto actual con glow
+    cx, cy = map(int, pts[-1])
+    col = _color_por_velocidad(vels[-1])
+    glow = frame.copy()
+    cv2.circle(glow, (cx, cy), _s(frame, 12), col, -1, cv2.LINE_AA)
+    cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
+    cv2.circle(frame, (cx, cy), _s(frame, 5), col, -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), _s(frame, 5), _HUB["white"], _s(frame, 1), cv2.LINE_AA)
 
 
-def _metric(frame, label, value, x, y, vcolor=None, vscale=0.72):
-    """Bloque de dos filas con jerarquía visual clara."""
-    _txt(frame, label.upper(), (x, y), scale=0.32, color=_HUB["muted"])
-    _txt(frame, value, (x, y + 24), scale=vscale,
-         color=vcolor or _HUB["white"], shadow=True)
+# ==============================================================================
+# COMPOSICIÓN: panel principal listo para usar
+# ==============================================================================
 
+def render_hud(frame, *, reps=0, fase="reposo", velocidad=0.0,
+               fatiga=0.0, historial_vel=(), titulo="SPORT HUB",
+               bbox=None, trayectoria=(), vel_trayectoria=()):
+    """Dibuja el HUD completo. Llamar una vez por frame.
+
+    Args:
+        frame: imagen BGR (se modifica in-place).
+        reps: repeticiones contadas.
+        fase: 'concentrica' | 'excentrica' | 'reposo'.
+        velocidad: velocidad media normalizada 0-1 de la rep actual.
+        fatiga: pérdida de velocidad 0-1 (0 = fresco).
+        historial_vel: lista de velocidades por rep (para el sparkline).
+        titulo: marca en la cabecera.
+        bbox: (x1, y1, x2, y2) opcional para marcador táctico del atleta.
+        trayectoria: lista de (x, y) del recorrido de la barra.
+        vel_trayectoria: velocidad instantánea por punto (misma longitud).
+    """
+    H, W = frame.shape[:2]
+    m = _s(frame, 28)                       # margen exterior
+    pw, ph = _s(frame, 330), _s(frame, 320) # tamaño del panel
+    x1, y1 = m, m
+    x2, y2 = x1 + pw, y1 + ph
+    pad = _s(frame, 22)
+
+    # Estela y marcador sobre el video (debajo del panel)
+    if trayectoria:
+        _trail(frame, list(trayectoria), list(vel_trayectoria) or None)
+    if bbox:
+        _corners(frame, *map(int, bbox))
+
+    _panel(frame, x1, y1, x2, y2)
+
+    # ── Cabecera ──
+    cy = y1 + pad + _s(frame, 8)
+    cv2.circle(frame, (x1 + pad + _s(frame, 5), cy - _s(frame, 5)),
+               _s(frame, 5), _HUB["accent"], -1, cv2.LINE_AA)
+    _txt(frame, titulo, (x1 + pad + _s(frame, 20), cy), scale=0.55,
+         color=_HUB["white"], font=_FONT_UI)
+    cy += _s(frame, 16)
+    cv2.line(frame, (x1 + pad, cy), (x2 - pad, cy), _HUB["sep"],
+             _s(frame, 1), cv2.LINE_AA)
+
+    # ── Reps + fase ──
+    cy += _s(frame, 34)
+    _metric(frame, "reps", str(reps), x1 + pad, cy,
+            vcolor=_HUB["green"], vscale=1.15)
+    _fase_pill(frame, fase, x1 + pad + _s(frame, 130), cy + _s(frame, 26))
+
+    # ── Velocidad ──
+    cy += _s(frame, 78)
+    vcol = _color_por_velocidad(velocidad)
+    _metric(frame, "velocidad media", f"{velocidad:.2f}", x1 + pad, cy,
+            vcolor=vcol, unit="m/s")
+    cy += _s(frame, 44)
+    _bar(frame, x1 + pad, cy, pw - pad * 2, _s(frame, 10),
+         velocidad, vcol, threshold=0.75)
+
+    # ── Fatiga ──
+    cy += _s(frame, 40)
+    fcol = _HUB["green"] if fatiga < 0.2 else (
+        _HUB["amber"] if fatiga < 0.4 else _HUB["red"])
+    _txt(frame, "FATIGA", (x1 + pad, cy), scale=0.34, color=_HUB["muted"],
+         shadow=False, font=_FONT_UI)
+    _txt(frame, f"{fatiga * 100:.0f}%", (x2 - pad - _s(frame, 58), cy),
+         scale=0.44, color=fcol, font=_FONT_UI)
+    cy += _s(frame, 12)
+    _bar(frame, x1 + pad, cy, pw - pad * 2, _s(frame, 10), fatiga, fcol)
+
+    # ── Sparkline del historial ──
+    if len(historial_vel) >= 2:
+        cy += _s(frame, 36)
+        _txt(frame, "VELOCIDAD POR REP", (x1 + pad, cy), scale=0.32,
+             color=_HUB["muted"], shadow=False, font=_FONT_UI)
+        _sparkline(frame, x1 + pad, cy + _s(frame, 10),
+                   pw - pad * 2, _s(frame, 42), list(historial_vel),
+                   color=_HUB["accent"])
+
+
+# ==============================================================================
+# DEMO rápida:  python sport_hub_hud.py  → genera hud_demo.png
+# ==============================================================================
+if __name__ == "__main__":
+    demo = np.full((1080, 1920, 3), 60, np.uint8)
+    demo[:] = (70, 60, 50)
+    cv2.circle(demo, (1200, 540), 320, (90, 80, 70), -1)  # 'atleta' de mentira
+
+    traj = [(1200 + int(24 * np.sin(i / 5)), 760 - i * 9) for i in range(45)]
+    vels = list(np.clip(np.linspace(0.9, 0.35, 45) + np.random.rand(45) * .05, 0, 1))
+
+    render_hud(
+        demo, reps=6, fase="concentrica", velocidad=0.62, fatiga=0.31,
+        historial_vel=[0.88, 0.85, 0.79, 0.74, 0.68, 0.62],
+        bbox=(980, 260, 1430, 900), trayectoria=traj, vel_trayectoria=vels,
+    )
+    cv2.imwrite("hud_demo.png", demo)
+    print("Demo guardada en hud_demo.png")
 
 # ── Función principal ─────────────────────────────────────────────────────────
 
@@ -755,7 +1050,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     cv2.line(frame, (PX + 12, PY + 120), (PX + PW - 12, PY + 120), _HUB["sep"], 1)
 
     # ── 3d. FASE ──────────────────────────────────────────────────────────────
-    color_fase, label_fase = _FASES.get(fase.lower(), (_HUB["muted"], f"  {fase.upper()}"))
+    color_fase, label_fase, _ = _FASES.get(fase.lower(), (_HUB["muted"], f"  {fase.upper()}", 0))
     _pill(frame, label_fase, PX + 18, PY + 145, color_fase)
 
     cv2.line(frame, (PX + 12, PY + 160), (PX + PW - 12, PY + 160), _HUB["sep"], 1)

@@ -1,11 +1,10 @@
-import pandas as pd
-import seaborn as sns
-import mplcursors
-import requests
 import re
 import ollama as ol
-import json as json
+import json
 from pathlib import Path
+
+# NOTA v3: se eliminaron imports sin uso (pandas, seaborn, mplcursors, requests).
+# Si algo más de este archivo los usaba, restáuralos.
 
 tool_ejercicios = {
     'type': 'function',
@@ -26,62 +25,48 @@ tool_ejercicios = {
     }
 }
 
+
 class ServicioEntrenamiento:
     def __init__(self):
-        self.modelo = "qwen3:32b"
+        self.modelo = "qwen3.6:27b"
         self.prompt_sistema = self._cargar_prompt_sistema()
 
+    # ------------------------------------------------------------------ carga
     def _cargar_prompt_sistema(self) -> str:
-        from pathlib import Path
-        import json
-
         ruta_script = Path(__file__).resolve()
-        # Subimos 3 niveles: archivo -> resources -> scripts -> Mi proyecto (raíz)
         ruta_raiz = ruta_script.parent.parent.parent
         ruta_prompt = ruta_raiz / "data" / "prompt_lista_ejercicios.json"
-
         try:
             with open(ruta_prompt, "r", encoding="utf-8") as archivo:
                 datos_prompt = json.load(archivo)
-
-                # ATENCIÓN AQUÍ: Asegúrate de usar la llave correcta.
-                # En tus mensajes anteriores, vi que tu JSON decía "promt" sin 'p'.
-                # Usa la llave exacta que tengas escrita en ese archivo JSON.
                 return datos_prompt.get("system_prompt", datos_prompt.get("promt", ""))
-
         except Exception as e:
             print(f"[ADVERTENCIA]: No se pudo cargar el prompt. Detalle: {e}")
             return "Extrae las preferencias en formato LISTA_BLANCA: []."
 
-    def _cargar_base_de_datos(self) -> dict[str, list[dict]]:
+    def _cargar_base_de_datos(self) -> dict:
         ruta_script = Path(__file__).resolve()
-        # Lo mismo aquí, subimos 3 niveles a la raíz
         ruta_raiz = ruta_script.parent.parent.parent
         ruta_db = ruta_raiz / "resources" / "base_de_datos_ejercicios.json"
-
         try:
             with open(ruta_db, "r", encoding="utf-8") as archivo:
                 datos_crudos = json.load(archivo)
-                print(datos_crudos)
                 lista_plana = []
                 for categoria, lista_ejercicios in datos_crudos.items():
                     if isinstance(lista_ejercicios, list):
                         lista_plana.extend(lista_ejercicios)
-
+                print(f"[MOTOR]: Catálogo cargado: {len(lista_plana)} ejercicios.")
                 db_dividida = {
                     "Torso_Anterior": [],
                     "Torso_Posterior": [],
                     "Pierna_Anterior": [],
                     "Pierna_Posterior": []
                 }
-
                 for ej in lista_plana:
                     nombre = ej.get("nombre", "").lower()
                     agonistas = " ".join(ej.get("agonistas", [])).lower()
                     patron = ej.get("patron_movimiento", "").lower()
-                    mecanica = ej.get("mecanica", "").lower()
                     # --- ENRUTAMIENTO ANATÓMICO Y COMPLEMENTARIOS ---
-                    # Nos aseguramos de que los ejercicios del RADAR caigan en la zona correcta
                     if "vuelos laterales" in nombre:
                         db_dividida["Torso_Anterior"].append(ej)
                     elif "abductor" in nombre or "aductor" in nombre:
@@ -89,9 +74,7 @@ class ServicioEntrenamiento:
                     elif "tobillo" in nombre or "gemelo" in nombre:
                         db_dividida["Pierna_Posterior"].append(ej)
                     elif "crunch" in nombre or "abdomen" in agonistas:
-                        # Mandamos el abdomen a Torso Anterior para que el LLM lo encuentre
                         db_dividida["Torso_Anterior"].append(ej)
-
                     # --- El resto del filtrado normal ---
                     elif "pecho" in agonistas or ("empuje" in patron and "cuadriceps" not in agonistas):
                         db_dividida["Torso_Anterior"].append(ej)
@@ -103,47 +86,95 @@ class ServicioEntrenamiento:
                         db_dividida["Pierna_Posterior"].append(ej)
                     else:
                         db_dividida["Torso_Anterior"].append(ej)
-
                 return db_dividida
-
-
         except Exception as e:
+            # v3 FIX: antes retornaba un STRING por copy-paste, lo que rompía
+            # el .values() del caller. Ahora retorna dict vacío.
+            print(f"[ADVERTENCIA]: No se pudo cargar la base de ejercicios. Detalle: {e}")
+            return {}
 
-            print(f"[ADVERTENCIA]: No se pudo cargar el prompt. Detalle: {e}")
+    # ------------------------------------------------------- criterio por meta
+    @staticmethod
+    def _normalizar_meta(texto) -> str:
+        """Convierte la meta (o el contexto libre) en uno de los 4 perfiles."""
+        t = str(texto or "").lower()
+        if "culturis" in t:
+            return "culturismo"
+        if "powerbuild" in t:
+            return "powerbuilding"
+        if "powerlift" in t or re.search(r"\bfuerza\b", t):
+            return "powerlifting"
+        if re.search(r"hipertrofia|\bmasa\b|volumen|m[uú]sculo", t):
+            return "hipertrofia"
+        return "powerbuilding"   # perfil por defecto: el más balanceado
 
-            return "Extrae las preferencias en formato LISTA_BLANCA: []."
+    @staticmethod
+    def _clasificar_mecanica(ej: dict) -> str:
+        """LIBRE / GUIADO / POLEA a partir del campo 'mecanica' o del nombre."""
+        texto = (str(ej.get("mecanica", "")) + " " + str(ej.get("nombre", ""))).lower()
+        if re.search(r"polea|cable|cruce", texto):
+            return "polea"
+        if re.search(r"m[aá]quina|maquina|guiad|smith|prensa|hack", texto):
+            return "guiado"
+        return "libre"
 
-    def extraer_listas_por_llm(self, contexto_usuario, rango_compuestos, rango_aislamiento) -> list[str]:
+    # Preferencia de mecánica por perfil (para el auto-rescate determinista)
+    _PRIORIDAD_MECANICA = {
+        "powerlifting": ["libre", "guiado", "polea"],
+        "powerbuilding": ["libre", "guiado", "polea"],
+        "hipertrofia": ["guiado", "polea", "libre"],
+        "culturismo": ["guiado", "polea", "libre"],
+    }
+
+    def _ordenar_por_perfil(self, ejercicios: list, perfil: str) -> list:
+        orden = self._PRIORIDAD_MECANICA.get(perfil, ["libre", "guiado", "polea"])
+        return sorted(ejercicios,
+                      key=lambda e: orden.index(self._clasificar_mecanica(e))
+                      if self._clasificar_mecanica(e) in orden else 99)
+
+    # ------------------------------------------------------------- selección
+    def extraer_listas_por_llm(self, contexto_usuario, rango_compuestos,
+                               rango_aislamiento, meta: str = "") -> list:
+        """
+        v3 — La META ahora es variable de primera clase del motor de reglas.
+        Pásale datos['meta'] desde el orquestador de generación; si no llega,
+        se deduce del contexto libre como respaldo.
+        """
         db_dividida = self._cargar_base_de_datos()
         if not db_dividida:
             return []
 
-        lista_blanca_maestra = []
+        perfil = self._normalizar_meta(meta or contexto_usuario)
+        print(f"[MOTOR]: PERFIL DE SELECCIÓN = '{perfil}' "
+              f"(meta recibida: {meta!r}; deducida del contexto: {not bool(meta)})")
 
-        # 🔥 1. EL BYPASS MÁGICO: Inyectar TODOS los complementarios a la lista blanca automáticamente
-        # Así el motor principal (Entrenamiento.py) jamás los borra, aunque la IA sea tonta y no los elija.
+        lista_blanca_maestra = []
+        # 1. BYPASS: los complementarios entran siempre a la lista blanca
         for ejercicios in db_dividida.values():
             for ej in ejercicios:
                 if "complementario" in ej.get("tipo", "").lower():
                     lista_blanca_maestra.append(ej.get("nombre"))
 
         zonas = ["Torso_Anterior", "Torso_Posterior", "Pierna_Anterior", "Pierna_Posterior"]
-
         for zona in zonas:
             ejercicios_de_la_zona = db_dividida.get(zona, [])
             if not ejercicios_de_la_zona:
                 continue
-
-            print(f"\n[MOTOR]: Analizando zona: {zona}")
+            print(f"\n[MOTOR]: Analizando zona: {zona} (perfil {perfil})")
 
             prompt_instrucciones = self.prompt_sistema.format(
                 rango_compuesto=rango_compuestos,
                 rango_aislado=rango_aislamiento,
-                zona_actual=zona.replace("_", " ")
+                zona_actual=zona.replace("_", " "),
+                meta=perfil
             )
-            # Simplificamos el catálogo para no confundir a la IA
+
+            # v3: el catálogo ahora expone la MECÁNICA — sin esto, el modelo no
+            # podía distinguir máquina/libre/polea y elegía igual para toda meta.
             catalogo_texto = "\n".join(
-                [f"- {ej.get('nombre', 'N/A')} | Tipo: {ej.get('tipo', 'N/A')}" for ej in ejercicios_de_la_zona])
+                f"- {ej.get('nombre', 'N/A')} | Tipo: {ej.get('tipo', 'N/A')} "
+                f"| Mecánica: {ej.get('mecanica', '') or self._clasificar_mecanica(ej)}"
+                for ej in ejercicios_de_la_zona)
 
             try:
                 respuesta_ia = ol.chat(
@@ -153,13 +184,18 @@ class ServicioEntrenamiento:
                         {"role": "user", "content": f"Contexto: {contexto_usuario}\nCatalogo:\n{catalogo_texto}"}
                     ],
                     tools=[tool_ejercicios],
-                    options={"num_ctx": 16384, "num_predict": 800, "temperature": 0}
+                    # v3 FIX CRÍTICO: qwen3.6 PIENSA POR DEFECTO. Sin think=False
+                    # quemaba los 800 tokens razonando, el tool call salía vacío
+                    # y el auto-rescate (primeros N de la DB, idénticos siempre)
+                    # elegía por ti IGNORANDO la meta. Esa era la causa principal
+                    # de "mismos ejercicios para cualquier meta".
+                    think=False,
+                    options={"num_ctx": 16384, "num_predict": 4096, "temperature": 0}
                 )
-
                 ejercicios_zona = []
                 msg = respuesta_ia.get('message', {})
 
-                # A) Intento de extracción por Tool Call
+                # A) Extracción por Tool Call
                 if msg.get('tool_calls'):
                     for tool in msg['tool_calls']:
                         if tool['function']['name'] == 'filtrar_ejercicios':
@@ -179,27 +215,28 @@ class ServicioEntrenamiento:
                     if match:
                         ejercicios_zona = re.findall(r'["\']([^"\']+)["\']', match.group(1))
 
-                # 🔥 2. AUTO-RESCATE PYTHON: Si la IA devuelve 0 ejercicios, Python salva la rutina
+                # C) AUTO-RESCATE — v3: ahora respeta el PERFIL de la meta en vez
+                # de tomar a ciegas los primeros N de la base de datos.
                 if not ejercicios_zona:
-                    print(f"[ALERTA] La IA devolvió 0 ejercicios en {zona}. Activando auto-rescate de emergencia...")
-                    compuestos = [e['nombre'] for e in ejercicios_de_la_zona if
-                                  'multiarticular' in e.get('tipo', '').lower()]
-                    aislados = [e['nombre'] for e in ejercicios_de_la_zona if (
-                                'monoarticular' in e.get('tipo', '').lower() or 'analitico' in e.get('tipo',
-                                                                                                     '').lower())]
+                    print(f"[ALERTA] La IA devolvió 0 ejercicios en {zona}. "
+                          f"Auto-rescate con prioridad de mecánica del perfil '{perfil}'...")
+                    compuestos = self._ordenar_por_perfil(
+                        [e for e in ejercicios_de_la_zona
+                         if 'multiarticular' in e.get('tipo', '').lower()], perfil)
+                    aislados = self._ordenar_por_perfil(
+                        [e for e in ejercicios_de_la_zona
+                         if ('monoarticular' in e.get('tipo', '').lower()
+                             or 'analitico' in e.get('tipo', '').lower())], perfil)
+                    ejercicios_zona.extend(e['nombre'] for e in compuestos[:int(rango_compuestos)])
+                    ejercicios_zona.extend(e['nombre'] for e in aislados[:int(rango_aislamiento)])
 
-                    # Tomamos al menos 2 compuestos y 2 aislados de la base de datos para no dejar el día vacío
-                    ejercicios_zona.extend(compuestos[:int(rango_compuestos)])
-                    ejercicios_zona.extend(aislados[:int(rango_aislamiento)])
-
-                # 3. Consolidar en Lista Maestra sin duplicados
+                # D) Consolidar sin duplicados
                 agregados = 0
                 for e in ejercicios_zona:
-                    nombre_limpio = e.split('|')[0].strip()  # Limpia basura extra
+                    nombre_limpio = str(e).split('|')[0].strip()
                     if nombre_limpio and nombre_limpio not in lista_blanca_maestra:
                         lista_blanca_maestra.append(nombre_limpio)
                         agregados += 1
-
                 print(f"[OK] Zona {zona} procesada: {agregados} ejercicios asignados.")
 
             except Exception as e:

@@ -34,7 +34,7 @@
             "enum": ["principiante", "intermedio", "avanzado", "élite"],
             "description": "Nivel de fuerza real del atleta, tomado OBLIGATORIAMENTE del resultado de 'evaluar_nivel_fuerza' (nunca inventado)."
           },
-          "contexto_usuario": { "type": "string", "description": "Detalles extra relevantes: FFMI, lesiones, dolores, variantes preferidas, material disponible." }
+          "contexto_usuario": { "type": "string", "description": "Debes redactar un párrafo inyectando aquí el FFMI y los ratios de fuerza calculados en las herramientas previas. Incluye también lesiones, dolores o equipo disponible si el usuario los mencionó. Si el usuario no mencionó lesiones ni equipo, redacta de todos modos un breve perfil detallando su nivel de fuerza actual basado en sus RMs." }
         },
         "required": [
           "dias", "meta", "tipo_periodizacion", "peso_kg", "porcentaje_grasa",

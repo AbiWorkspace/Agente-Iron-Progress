@@ -40,9 +40,30 @@ ORDEN_DIAS        = ["dia_1_fuerza", "dia_2_hipertrofia", "dia_3_potencia"]
 # v2: verbos ampliados (antes "puedes hacerme una rutina?" NO disparaba el modo creación)
 EN_CREACION_RE = re.compile(
     r"(?:\b(hazme|haz|hacerme|hacer|crea\w*|arma\w*|genera\w*|dise[ñn]a\w*|"
-    r"quiero|necesito|empezar|comenzar|nuev[oa])\b"
-    r".{0,50}\b(rutina|plan|programa|mesociclo)\b)"
-    r"|(?:\b(rutina|plan|programa|mesociclo)\b.{0,50}\b(nuev[oa]|desde\s+cero)\b)",
+    r"program\w*|prep[aá]r\w*|p[oó]nme|quiero|necesito|empezar|comenzar|nuev[oa])\b"
+    r".{0,50}\b(rutina|plan|programa|mesociclo|entrenamiento)\b)"
+    r"|(?:\b(rutina|plan|programa|mesociclo|entrenamiento)\b.{0,50}\b(nuev[oa]|desde\s+cero)\b)",
+    re.IGNORECASE)
+
+META_KEYWORDS_RE = re.compile(
+    r"(powerbuild\w*|powerlifting|hipertrofia|\bmasa\b|volumen|fuerza\s+pura|\bfuerza\b)",
+    re.IGNORECASE)
+
+def _detectar_meta(texto: str) -> str | None:
+    """Devuelve la meta canónica mencionada en el texto, o None."""
+    t = texto.lower()
+    if re.search(r"powerbuild|fuerte\s+y\s+grande", t):
+        return "powerbuilding"
+    if re.search(r"powerlifting|fuerza\s+pura", t):
+        return "powerlifting"
+    if re.search(r"hipertrofia|\bmasa\b|volumen|m[uú]sculo", t):
+        return "hipertrofia"
+    if re.search(r"\bfuerza\b", t):
+        return "powerlifting"
+    return None
+
+NEGACION_CORTA_RE = re.compile(
+    r"^\s*(no+|mejor\s+no|nel|nop|d[eé]jalo|as[ií]\s+est[aá]\s*(bien)?|luego|despu[eé]s)\s*[!.]*\s*$",
     re.IGNORECASE)
 
 CANCELAR_ONBOARDING_RE = re.compile(
@@ -60,6 +81,147 @@ RESTRICCION_RE = re.compile(
     r"\b(?:est[aá]|es|se\s+siente)\s+(?:muy|demasiado|bien)\s+pesad[oa]\b|"
     r"\bme\s+qued[ée]\b|\bfall[eé]\b|\bno\s+complet[ée]\b",
     re.IGNORECASE)
+
+# v5.2 — Reporte "okey espero": el fallback prometió "tu plan se está generando"
+# sin que NADA se hubiera disparado. Este patrón detecta esa promesa en el
+# último mensaje del coach para que Python la reconcilie con la realidad.
+PROMESA_GENERACION_RE = re.compile(
+    r"se\s+est[aá]\s+(?:gener|arma|crea|calcul|cocin)|est[aá]\s+en\s+el\s+horno|"
+    r"estar[aá]\s+list[oa]|en\s+2-?3\s+min|te\s+aviso\s+cuando|"
+    r"siendo\s+calculad|ya\s+viene\s+tu\s+(?:plan|rutina|mesociclo)",
+    re.IGNORECASE)
+
+
+# ==============================================================================
+# v6 — BLINDAJE ADICIONAL (antídotos a los fallos F1-F5 de la línea de tiempo)
+# ==============================================================================
+
+# --- F1: reparador de onboarding ---------------------------------------------
+# Variantes de pregunta escritas por Python. Si el modelo se desvía, se usa una
+# de estas (rotación por microsegundo para dar variedad sin sonar a plantilla).
+_ONB_VARIANTES = {
+    "peso_kg": ["¿Cuánto pesas ahorita, en kilos?",
+                "Cuéntame tu peso corporal actual en kg 💪",
+                "Para arrancar, ¿cuál es tu peso hoy en kg?"],
+    "altura_m": ["¿Y cuánto mides? (en metros o cm)",
+                 "Pásame tu estatura 📏",
+                 "¿Cuál es tu altura?"],
+    "edad": ["¿Cuántos años tienes?",
+             "¿Qué edad tienes?",
+             "Dime tu edad 👊"],
+    "genero": ["¿Eres hombre o mujer?",
+               "Para afinar los cálculos, ¿hombre o mujer?"],
+    "porcentaje_grasa": ["¿Más o menos qué porcentaje de grasa corporal tienes? "
+                         "Si no lo sabes, dímelo y lo estimamos.",
+                         "¿Tu porcentaje de grasa aproximado? (si no lo sabes, no pasa nada)"],
+    "dias_semana": ["¿Cuántos días por semana puedes entrenar? (1 a 7)",
+                    "¿Cuántos días a la semana le vas a meter?"],
+    "meta": ["¿Cuál es tu meta principal: fuerza (powerlifting), hipertrofia o powerbuilding?",
+             "¿Qué buscas: ganar fuerza, músculo (hipertrofia) o las dos (powerbuilding)?"],
+    "rm_banca": ["¿Cuál es tu mejor marca en press de banca plano? Dime el peso y las reps (ej. 100 kg x 5).",
+                 "Pásame tu tope en banca plana: peso y repeticiones."],
+    "rm_sentadilla": ["¿Tu mejor marca en sentadilla libre? Peso y reps (ej. 140 kg x 4).",
+                      "¿Cuánto levantas en sentadilla? Dime peso y repeticiones."],
+    "rm_peso_muerto": ["¿Tu mejor peso muerto? Dame peso y reps (ej. 180 kg x 3).",
+                       "Pásame tu tope en peso muerto: peso y repeticiones."],
+    "rm_dominadas": ["En dominadas, ¿cuántas haces y con cuánto lastre? (o dime si son a peso corporal)",
+                     "¿Tu marca en dominadas? kg de lastre y reps, o solo a peso corporal."],
+}
+
+def _pregunta_onboarding(campo: str) -> str:
+    variantes = _ONB_VARIANTES.get(campo)
+    if not variantes:
+        return f"¿Me confirmas {_desc_campo(campo)}?"
+    return variantes[datetime.now().microsecond % len(variantes)]
+
+# Detecta que el modelo preguntó por un campo YA guardado (repregunta redundante).
+_ONB_YA_PREGUNTADO = {
+    "peso_kg": re.compile(r"cu[aá]nto\s+pesas|\btu\s+peso\b|peso\s+corporal", re.IGNORECASE),
+    "altura_m": re.compile(r"cu[aá]nto\s+mides|\btu\s+(?:altura|estatura)\b", re.IGNORECASE),
+    "edad": re.compile(r"cu[aá]ntos\s+a[ñn]os\s+tienes|\btu\s+edad\b", re.IGNORECASE),
+    "genero": re.compile(r"eres\s+hombre\s+o\s+mujer|hombre\s+o\s+mujer|\btu\s+g[eé]nero\b", re.IGNORECASE),
+    "porcentaje_grasa": re.compile(r"porcentaje\s+de\s+grasa|%\s+de\s+grasa|\btu\s+grasa\b", re.IGNORECASE),
+    "dias_semana": re.compile(r"cu[aá]ntos\s+d[ií]as|d[ií]as\s+(?:por|a\s+la)\s+semana", re.IGNORECASE),
+    "meta": re.compile(r"\btu\s+(?:meta|objetivo)\b|qu[eé]\s+buscas", re.IGNORECASE),
+}
+# Pregunta "fuera de guion" clásica del modelo: nivel/experiencia (NO lo recolectamos).
+_ONB_OFF_SCRIPT_RE = re.compile(
+    r"cu[aá]nt[oa]s?\s+a[ñn]os\s+(?:de\s+)?experiencia|"
+    r"experiencia\s+entrenando|"
+    r"eres\s+(?:principiante|intermedio|avanzad)|"
+    r"\bnivel\b[^.?!]{0,30}(?:principiante|intermedio|avanzad)",
+    re.IGNORECASE)
+
+def _reparar_onboarding(texto: str, numero_usuario: str, campo_pendiente: str) -> tuple[str, bool]:
+    """
+    Solo interviene ante desvíos CLAROS del modelo durante un turno de pregunta:
+      (a) preguntó por 'experiencia/nivel' (campo inexistente), o
+      (b) preguntó por un dato que YA está guardado (repregunta redundante).
+    En esos casos devuelve una pregunta limpia del campo pendiente. Si no detecta
+    desvío, devuelve el texto original intacto (bajo riesgo de falsos positivos).
+    """
+    if not campo_pendiente:
+        return texto, False
+    t = texto.lower()
+    if _ONB_OFF_SCRIPT_RE.search(t):
+        return _pregunta_onboarding(campo_pendiente), True
+    perfil = cargar_perfil(numero_usuario)
+    rms = cargar_rms(numero_usuario)
+    lleno = {
+        "peso_kg": perfil.get("peso_kg") not in (None, ""),
+        "altura_m": perfil.get("altura_m") not in (None, ""),
+        "edad": perfil.get("edad") not in (None, ""),
+        "genero": perfil.get("genero") not in (None, ""),
+        "porcentaje_grasa": perfil.get("porcentaje_grasa") not in (None, ""),
+        "dias_semana": perfil.get("dias_semana") not in (None, ""),
+        "meta": perfil.get("meta") not in (None, ""),
+    }
+    for campo, patron in _ONB_YA_PREGUNTADO.items():
+        if campo == campo_pendiente:
+            continue
+        if lleno.get(campo) and patron.search(t):
+            return _pregunta_onboarding(campo_pendiente), True
+    return texto, False
+
+
+# --- F2: bloqueo de rutinas fantasma -----------------------------------------
+# Cuenta líneas con forma de prescripción de ejercicio ("4 series de 8", "5x5",
+# "8 reps"). Si NO hay plan real y el modelo escribe >=3 de estas líneas, alucinó.
+_LINEA_EJERCICIO_RE = re.compile(
+    r"\d+\s*(?:series?|sets?)\s*(?:de|x|×)?\s*\d+"   # "4 series de 8"
+    r"|\d+\s*[x×]\s*\d+"                              # "4x8"
+    r"|\d+\s*(?:reps?|repeticiones?)",               # "8 reps"
+    re.IGNORECASE)
+
+def _parece_rutina_inventada(texto: str) -> int:
+    return sum(1 for linea in texto.splitlines() if _LINEA_EJERCICIO_RE.search(linea))
+
+
+# --- F3/F5: recuperación de lesiones -----------------------------------------
+RECUPERACION_RE = re.compile(
+    r"\b(ya\s+me\s+recuper[ée]|ya\s+estoy\s+bien|ya\s+no\s+me\s+duele|"
+    r"se\s+me\s+quit[óo]\s+(?:el\s+)?dolor|ya\s+no\s+tengo\s+(?:dolor|molestia)|"
+    r"me\s+cur[ée]|super[ée]\s+(?:la\s+)?lesi[óo]n|estoy\s+(?:ya\s+)?recuperad[oa]|"
+    r"\bsan[ée]\b)\b",
+    re.IGNORECASE)
+
+_PARTES_CUERPO = {"hombro", "rodilla", "espalda", "codo", "muñeca", "muneca",
+                  "cadera", "cuello", "lumbar", "cervical", "pecho", "biceps",
+                  "bíceps", "triceps", "tríceps", "tobillo", "isquios", "femoral"}
+
+def _detectar_partes_cuerpo(texto: str) -> list[str]:
+    t = texto.lower()
+    return sorted({p for p in _PARTES_CUERPO if p in t})
+
+
+# --- F4: integridad de estado del plan ---------------------------------------
+def _plan_files_existen(numero_usuario: str) -> bool:
+    ruta_base = (Path(__file__).resolve().parent.parent / "resources"
+                 / "rutinas_generadas" / str(numero_usuario).strip())
+    return any((ruta_base / a).exists()
+               for a in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"])
+
+
 
 # v3 — Fallo 3 del informe: velocidades VBT (0.255, 0.270...) que el modelo
 # "leía" con narrativa en vez de aritmética. Se analizan en código.
@@ -109,6 +271,24 @@ VENTANA_RECIENTE  = 20
 UMBRAL_COMPRESION = 30
 LIMITE_EMERGENCIA = 40
 
+# ==============================================================================
+# v5 — MODELO Y MODO THINKING
+# ==============================================================================
+# Cambia el modelo AQUÍ (y usa el MISMO nombre + num_ctx en el servicio generador,
+# o tendrás dos modelos rotando en 24 GB y vuelve el thrashing de recargas).
+MODELO_LLM = "qwen3.6:27b"   # rollback instantáneo: "qwen3:32b"
+
+# Thinking selectivo: el modelo RAZONA solo en turnos donde decide herramientas
+# o sintetiza sus resultados. Donde Python ya decidió todo (onboarding, casual,
+# bloques inyectados), pensar es latencia desperdiciada: solo redacta.
+# Con el 35B-A3B (~60-80 tok/s), ~400 tokens de razonamiento cuestan +5-8s:
+# tiempo total similar al 32B sin pensar, pero con mejor criterio.
+# Interruptor global para A/B: ponlo en False y todo vuelve al modo actual.
+PENSAR_HABILITADO = True
+
+# Sampling recomendado por Qwen para modo thinking (no-thinking usa tu config)
+AJUSTES_PENSANDO = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "num_predict": 2048}
+
 OPCIONES_QWEN_32B = {
     "num_gpu": 99,
     "temperature": 0.3,
@@ -126,23 +306,29 @@ OPCIONES_QWEN_32B = {
 SEM_LLM = asyncio.Semaphore(1)
 TIMEOUT_CHAT = 180.0   # ninguna llamada al modelo puede colgar el orquestador para siempre
 
-async def chat_llm(mensajes, tools=None, opciones=None, quien="chat"):
-    """Único punto de entrada al 32B: serializado, con timeout y con log."""
+async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False):
+    """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional."""
     t0 = time.monotonic()
     async with SEM_LLM:
         espera = time.monotonic() - t0
         if espera > 1.0:
             print(f"[LLM] '{quien}' esperó {espera:.1f}s el turno del modelo")
-        kwargs = dict(model="qwen3:32b",
+        usar_thinking = bool(pensar and PENSAR_HABILITADO)
+        kwargs = dict(model=MODELO_LLM,
                       messages=mensajes,
                       keep_alive=-1,
-                      think=False,
+                      think=usar_thinking,
                       options=opciones or OPCIONES_QWEN_32B)
         if tools:
             kwargs["tools"] = tools
         resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs), timeout=TIMEOUT_CHAT)
+        msg = resp.get("message", {}) or {}
+        razonamiento = msg.get("thinking") or ""
         print(f"[LLM] '{quien}' respondió en {time.monotonic()-t0:.1f}s "
-              f"({len(mensajes)} msgs de entrada)")
+              f"({len(mensajes)} msgs, thinking={'sí, ' + str(len(razonamiento)) + ' chars' if razonamiento else 'no'})")
+        if razonamiento:
+            # Oro para depurar el criterio: SE VE por qué eligió (o no) una herramienta.
+            print(f"[LLM-THINK] '{quien}': {_trunc(razonamiento, 300)}")
         return resp
 
 # ==============================================================================
@@ -358,7 +544,13 @@ def procesar_respuesta_onboarding(numero_usuario: str, campo: str, mensaje: str)
     batch = parsear_batch_rms(numero_usuario, msg)
     if batch:
         return True, "Marcas guardadas: " + "; ".join(batch)
-
+        # Si el atleta reporta su experiencia (dato que NO recolectamos pero es útil),
+        # se guarda en el expediente en vez de descartarlo. No consume el turno.
+    m_exp = re.search(r"\b(principiante|novato|intermedio|avanzad[oa]|"
+                      r"(\d+)\s*a[ñn]os?\s+(?:entrenando|de\s+experiencia))\b", msg)
+    if m_exp:
+        guardar_dato_en_expediente(
+            numero_usuario, f"El atleta se describe con experiencia: \"{m_exp.group(0)}\".")
     if campo == "peso_kg":
         v = _primer_numero(msg)
         if v is not None and 35 <= v <= 250:
@@ -615,6 +807,7 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
             estado_generacion="lista",
             onboarding_activo=False,
             campo_pendiente="",
+            cursor_semana=1, cursor_dia=1,   # v5.3: plan nuevo -> cursor limpio
         )
 
         try:
@@ -917,6 +1110,23 @@ async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> s
             "en tu mensaje anterior) ---\n"
             + "\n\n".join(bloques) + "\n--- FIN DEL CONTEXTO ---")
 
+def detectar_series_multiples(mensaje: str) -> list[dict]:
+    """v4.4 — Timeline 01:22: un volcado de varias marcas solo registraba la
+    primera. Enumera TODAS las series (peso, reps y ejercicio si es deducible)
+    para que la señal al modelo las liste completas."""
+    encontradas = []
+    for parte in re.split(r"[,;\n]|\s+y\s+", str(mensaje).lower()):
+        s = detectar_serie_en_mensaje(parte)
+        if not s:
+            continue
+        ejercicio = None
+        for kws, campo in _KW_EJERCICIO:
+            if any(k in parte for k in kws):
+                ejercicio = RM_CANONICO[campo]
+                break
+        encontradas.append({"peso": s["peso"], "reps": s["reps"], "ejercicio": ejercicio})
+    return encontradas
+
 # ==============================================================================
 # INTERCEPTOR DE SERIES
 # ==============================================================================
@@ -998,11 +1208,94 @@ def limpiar_texto_para_whatsapp(texto: str) -> str:
         texto = re.sub(rf"[`'\"]?{tool}[`'\"]?", "mis métodos de coach", texto, flags=re.IGNORECASE)
     return texto.strip()
 
+def _detectar_enfoque(msg: str) -> str | None:
+    """v5.3 — Constraint semántico del usuario ('el siguiente día DE PIERNA')."""
+    if re.search(r"\bpiernas?\b|\bpierna\b|\btren\s+inferior\b|\bpiern", msg):
+        return "Pierna"
+    if re.search(r"\btorsos?\b|\btren\s+superior\b|\bupper\b", msg):
+        return "Torso"
+    return None
+
+
+def _sesiones_de_semana(numero_usuario: str, semana: int) -> list[dict]:
+    """Sesiones reales de una semana (para conocer enfoques y totales sin adivinar)."""
+    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
+    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
+        ruta_f = ruta_base / archivo
+        if not ruta_f.exists():
+            continue
+        try:
+            with open(ruta_f, "r", encoding="utf-8") as f:
+                ses = [s for s in json.load(f) if int(s.get("Semana_Abs", 0)) == int(semana)]
+                if ses:
+                    return ses
+        except Exception:
+            pass
+    return []
+
+
+def _avanzar_cursor(numero_usuario: str, semana: int, dia: int,
+                    enfoque: str | None = None, max_saltos: int = 21) -> tuple[int, int] | None:
+    """
+    v5.3 — Devuelve el SIGUIENTE (semana, día) real después de (semana, día),
+    saltando de semana cuando se acaba y respetando el enfoque si se pidió.
+    Devuelve None si se acabó el plan: el sistema dirá la verdad en vez de
+    inventar un día que no existe.
+    """
+    s, d = int(semana), int(dia)
+    for _ in range(max_saltos):
+        total = _contar_sesiones_semana(numero_usuario, s)
+        if not total:
+            return None                      # no hay más plan
+        if d >= total:
+            s, d = s + 1, 1                  # salto de semana
+        else:
+            d += 1
+        if not _contar_sesiones_semana(numero_usuario, s):
+            return None
+        if enfoque is None:
+            return s, d
+        sesiones = _sesiones_de_semana(numero_usuario, s)
+        if 1 <= d <= len(sesiones) and enfoque.lower() in str(sesiones[d - 1].get("Enfoque", "")).lower():
+            return s, d                      # cumple el constraint del usuario
+    return None
+
+
 def detectar_consulta_rutina(mensaje: str) -> dict | None:
     msg = mensaje.lower()
-    match_semana = re.search(r'(?:ver|mostrar|pasar a|semana)\s+(\d+)', msg)
-    if match_semana:
+
+    # Semana N explícita ("ver semana 2", "semana 3")
+    match_semana = re.search(r'\b(?:ver|mostrar\w*|pasar\s+a|semana)\s+(\d+)', msg)
+    if match_semana and not re.search(r'\bd[ií]a\b', msg):
         return {"tipo": "semana_futura", "semana_objetivo": int(match_semana.group(1))}
+
+    # v4.2 — DÍA específico ("dime el día 3", "no pero el día 3"). Era el agujero
+    # que hacía al coach repetir "hoy toca Día 1" en bucle: sin detección, la
+    # telemetría solo traía el día actual y el modelo confabulaba un bloqueo.
+    m_dia = re.search(r'\bd[ií]a\s*(\d+)\b', msg)
+    if m_dia:
+        guard = re.search(r'rutina|plan|entren|toca|ver|dime|mu[eé]str|mostrar|dame|'
+                          r'ense[ñn]|ejercicio|semana|saber|c[oó]mo', msg)
+        if guard or len(msg.strip()) <= 45:
+            return {"tipo": "dia_especifico", "dia_objetivo": int(m_dia.group(1)),
+                    "enfoque": _detectar_enfoque(msg)}
+
+    # v5.3 — día siguiente. El regex ya NO destruye los constraints del usuario:
+    # "el siguiente día DE PIERNA" conserva el enfoque para que el cursor avance
+    # hasta la próxima sesión que lo cumpla, en vez de entregar el día N+1 a ciegas.
+    if re.search(r'(siguiente|pr[óo]xim[oa])\s+(d[ií]a|entrenamiento|sesi[oó]n)|'
+                 r'd[ií]a\s+(siguiente|que\s+sigue)|\bqu[eé]\s+sigue\b|'
+                 r'\b(?:y\s+)?(?:el|la)\s+(?:que\s+)?sigue\b|\bel\s+siguiente\b', msg):
+        return {"tipo": "dia_siguiente", "enfoque": _detectar_enfoque(msg)}
+
+    # v4.2 — semana completa ("toda esta semana", "cómo vamos a entrenar la semana")
+    if re.search(r'(tod[ao]|completa|entera)\s+(?:l?a\s+|esta\s+)?semana|'
+                 r'semana\s+(completa|entera)|'
+                 r'c[oó]mo\s+(?:vamos|voy)\s+a\s+entrenar|'
+                 r'entrenar\s+(?:toda\s+)?(?:esta|la)\s+semana|'
+                 r'todos\s+los\s+d[ií]as', msg):
+        return {"tipo": "semana_completa"}
+
     patrones_semana_siguiente = [
         r'semana\s+(?:siguiente|próxima|prox|que\s+viene|futura)',
         r'(?:siguiente|próxima|prox)\s+semana',
@@ -1012,7 +1305,11 @@ def detectar_consulta_rutina(mensaje: str) -> dict | None:
         r'(?:semana|plan|rutina)\s+\d+',
     ]
     patrones_ver_rutina = [
-        r'(?:dame|muéstrame|dime|ver|enseña|muestra)\s+(?:mi\s+)?(?:rutina|plan|entrenamiento)',
+        r'(?:dame|mu[eé]strame|mostrarme|mostrar|dime|ver|ense[ñn]a\w*|muestra)\s+'
+        r'(?:me\s+)?(?:mi\s+|la\s+|el\s+)?(?:rutina|plan|entrenamiento)',
+        # v5.1 — Timeline 01:46: "que entrenamiento??" no matcheaba nada
+        r'\b(?:qu[eé]|cu[aá]l)\s+entrenamiento\b',
+        r'^\s*(?:y\s+)?mi\s+(?:rutina|plan|entrenamiento)\s*\??\s*$',
         r'(?:qué|que)\s+(?:me\s+toca|hago|entreno)\b\s*(hoy|mañana)?\b',
         r'ya\s+(?:está|estuvo)\s+(?:list[ao]\s+)?(?:mi\s+)?(?:rutina|plan)',
         r'(?:mi\s+)?rutina\s+(?:completa|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
@@ -1025,6 +1322,22 @@ def detectar_consulta_rutina(mensaje: str) -> dict | None:
     for patron in patrones_ver_rutina:
         if re.search(patron, msg): return {"tipo": "ver_rutina"}
     return None
+
+def _contar_sesiones_semana(numero_usuario: str, semana: int) -> int:
+    """v4.2: cuántos días reales tiene una semana del plan (para respuestas exactas)."""
+    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
+    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
+        ruta_f = ruta_base / archivo
+        if not ruta_f.exists():
+            continue
+        try:
+            with open(ruta_f, "r", encoding="utf-8") as f:
+                ses = [s for s in json.load(f) if int(s.get("Semana_Abs", 0)) == int(semana)]
+                if ses:
+                    return len(ses)
+        except Exception:
+            pass
+    return 0
 
 def extraer_tool_call_escapado(texto: str):
     limpio = re.sub(r'```(?:json)?\s*', '', texto).replace('```', '').strip()
@@ -1054,7 +1367,12 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
         return TELEMETRIA_INICIO + "\n" + "\n\n".join(partes) + "\n" + TELEMETRIA_FIN
 
     if es_casual:
-        return (f"{TELEMETRIA_INICIO}\nFECHA: {fecha} {hora} | CALENDARIO: {estatus}"
+        # v4.2: en charla casual el estatus es SOLO contexto interno; antes el
+        # coach saludaba con "estás atrasado" y soltaba la rutina sin que nadie
+        # le preguntara.
+        return (f"{TELEMETRIA_INICIO}\nFECHA: {fecha} {hora}\n"
+                f"CALENDARIO (contexto interno: NO lo menciones ni muestres la rutina "
+                f"a menos que el atleta saque el tema de entrenar): {estatus}"
                 f"\n{TELEMETRIA_FIN}")
 
     partes = [f"FECHA: {fecha} {hora}",
@@ -1064,6 +1382,11 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
         partes.append("ESTADO: El plan se está generando AHORA MISMO. No muestres ni "
                       "inventes ejercicios; dile que le avisarás en unos minutos.")
     else:
+        # v4.4 — Timeline 01:24: el modelo afirmó "ya se está generando tu plan"
+        # sin que nada se hubiera disparado. Ahora la verdad es explícita.
+        partes.append("GENERACIÓN DE PLAN: ninguna en curso. PROHIBIDO decir que un plan "
+                      "'se está generando' o 'ya viene en camino': solo el sistema dispara "
+                      "generaciones y te lo informaría aquí.")
         partes.append("RUTINA DEL DÍA (los *kg* ya vienen calculados y redondeados por el "
                       f"sistema — transcríbelos literales):\n{instruccion_de_hoy}")
         partes.append(f"ÚLTIMAS SERIES:\n{dashboard_sql}")
@@ -1219,6 +1542,21 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             estado_gen = "error"
             estado_hoy["estado_generacion"] = "error"
 
+    # v6 (F4) — INTEGRIDAD ESTADO↔ARCHIVOS: si el estado cree que hay plan pero
+    # no hay archivos, se corrige a "sin plan" (evita que el coach afirme tener
+    # un plan que ya no existe y luego lo niegue en el siguiente turno).
+    plan_existe = _plan_files_existen(numero_usuario)
+    if not plan_existe and (estado_gen == "lista"
+                            or int(str(estado_hoy.get("cursor_semana") or 1)) > 1):
+        log(numero_usuario, "INTEGRIDAD",
+            "estado indica plan pero NO hay archivos; se limpia a sin-plan")
+        _actualizar_estado_json(numero_usuario, estado_generacion="",
+                                cursor_semana=1, cursor_dia=1)
+        estado_gen = ""
+        estado_hoy["estado_generacion"] = ""
+        estado_hoy["cursor_semana"] = 1
+        estado_hoy["cursor_dia"] = 1
+
     instruccion_de_hoy   = obtener_rutina_del_json(numero_usuario, estado_hoy["semana"], estado_hoy["dia"], solo_hoy=True)
     dashboard_sql        = obtener_dashboard_analitico(numero_usuario)
     rutina_vacia         = "ESTADO DE RUTINA: Vacío" in instruccion_de_hoy
@@ -1253,6 +1591,182 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     en_creacion = bool(EN_CREACION_RE.search(texto_puro)) or \
                   (rutina_vacia and oferta_previa and AFIRMACION_CORTA_RE.match(texto_puro))
 
+    # v4.2 — FIX bug latente: "quiero VER mi rutina" matcheaba el regex de creación
+    # (quiero + rutina) y arrancaba onboarding. Si el mensaje es una CONSULTA y no
+    # dice "nuevo/desde cero/otro", la intención es ver, no crear... PERO solo si
+    # hay algo que ver: sin plan, una consulta de rutina ES intención de crear.
+    if en_creacion and detectar_consulta_rutina(texto_puro) and not rutina_vacia and not re.search(
+            r"nuev[oa]|desde\s+cero|otr[oa]\s+(rutina|plan|programa|entrenamiento)|"
+            r"reempl[aá]z\w*|vuelve\s+a\s+(crear|armar|generar)", texto_puro):
+        log(numero_usuario, "INTENCION", "consulta de rutina, no creación; se suprime en_creacion")
+        en_creacion = False
+
+    # v5.1 — TIMELINE 01:46 (bypass del pipeline): "¿qué entrenamiento?" sin plan
+    # no arrancaba la máquina, y el LLM montaba su PROPIA entrevista de onboarding
+    # fuera del control de Python (7 turnos, sin pipeline, rutina alucinada al
+    # final). Regla dura: sin plan + pregunta por su rutina => Modo Creación YA.
+    if not en_creacion and not onboarding_activo and rutina_vacia \
+            and estado_gen != "generando" and detectar_consulta_rutina(texto_puro):
+        en_creacion = True
+        log(numero_usuario, "ONB", "sin plan + consulta de rutina -> se activa creación (anti-bypass)")
+
+    # v5.1 — RED DE ARRASTRE: si sin plan y sin onboarding el atleta suelta datos
+    # de perfil parseables ("hipertrofia pura", "82kg", "6 días"...), es que hay
+    # una entrevista corriendo FUERA de la máquina. Se capturan los datos y la
+    # máquina toma el control desde ese punto.
+    extras_arrastre: list[str] = []
+    if (not en_creacion and not onboarding_activo and rutina_vacia
+            and estado_gen != "generando" and not bloque_onboarding):
+        extras_arrastre = _parsear_campos_anclados(
+            numero_usuario, mensaje_usuario, calcular_faltantes(numero_usuario))
+        if extras_arrastre:
+            en_creacion = True
+            log(numero_usuario, "ONB-ARRASTRE",
+                f"datos de perfil sin plan ni onboarding: {extras_arrastre} -> la máquina toma el control")
+
+    # v5.2 — RECONCILIADOR DE PROMESAS: si el último mensaje del coach prometió
+    # un plan "generándose" y en realidad NADA está en curso (el fallo del
+    # reporte: fallback prometió, "okey espero" cayó en casual sin tools, y el
+    # modelo alucinó la rutina), Python cumple o corrige la promesa AQUÍ:
+    # datos completos -> dispara el pipeline DE VERDAD; datos incompletos ->
+    # fuerza la corrección honesta y retoma la recolección.
+    if (not onboarding_activo and not bloque_onboarding and not en_creacion
+            and estado_gen != "generando"
+            and (rutina_vacia or estado_gen in ("", "error"))
+            and PROMESA_GENERACION_RE.search(ultimo_coach)):
+        faltan_promesa = calcular_faltantes(numero_usuario)
+        if not faltan_promesa:
+            resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
+            log(numero_usuario, "PROMESA",
+                f"promesa incumplida detectada; pipeline disparado de verdad: {resultado_pipeline!r}")
+            if "[ERROR" in resultado_pipeline or "Faltan" in resultado_pipeline:
+                bloque_onboarding = (
+                    "OJO: en tu mensaje anterior afirmaste que su plan se estaba generando, "
+                    f"pero NO era cierto, y al intentarlo ahora el sistema reportó: "
+                    f"{resultado_pipeline}. Discúlpate en una línea y explícalo con honestidad.")
+            else:
+                bloque_onboarding = (
+                    "En tu mensaje anterior prometiste un plan que en realidad NO se estaba "
+                    "generando. El sistema ACABA de dispararlo de verdad con sus datos "
+                    "completos. Dile con naturalidad que ya está en marcha y que estará listo "
+                    "en 2-3 minutos; TÚ le avisarás. NO muestres ni inventes ejercicios.")
+        else:
+            campo_pendiente = faltan_promesa[0]
+            _actualizar_estado_json(numero_usuario, onboarding_activo=True,
+                                    campo_pendiente=campo_pendiente)
+            onboarding_activo = True
+            log(numero_usuario, "PROMESA",
+                f"promesa incumplida con datos incompletos; onboarding retoma en '{campo_pendiente}'")
+            bloque_onboarding = (
+                "OJO: en tu mensaje anterior afirmaste que su plan se estaba generando, pero "
+                "NO era cierto: aún faltan datos. Discúlpate en UNA línea sin tecnicismos "
+                f"('me adelanté, aún me falta un dato') y pide SOLO: {_desc_campo(campo_pendiente)}.")
+
+    # v4.2 — CONFIRMACIÓN DE REGENERACIÓN: pedir un plan nuevo teniendo uno activo
+    # ya no lo reemplaza en silencio; se confirma primero (los datos no se pierden).
+    regen_confirmada = False
+    if not onboarding_activo and estado_hoy.get("confirmar_regeneracion"):
+        intentos_regen = int(estado_hoy.get("confirmar_regeneracion") or 0)
+        meta_mencionada = _detectar_meta(texto_puro)
+        # v4.3 FIX: "prefiero uno de powerlifting" NO era afirmación corta ni regex
+        # de creación -> el flag moría como "sin confirmación clara" y la
+        # regeneración jamás se disparaba (el modelo luego lo alucinaba).
+        # Ahora mencionar la meta deseada TAMBIÉN confirma, y actualiza el perfil.
+        if (AFIRMACION_CORTA_RE.match(texto_puro) or EN_CREACION_RE.search(texto_puro)
+                or meta_mencionada):
+            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
+            if meta_mencionada:
+                actualizar_perfil(numero_usuario, meta=meta_mencionada)
+                log(numero_usuario, "REGEN", f"confirmado; meta actualizada a '{meta_mencionada}'")
+            else:
+                log(numero_usuario, "REGEN", "reemplazo del plan CONFIRMADO por el atleta")
+            en_creacion = False
+            # v4.4 — LECCIÓN DE LA LÍNEA DE TIEMPO: el atleta confirma primero y
+            # manda sus marcas nuevas DESPUÉS. Si disparáramos aquí, el plan se
+            # regeneraría con las marcas viejas y sus datos frescos llegarían
+            # tarde. Se abre un paso de VERIFICACIÓN DE DATOS antes de generar.
+            extras_confirm = _parsear_campos_anclados(
+                numero_usuario, mensaje_usuario, [c for c, _t, _d in CAMPOS_ONBOARDING])
+            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=1)
+            nota = (f"ACTUALIZADO (venía en su mensaje): {'; '.join(extras_confirm)}.\n"
+                    if extras_confirm else "")
+            bloque_onboarding = (
+                "REEMPLAZO DE PLAN CONFIRMADO — paso de verificación de datos.\n" + nota +
+                f"Resumen vigente de su ficha: {_resumen_perfil_humano(numero_usuario)}.\n"
+                "Muéstrale ese resumen con tus palabras y pregúntale en UNA línea si genera "
+                "el plan nuevo con esos datos, o si actualiza algo (peso, marcas con "
+                "ejercicio+kg+reps, días o meta). NO llames herramientas; el sistema captura "
+                "lo que responda. NO afirmes que algo se está generando todavía.")
+        elif NEGACION_CORTA_RE.match(texto_puro):
+            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
+            en_creacion = False
+            bloque_onboarding = ("El atleta decidió CONSERVAR su plan actual. Confírmaselo en "
+                                 "una línea, sin drama, y sigue la conversación normal.")
+            log(numero_usuario, "REGEN", "reemplazo rechazado; conserva plan")
+        elif intentos_regen < 2:
+            # Mensaje ambiguo: NO se descarta la intención; se re-pregunta una vez
+            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=intentos_regen + 1)
+            en_creacion = False
+            bloque_onboarding = ("SIGUE PENDIENTE confirmar si reemplaza su plan actual por uno "
+                                 "nuevo. Responde primero a lo que acaba de decir y vuelve a "
+                                 "preguntarle en UNA línea (sí/no) si arma el plan nuevo. "
+                                 "NO pidas datos ni afirmes que algo se está generando.")
+            log(numero_usuario, "REGEN", f"sin confirmación clara; re-pregunta ({intentos_regen+1}/2)")
+        else:
+            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
+            log(numero_usuario, "REGEN", "confirmación abandonada tras 2 intentos; flujo normal")
+
+    # v4.4 — VERIFICACIÓN DE DATOS PRE-REGENERACIÓN: aquí el atleta vuelca marcas
+    # nuevas, corrige peso/meta/días, y el sistema lo captura TODO en código.
+    # "sí/dale/genera" dispara la regeneración; "cancélalo" conserva el plan viejo.
+    if (not onboarding_activo and not bloque_onboarding
+            and estado_hoy.get("confirmar_datos_regen")):
+        if CANCELAR_ONBOARDING_RE.search(texto_puro):
+            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0)
+            log(numero_usuario, "REGEN", "verificación cancelada; conserva su plan actual")
+            bloque_onboarding = ("El atleta canceló el cambio de plan: conserva el actual y sus "
+                                 "datos quedan guardados. Confírmalo en una línea y sigue normal.")
+        else:
+            extras_regen = _parsear_campos_anclados(
+                numero_usuario, mensaje_usuario, [c for c, _t, _d in CAMPOS_ONBOARDING])
+            meta_regen = _detectar_meta(texto_puro)
+            if meta_regen:
+                actualizar_perfil(numero_usuario, meta=meta_regen)
+                extras_regen.append(f"meta {meta_regen}")
+            listo = bool(AFIRMACION_CORTA_RE.match(texto_puro) or
+                         re.search(r"\b(gener[aá]\w*|ya\s+con\s+eso|con\s+esos?\s+datos?|"
+                                   r"as[ií]\s+est[aá]\s+bien|est[aá]n?\s+bien|correcto|dale|"
+                                   r"adelante|hazlo)\b", texto_puro))
+            if listo:
+                _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0)
+                resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
+                log(numero_usuario, "REGEN", f"datos verificados -> pipeline: {resultado_pipeline!r}")
+                extra_txt = (f"ACTUALIZADO al vuelo: {'; '.join(extras_regen)}. "
+                             if extras_regen else "")
+                if "[ERROR" in resultado_pipeline or "Faltan" in resultado_pipeline:
+                    bloque_onboarding = (f"{extra_txt}El sistema intentó regenerar pero: "
+                                         f"{resultado_pipeline}. Explícaselo con naturalidad.")
+                else:
+                    bloque_onboarding = (
+                        f"{extra_txt}EL SISTEMA YA DISPARÓ la regeneración del plan con sus "
+                        "datos verificados. Dile que estará listo en 2-3 minutos y que TÚ le "
+                        "avisarás. NO describas ejercicios, NO muestres el plan viejo, NO "
+                        "preguntes nada más.")
+            elif extras_regen:
+                log(numero_usuario, "REGEN", f"datos actualizados en verificación: {extras_regen}")
+                bloque_onboarding = (
+                    f"ACTUALIZADO EN SU FICHA: {'; '.join(extras_regen)}.\n"
+                    f"Resumen vigente: {_resumen_perfil_humano(numero_usuario)}.\n"
+                    "Confírmale en corto lo actualizado y pregúntale si genera ya el plan o "
+                    "cambia algo más. Si dio una marca SIN decir de qué ejercicio, pregúntale "
+                    "a cuál corresponde. NO llames herramientas; el sistema captura todo.")
+            else:
+                bloque_onboarding = (
+                    "SIGUE EN VERIFICACIÓN DE DATOS PRE-REGENERACIÓN. Su mensaje no trajo un "
+                    "dato reconocible ni una confirmación: responde a lo que dijo y vuelve a "
+                    "preguntarle, en corto, si genera el plan con el resumen que le diste o "
+                    "qué actualiza (peso, marcas con ejercicio+kg+reps, días o meta).")
+
     if onboarding_activo and CANCELAR_ONBOARDING_RE.search(texto_puro):
         _actualizar_estado_json(numero_usuario, onboarding_activo=False, campo_pendiente="")
         onboarding_activo = False
@@ -1261,11 +1775,28 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                              "(sus datos quedan guardados para cuando quiera retomar) y sigue "
                              "la conversación normal.")
 
+    elif not onboarding_activo and en_creacion and estado_gen != "generando" \
+            and not rutina_vacia and not regen_confirmada:
+        # v4.2 — ya tiene un plan activo: confirmar antes de reemplazarlo
+        _actualizar_estado_json(numero_usuario, confirmar_regeneracion=1)
+        meta_disparo = _detectar_meta(texto_puro)
+        if meta_disparo:
+            actualizar_perfil(numero_usuario, meta=meta_disparo)
+            log(numero_usuario, "REGEN", f"meta '{meta_disparo}' capturada del mensaje disparador")
+        log(numero_usuario, "REGEN", "plan activo detectado; se pide confirmación antes de regenerar")
+        bloque_onboarding = (
+            f"El atleta pidió un plan NUEVO{f' de {meta_disparo}' if meta_disparo else ''}, pero "
+            f"YA tiene uno activo (va en la semana {estado_hoy['semana']}). Pregúntale en UNA "
+            "sola línea, con tu tono, si quiere reemplazarlo por uno nuevo desde cero. Menciona "
+            f"que lo armarías con sus datos guardados ({_resumen_perfil_humano(numero_usuario)}) "
+            "y que si alguna marca cambió te la diga junto con su confirmación. "
+            "NO afirmes que algo se está generando todavía.")
+
     elif not onboarding_activo and en_creacion and estado_gen != "generando":
         # v3.1 — FIX: el mensaje que dispara puede TRAER datos
         # ("hazme una rutina, peso 82kg, mido 1.73, entreno 5 días..."). Antes se
         # ignoraban y el coach pedía el peso recién dado -> "me vuelve a pedir todo".
-        extras_iniciales = _parsear_campos_anclados(
+        extras_iniciales = extras_arrastre + _parsear_campos_anclados(
             numero_usuario, mensaje_usuario, calcular_faltantes(numero_usuario))
         faltantes = calcular_faltantes(numero_usuario)
         log(numero_usuario, "ONB", f"ACTIVADO por intención explícita. "
@@ -1388,6 +1919,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     es_casual = (not any(p in texto_puro for p in PALABRAS_ENTRENAMIENTO)
                  and len(texto_puro) <= 60)
 
+    # v5.2 — Reporte "okey espero": un mensaje de transición corto tras un turno
+    # donde el coach habló de plan/generación NO debe apagar herramientas ni
+    # thinking; era la ventana exacta donde el modelo quedaba forzado a alucinar.
+    if es_casual and re.search(r"plan|rutina|gener|mesociclo|minut|marcas?", ultimo_coach.lower()) \
+            and (AFIRMACION_CORTA_RE.match(texto_puro)
+                 or re.search(r"\bespero\b|\bok(?:ey)?\b|\bva\b|\bgracias\b", texto_puro)):
+        es_casual = False
+        log(numero_usuario, "MODO", "transición corta tras tema de plan -> NO casual (tools activas)")
+
     consulta_rutina = None
     serie = None
     if not onboarding_activo and not bloque_onboarding:
@@ -1423,11 +1963,77 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # y se inyecta ya resuelta. El modelo no puede inventar reglas de bloqueo ni
     # depende de acertar una tool call.
     if consulta_rutina:
-        if consulta_rutina.get("tipo") == "semana_futura":
+        tipo_consulta = consulta_rutina.get("tipo")
+        semana_obj = estado_hoy["semana"]
+        dia_obj = None
+        enfoque_pedido = consulta_rutina.get("enfoque")
+        fin_de_plan = False
+
+        # v5.3 — CURSOR DE CONSULTA PERSISTENTE (estado_usuarios.json, no memoria:
+        # historial_memoria se destruye cada turno y una global no sobrevive
+        # reinicios). Arregla el bucle "siempre Día 2": antes dia_obj se calculaba
+        # desde estado_hoy['dia'] (el día EN CURSO, siempre 1) -> 1+1=2 eternamente.
+        # Ahora "siguiente" avanza desde el ÚLTIMO DÍA CONSULTADO.
+        cur_sem = estado_hoy.get("cursor_semana")
+        cur_dia = estado_hoy.get("cursor_dia")
+
+        if tipo_consulta == "semana_futura":
             semana_obj = consulta_rutina.get("semana_objetivo", estado_hoy["semana"] + 1)
+            _actualizar_estado_json(numero_usuario, cursor_semana=semana_obj, cursor_dia=0)
+        elif tipo_consulta == "dia_especifico":
+            dia_obj = consulta_rutina["dia_objetivo"]
+            # Un día explícito REANCLA el cursor: "día 3" -> "y el siguiente" = 4.
+            _actualizar_estado_json(numero_usuario, cursor_semana=semana_obj, cursor_dia=dia_obj)
+        elif tipo_consulta == "dia_siguiente":
+            # Ancla: último día consultado si existe; si no, el día en curso.
+            if cur_sem and cur_dia:
+                base_sem, base_dia = int(cur_sem), int(cur_dia)
+            else:
+                base_sem = estado_hoy["semana"]
+                base_dia = int(estado_hoy.get("dia", 1)) if str(estado_hoy.get("dia", 1)).isdigit() else 1
+            siguiente = _avanzar_cursor(numero_usuario, base_sem, base_dia, enfoque_pedido)
+            if siguiente:
+                semana_obj, dia_obj = siguiente
+                _actualizar_estado_json(numero_usuario, cursor_semana=semana_obj, cursor_dia=dia_obj)
+                log(numero_usuario, "CURSOR",
+                    f"S{base_sem}D{base_dia} -> S{semana_obj}D{dia_obj}"
+                    + (f" (filtrado por enfoque '{enfoque_pedido}')" if enfoque_pedido else ""))
+            else:
+                fin_de_plan = True
+                log(numero_usuario, "CURSOR",
+                    f"sin más días tras S{base_sem}D{base_dia}"
+                    + (f" con enfoque '{enfoque_pedido}'" if enfoque_pedido else ""))
         else:
-            semana_obj = estado_hoy["semana"]
-        rutina_pedida = obtener_rutina_del_json(numero_usuario, semana_obj, None, solo_hoy=False)
+            # "semana_completa" / "ver_rutina": el usuario cambió de marco -> el
+            # cursor se reancla a la semana mostrada (dia 0 = aún no pidió día).
+            _actualizar_estado_json(numero_usuario, cursor_semana=semana_obj, cursor_dia=0)
+
+        if fin_de_plan:
+            disponibles = _semanas_disponibles(numero_usuario)
+            rutina_pedida = (
+                "NO HAY MÁS DÍAS después del último que le mostraste"
+                + (f" que sean de {enfoque_pedido}" if enfoque_pedido else "")
+                + f". El plan cubre las semanas {disponibles if disponibles else 'ninguna'}. "
+                "Díselo tal cual y ofrécele volver a una semana que sí exista. "
+                "PROHIBIDO inventar días o semanas que no están en el plan.")
+        elif dia_obj is not None:
+            total = _contar_sesiones_semana(numero_usuario, semana_obj)
+            if total and dia_obj > total:
+                rutina_pedida = (f"EL DÍA {dia_obj} NO EXISTE: la semana {semana_obj} tiene "
+                                 f"exactamente {total} sesiones (días 1 a {total}). Díselo tal "
+                                 "cual y ofrécele ver una de esas. PROHIBIDO inventar un día extra.")
+                log(numero_usuario, "CONSULTA-DIA", f"día {dia_obj} fuera de rango (semana de {total})")
+            else:
+                rutina_pedida = obtener_rutina_del_json(numero_usuario, semana_obj, dia_obj, solo_hoy=True)
+                nota_enfoque = (f" Es el siguiente día de {enfoque_pedido} que pidió."
+                                if enfoque_pedido else "")
+                rutina_pedida = (f"EL ATLETA PIDIÓ EL DÍA {dia_obj} DE LA SEMANA {semana_obj}."
+                                 f"{nota_enfoque} (Si el encabezado dice 'HOY', ignóralo: "
+                                 f"preséntalo como el día {dia_obj}, NO como el entrenamiento "
+                                 "de hoy):\n" + rutina_pedida)
+                log(numero_usuario, "CONSULTA-DIA", f"día {dia_obj} de semana {semana_obj} inyectado")
+        else:
+            rutina_pedida = obtener_rutina_del_json(numero_usuario, semana_obj, None, solo_hoy=False)
         if "ESTADO DE RUTINA: Vacío" in rutina_pedida:
             disponibles = _semanas_disponibles(numero_usuario)
             rutina_pedida = (
@@ -1443,7 +2049,20 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                               + rutina_pedida)
 
     if serie and not rutina_vacia:
-        contenido_mensaje += f"\n\n[SEÑAL CRÍTICA]: Serie detectada. Peso: {serie['peso']}kg | Reps: {serie['reps']}. OBLIGATORIO: Llama 'registrar_serie_completada' y 'calcular_rm_exacto'."
+        series_todas = detectar_series_multiples(mensaje_usuario)
+        if len(series_todas) >= 2:
+            listado = "; ".join(
+                f"{s['ejercicio'] or '¿ejercicio?'} {s['peso']:g}kg x {s['reps']}"
+                for s in series_todas)
+            contenido_mensaje += (
+                f"\n\n[SEÑAL CRÍTICA]: {len(series_todas)} series detectadas: {listado}. "
+                "OBLIGATORIO: llama 'registrar_serie_completada' Y 'calcular_rm_exacto' por "
+                "CADA UNA (varias herramientas en el mismo turno). Si alguna dice "
+                "'¿ejercicio?', pregúntale al atleta a qué ejercicio corresponde ANTES de "
+                "registrar esa.")
+            log(numero_usuario, "SERIES-MULTI", listado)
+        else:
+            contenido_mensaje += f"\n\n[SEÑAL CRÍTICA]: Serie detectada. Peso: {serie['peso']}kg | Reps: {serie['reps']}. OBLIGATORIO: Llama 'registrar_serie_completada' y 'calcular_rm_exacto'."
 
     # v4.1 — pista de fin de sesión (no obligatoria: el modelo decide con su criterio)
     if (not onboarding_activo and not bloque_onboarding and not rutina_vacia
@@ -1459,22 +2078,42 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             contenido_mensaje += bloque_vel
             log(numero_usuario, "VBT", "velocidades detectadas y analizadas en código")
 
-    # v3 — Fallo 4 (restricción negativa ignorada): se detecta, se persiste y se
-    # inyecta con prioridad máxima para que la inercia del formato no la ahogue.
-    if not onboarding_activo and not bloque_onboarding and RESTRICCION_RE.search(texto_puro):
+    # v6 (F3/F5) — RECUPERACIÓN DE LESIÓN: si el atleta dice que ya se curó,
+    # se registra, se marca la parte como resuelta y se le ordena al modelo NO
+    # tratar lesiones previas como activas ni dramatizar (nada de "hospital").
+    if not onboarding_activo and not bloque_onboarding and RECUPERACION_RE.search(texto_puro):
+        partes = _detectar_partes_cuerpo(texto_puro)
+        resueltas = set(estado_hoy.get("lesiones_resueltas") or [])
+        resueltas |= set(partes) if partes else {"general"}
+        estado_hoy["lesiones_resueltas"] = sorted(resueltas)  # refresco local
+        _actualizar_estado_json(numero_usuario, lesiones_resueltas=sorted(resueltas))
         guardar_dato_en_expediente(
             numero_usuario,
-            f"({fecha_actual}) El atleta reportó una limitación/fallo: \"{str(mensaje_usuario).strip()[:200]}\"")
+            f"({fecha_actual}) El atleta reportó RECUPERACIÓN: "
+            f"\"{str(mensaje_usuario).strip()[:180]}\". Tratar como RESUELTA cualquier molestia "
+            f"previa en: {', '.join(partes) or 'no especificado'}.")
         contenido_mensaje += (
-            "\n\n[RESTRICCIÓN DEL ATLETA — PRIORIDAD MÁXIMA, POR ENCIMA DE CUALQUIER RUTINA "
-            "MOSTRADA]: acaba de decir que NO puede con algo (peso, reps o ejercicio). Ya quedó "
-            "anotado en su expediente. En tu respuesta DEBES: 1) reconocer la limitación "
-            "explícitamente, 2) NO volver a prescribir esa carga tal cual, 3) proponer un ajuste "
-            "concreto (menos peso, menos reps o sustituir el ejercicio). PROHIBIDO ignorarlo o "
-            "repetir la prescripción original.")
-        log(numero_usuario, "RESTRICCION", "detectada y anotada en expediente")
+            "\n\n[ACTUALIZACIÓN DE SALUD — PRIORIDAD]: el atleta dice que YA SE RECUPERÓ / ya no "
+            "le duele. NO trates ninguna lesión previa como activa, NO menciones reposo médico, "
+            "médicos ni hospital. Felicítalo por la recuperación y retoma el entrenamiento normal "
+            "(con progresión prudente solo si él lo pide).")
+        log(numero_usuario, "RECUPERACION", f"partes resueltas: {partes or 'general'}")
 
+    # v6 (F3/F5) — no reinyectar notas de una lesión YA resuelta, salvo que el
+    # atleta la vuelva a mencionar en este turno. Mata el "loro" en su origen.
     if contexto_extra:
+        resueltas = set(estado_hoy.get("lesiones_resueltas") or [])
+        partes_ahora = set(_detectar_partes_cuerpo(texto_puro))
+        if resueltas and not (partes_ahora & resueltas):
+            lineas_ok = []
+            for linea in contexto_extra.splitlines():
+                low = linea.lower()
+                es_nota_lesion = any(k in low for k in ("dolor", "molestia", "lesion", "lesión", "duele"))
+                menciona_resuelta = any(r in low for r in resueltas)
+                if es_nota_lesion and menciona_resuelta:
+                    continue  # se omite: lesión resuelta que el atleta no mencionó
+                lineas_ok.append(linea)
+            contexto_extra = "\n".join(lineas_ok)
         contenido_mensaje += f"\n\n{contexto_extra}"
 
     contenido_mensaje += contexto_dinamico
@@ -1494,13 +2133,38 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     if not quiere_semana_completa:
         opciones_turno["num_predict"] = 768
 
+    # v5 — THINKING SELECTIVO: razona solo cuando el modelo DECIDE (elegir
+    # herramientas, sintetizar sus resultados). En onboarding/casual Python ya
+    # decidió todo y el modelo solo redacta: pensar ahí es latencia tirada.
+    # OJO: los tokens de razonamiento consumen num_predict -> presupuesto amplio.
+    pensar_turno = PENSAR_HABILITADO and tools_de_turno is not None
+    if pensar_turno:
+        opciones_turno.update(AJUSTES_PENSANDO)
+    log(numero_usuario, "THINK", "activado este turno" if pensar_turno else "desactivado (solo redacción)")
+
     try:
-        respuesta_ia = await chat_llm(
-            historial_memoria[numero_usuario],
-            tools=tools_de_turno,
-            opciones=opciones_turno,
-            quien="principal"
-        )
+        try:
+            respuesta_ia = await chat_llm(
+                historial_memoria[numero_usuario],
+                tools=tools_de_turno,
+                opciones=opciones_turno,
+                quien="principal",
+                pensar=pensar_turno
+            )
+        except asyncio.TimeoutError:
+            # v5.2 — Reporte 131.6s: el turno crítico con thinking puede exceder
+            # el timeout (sobre todo con un modelo denso). Antes esto caía al
+            # fallback sin tools y ahí nacía la promesa falsa. Ahora se reintenta
+            # UNA vez sin thinking y con presupuesto corto: rápido y con tools.
+            log(numero_usuario, "THINK-TIMEOUT",
+                "turno principal excedió el timeout; reintento SIN thinking")
+            respuesta_ia = await chat_llm(
+                historial_memoria[numero_usuario],
+                tools=tools_de_turno,
+                opciones={**OPCIONES_QWEN_32B, "num_predict": 768},
+                quien="principal-retry",
+                pensar=False
+            )
 
         mensaje_salida = respuesta_ia.get("message", {})
         texto_final    = mensaje_salida.get("content", "") or ""
@@ -1521,7 +2185,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 "Llama AHORA a registrar_serie_completada y calcular_rm_exacto con esos datos "
                 "y después redacta tu respuesta."})
             resp_nudge = await chat_llm(mensajes_orquestador, tools=mis_herramientas,
-                                        opciones=opciones_turno, quien="nudge-serie")
+                                        opciones=opciones_turno, quien="nudge-serie",
+                                        pensar=pensar_turno)
             mensaje_salida = resp_nudge.get("message", {})
             texto_final = mensaje_salida.get("content", "") or ""
             loop_count += 1
@@ -1678,7 +2343,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     mensajes_orquestador,
                     tools=mis_herramientas,
                     opciones=opciones_turno,
-                    quien=f"post-tools-{loop_count+1}"
+                    quien=f"post-tools-{loop_count+1}",
+                    pensar=pensar_turno
                 )
                 mensaje_salida = resp2.get("message", {})
                 texto_final = mensaje_salida.get("content", "") or ""
@@ -1713,7 +2379,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             texto_final = await _forzar_respuesta_texto(
                 base,
                 "Responde AHORA al atleta en texto normal, en español, con la información "
-                "que ya tienes en esta conversación. No llames herramientas.")
+                "que ya tienes en esta conversación. No llames herramientas. "
+                "PROHIBIDO afirmar que algo se generó, se guardó o 'está en camino': si "
+                "ibas a ejecutar una acción y no se completó, dilo con honestidad y ofrece "
+                "reintentarla.")
         if not texto_final.strip():
             log(numero_usuario, "FALLBACK", "el fallback también vino vacío; mensaje enlatado")
             texto_final = "Perdón bro, me trabé un segundo 😅 ¿en qué estábamos? Repíteme lo último."
@@ -1744,7 +2413,50 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     texto_final = correccion
                     log(numero_usuario, "KG-INVENTADOS", "corregido en el reintento")
                 else:
-                    log(numero_usuario, "KG-INVENTADOS", "el reintento también inventó; se conserva y se registra")
+                    # v5.2 — Reporte: la doble derrota entregaba la rutina alucinada
+                    # al usuario. Ahora se BLOQUEA: mejor una respuesta honesta sin
+                    # kilos que kilos inventados en su WhatsApp.
+                    log(numero_usuario, "KG-INVENTADOS",
+                        "el reintento también inventó; respuesta BLOQUEADA y sustituida por honestidad")
+                    if rutina_vacia:
+                        texto_final = ("Bro, freno aquí para no inventarte números 🙅. Tu plan "
+                                       "todavía no está generado en mi sistema, así que no tengo "
+                                       "cargas reales que darte. ¿Le doy ya para armarlo en serio? "
+                                       "Dime *sí* y arrancamos.")
+                    else:
+                        texto_final = ("Bro, prefiero no aventarte cifras al aire. Déjame darte "
+                                       "los números exactos: escríbeme *ver mi rutina* y te paso "
+                                       "las cargas reales calculadas por mis métodos.")
+
+        # ======================================================================
+        # v6 — RED DE SEGURIDAD (F2): rutina fantasma.
+        # Sin plan real o mientras se genera, el modelo NO puede listar ejercicios.
+        # Se relee el estado de generación por si el pipeline se disparó este turno.
+        # ======================================================================
+        estado_gen_actual = obtener_estado_usuario(numero_usuario).get("estado_generacion", "")
+        if _parece_rutina_inventada(texto_final) >= 3 and (rutina_vacia or estado_gen_actual == "generando"):
+            log(numero_usuario, "RUTINA-FANTASMA",
+                "salida con forma de rutina sin plan real; BLOQUEADA y sustituida")
+            if estado_gen_actual == "generando":
+                texto_final = ("¡Vamos! 🔥 Tu plan se está armando ahorita mismo. Dame 2-3 "
+                               "minutos y te aviso en cuanto esté listo con tus cargas exactas.")
+            else:
+                texto_final = ("Ojo bro, todavía no tengo un plan generado para ti, así que no te "
+                               "voy a inventar ejercicios ni pesos 🙅. ¿Le damos para armarte la "
+                               "rutina en serio? Dime *sí* y arrancamos.")
+
+        # ======================================================================
+        # v6 — RED DE SEGURIDAD (F1): reparador de onboarding.
+        # Si estamos en un turno de PREGUNTA de onboarding y el modelo se desvió
+        # (preguntó 'experiencia/nivel' o repreguntó un dato ya guardado), se
+        # reemplaza por una pregunta limpia del campo pendiente.
+        # ======================================================================
+        if onboarding_activo and bloque_onboarding and campo_pendiente:
+            corregido, reparado = _reparar_onboarding(texto_final, numero_usuario, campo_pendiente)
+            if reparado:
+                log(numero_usuario, "ONB-REPARADO",
+                    f"pregunta desviada/redundante -> se fuerza '{campo_pendiente}'")
+                texto_final = limpiar_texto_para_whatsapp(corregido)
 
         # ======================================================================
         # v2 — RED DE SEGURIDAD 3: no repetir literalmente el mensaje anterior
@@ -1910,7 +2622,10 @@ def obtener_rutina_del_json(numero_usuario: str, semana_actual, dia_actual=None,
             return f"Error: {archivo} corrupto."
 
     if not sesiones:
-        return "ESTADO DE RUTINA: Vacío.\nEl atleta NO tiene plan. Si pide una rutina, ofrécele crear una; si solo charla, conversa normal SIN pedirle datos."
+        return ("ESTADO DE RUTINA: Vacío.\nEl atleta NO tiene plan. Si pide una rutina, "
+                "ofrécele crear una; si solo charla, conversa normal SIN pedirle datos. "
+                "PROHIBIDO dictarle una rutina tú mismo o improvisar ejercicios y cargas: "
+                "el sistema es el ÚNICO que genera planes.")
 
     if solo_hoy and dia_actual is not None:
         dia_idx = _normalizar_dia_a_indice(dia_actual)
@@ -2039,7 +2754,10 @@ def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> bool:
     # (antes se perdían onboarding_activo, estado_generacion, meta, etc.)
     estado.update({
         "semana": sig_sem, "dia": sig_dia,
-        "fecha_programada": nueva_fecha, "ultima_fecha_completada": hoy
+        "fecha_programada": nueva_fecha, "ultima_fecha_completada": hoy,
+        # v5.3: el calendario avanzó -> el cursor de consulta se reancla al día
+        # real en curso; "el siguiente" vuelve a significar "el que sigue a hoy".
+        "cursor_semana": sig_sem, "cursor_dia": sig_dia,
     })
     estados[numero_usuario] = estado
 

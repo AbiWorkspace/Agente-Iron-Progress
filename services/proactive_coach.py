@@ -136,11 +136,11 @@ Habla en primera persona y NO menciones bases de datos, SQL o telemetría explí
 
         print(f"[PROACTIVIDAD] Pidiendo al LLM que redacte alerta para {atleta['numero_usuario']}...")
         response = await cliente_ollama.chat(
-            model="qwen3:32b",
+            model="qwen3.6:27b",
             keep_alive=-1,
             think=False,
             # Usamos el contexto unificado, pero dándole un poco más de libertad creativa (0.7)
-            options={**OPCIONES_QWEN_32B, "temperature": 0.7, "num_predict": 200}
+            options={**OPCIONES_QWEN_32B, "temperature": 0.7, "num_predict": 4096}
         )
 
         mensaje = response.get("message", {}).get("content", "").strip()
