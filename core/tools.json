@@ -233,5 +233,102 @@
         "required": ["dato_a_guardar"]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sustituir_ejercicio",
+      "description": "Reemplaza UN ejercicio del plan por otro sin regenerar el mesociclo. USA CUANDO: el atleta no puede o no quiere hacer un ejercicio (dolor, falta de equipo, preferencia) y pide cambiarlo. El sistema conserva series, reps, RPE y el % de carga; solo cambia el movimiento. NO LA USES CUANDO: quiera cambiar TODO el plan (eso lo maneja el sistema) o solo consultar su rutina.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio_original": {"type": "string", "description": "Ejercicio que está en su plan y quiere cambiar (ej. 'Press Militar')."},
+          "ejercicio_nuevo": {"type": "string", "description": "Ejercicio de reemplazo (ej. 'Press con Mancuernas Sentado')."},
+          "motivo": {"type": "string", "description": "Razón corta: 'dolor_hombro', 'sin_equipo', 'preferencia', etc."},
+          "alcance": {"type": "string", "enum": ["permanente", "solo_hoy"], "description": "permanente = en todo el plan; solo_hoy = solo la sesión de hoy (se limpia al avanzar de día)."}
+        },
+        "required": ["ejercicio_original", "ejercicio_nuevo", "motivo", "alcance"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "aplicar_descarga",
+      "description": "Marca una semana como DESCARGA (deload): baja la intensidad y el volumen sin regenerar el plan. USA CUANDO: detectas fatiga acumulada, pérdida de velocidad (VBT) o estancamiento y decides bajar la carga una semana (consulta antes la biblioteca científica si te ayuda a justifycarlo). NO LA USES CUANDO: el atleta solo tuvo un mal día suelto.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "semana": {"type": "integer", "description": "Número de semana absoluta a descargar (normalmente la actual)."},
+          "reduccion_intensidad_pct": {"type": "number", "description": "Cuánto bajar el % de carga, típico 10 (rango 0-40)."},
+          "reduccion_series": {"type": "integer", "description": "Cuántas series quitar por ejercicio, típico 1 (rango 0-3)."}
+        },
+        "required": ["semana", "reduccion_intensidad_pct", "reduccion_series"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_progreso",
+      "description": "Muestra la evolución del atleta a partir de su historial. USA CUANDO: pregunte cómo va, si ha subido, cómo evolucionó un levantamiento o su peso corporal. NO LA USES CUANDO: pregunte por la rutina de un día (eso es consultar_rutina_futura).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "metrica": {"type": "string", "enum": ["1rm", "peso_corporal"], "description": "Qué evolución mostrar: fuerza (1rm) o peso corporal."},
+          "ejercicio": {"type": "string", "description": "Opcional. Ejercicio concreto para la métrica 1rm (ej. 'Press Banco Plano'). Omítelo para ver todos."}
+        },
+        "required": ["metrica"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "explicar_tecnica_ejercicio",
+      "description": "Devuelve cues técnicos y errores comunes de un ejercicio, sacados de la biblioteca científica. USA CUANDO: el atleta pregunte cómo se ejecuta bien un movimiento o cómo mejorar su técnica. NO LA USES CUANDO: pregunte por su rutina o por teoría general (eso es consultar_libro_cientifico).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": {"type": "string", "description": "Nombre del ejercicio (ej. 'Peso Muerto', 'Sentadilla')."}
+        },
+        "required": ["ejercicio"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "registrar_peso_corporal",
+      "description": "Guarda el peso corporal actual del atleta con fecha y lo actualiza en su ficha. USA CUANDO: te diga cuánto pesa hoy o reporte un cambio de peso corporal. NO LA USES CUANDO: hable de pesos LEVANTADOS (eso es calcular_rm_exacto o registrar_serie_completada).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "peso_kg": {"type": "number", "description": "Peso corporal actual en kg."}
+        },
+        "required": ["peso_kg"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "pausar_plan",
+      "description": "Congela el calendario del atleta sin borrar nada (el plan deja de avanzar). USA CUANDO: se va de viaje, se enferma o necesita parar un tiempo. NO LA USES para eliminar el plan.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "motivo": {"type": "string", "description": "Razón corta: 'viaje', 'enfermedad', 'descanso', etc."}
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "reanudar_plan",
+      "description": "Reactiva un plan que estaba pausado; hoy vuelve a haber entrenamiento disponible. USA CUANDO: el atleta regresa y quiere seguir. NO LA USES si el plan no estaba pausado.",
+      "parameters": {"type": "object", "properties": {}}
+    }
   }
 ]

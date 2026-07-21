@@ -10,7 +10,8 @@
         "meta": "powerbuilding",
         "dias": 7,
         "generacion_ts": 1784420708.856324,
-        "cursor_semana": 2,
-        "cursor_dia": 0
+        "cursor_semana": 1,
+        "cursor_dia": 0,
+        "plan_pausado": 0
     }
 }
