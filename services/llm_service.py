@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiofiles
+from services.handlers_v9 import DISPATCHER_V9
 from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashboard_analitico
 from services.conexion_entrenamiento_llm_orquestacion import recibir_peticion
 from services.calculadora_rm import calcular_1rm, TipoEjercicio
@@ -1466,22 +1467,28 @@ def detectar_series_multiples(mensaje: str) -> list[dict]:
 # INTERCEPTOR DE SERIES
 # ==============================================================================
 def detectar_serie_en_mensaje(mensaje: str) -> dict | None:
+    """v9: Detecta peso, repeticiones y opcionalmente el RPE en mensajes directos."""
     patrones = [
-        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*[xX×]\s*(\d+)',
-        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*por\s*(\d+)',
-        r'hice\s+(\d+)\s+(?:reps?|repeticiones?)\s+con\s+(\d+(?:[.,]\d+)?)',
-        r'(\d+)\s+(?:reps?|repeticiones?)\s+(?:con|a)\s+(\d+(?:[.,]\d+)?)\s*kg',
-        r'(\d+(?:[.,]\d+)?)\s*kg\s+(?:por|x|×)\s*(\d+)\s+(?:reps?|repeticiones?)',
+        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*[xX×]\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*por\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'hice\s+(\d+)\s+(?:reps?|repeticiones?)\s+con\s+(\d+(?:[.,]\d+)?)\s*kg(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'(\d+)\s+(?:reps?|repeticiones?)\s+(?:con|a)\s+(\d+(?:[.,]\d+)?)\s*kg(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
     ]
     for patron in patrones:
         match = re.search(patron, mensaje, re.IGNORECASE)
         if match:
-            a = float(match.group(1).replace(",", "."))
-            b = float(match.group(2).replace(",", "."))
+            g = match.groups()
+            # Asignación inteligente dependiendo del orden de los grupos en el patrón
+            if len(g) >= 3 and g[2]:  # El tercer grupo atrapó el RPE
+                a, b, rpe = float(g[0].replace(",", ".")), float(g[1].replace(",", ".")), float(g[2].replace(",", "."))
+            else:
+                a, b, rpe = float(g[0].replace(",", ".")), float(g[1].replace(",", ".")), None
+
             peso, reps = (a, b) if a > b else (b, a)
             reps = int(reps)
+
             if 1 <= reps <= 30 and peso >= 1:
-                return {"peso": peso, "reps": reps}
+                return {"peso": peso, "reps": reps, "rpe": rpe}
     return None
 
 # ==============================================================================
@@ -3006,35 +3013,42 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                             acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
                         necesita_reinvocacion = True
 
-                    elif nombre == "registrar_serie_completada":
-                        if serie_registrada_python:
+
+                    elif nombre in DISPATCHER_V9:
+
+                        # Si es la tool de registrar serie y Python ya la agarró por regex, saltamos para no duplicar
+
+                        if nombre == "registrar_serie_completada" and serie_registrada_python:
+
                             resultados_texto.append("[registrar_serie_completada]: la serie YA la registró el "
-                                                    "sistema en este turno; NO se duplicó.")
+
+                                                    "sistema en este turno determinísticamente; NO se duplicó.")
+
                         else:
-                            ej = (str(args.get("ejercicio") or "").strip()
-                                  or _inferir_ejercicio_serie(texto_puro))
-                            peso = _num_seguro(args.get("peso_kg") or args.get("peso"))
-                            reps = _num_seguro(args.get("repeticiones") or args.get("reps"))
-                            if not ej or not peso or not reps:
-                                resultados_texto.append(
-                                    f"[registrar_serie_completada]: faltan datos (ejercicio={ej!r}, "
-                                    f"peso={peso}, reps={reps}); NO se guardó. Pregunta lo que falte.")
-                                acciones_fallidas.append("registrar_serie_completada: datos incompletos, no se guardó")
+
+                            # Ejecutamos la herramienta V9 (viaja asíncrono y en thread seguro)
+
+                            res_v9 = await DISPATCHER_V9[nombre](numero_usuario, args)
+
+                            # El resultado viaja directo como JSON string al LLM
+
+                            resultados_texto.append(f"[{nombre}]: {json.dumps(res_v9, ensure_ascii=False)}")
+
+                            # Engranaje con tu sistema de honestidad v8
+
+                            if res_v9.get("ok"):
+
+                                if nombre in ("registrar_serie_completada", "autorregular_dia",
+                                              "enviar_grafica_progreso"):
+                                    acciones_ok.append(f"{nombre}: {res_v9.get('resumen', 'ejecutado con éxito')}")
+
                             else:
-                                # v8 (Mandato 2): SQLite en thread — la escritura síncrona
-                                # bloqueaba el event loop y disparaba los 64s del reporte.
-                                await asyncio.to_thread(guardar_serie_sql, numero_usuario,
-                                                        {"ejercicio": ej, "peso_kg": float(peso),
-                                                         "repeticiones": int(reps)})
-                                detalle = f"{ej} {float(peso):g} kg x {int(reps)}"
-                                if 1 <= int(reps) <= 15:
-                                    rm = calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
-                                    await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
-                                                            peso_origen=float(peso),
-                                                            reps_origen=int(reps), fuente="auto_serie")
-                                    detalle += f" (1RM estimado {rm:g} kg)"
-                                resultados_texto.append(f"[registrar_serie_completada]: guardada {detalle}.")
-                                acciones_ok.append(f"serie guardada: {detalle}")
+
+                                # Si faltan datos, no lo marcamos como fallo catastrófico, sino como instrucción pendiente
+
+                                if res_v9.get("error") not in ("datos_insuficientes", "faltan_datos"):
+                                    acciones_fallidas.append(f"{nombre}: {res_v9.get('error', 'fallo interno')}")
+
                         necesita_reinvocacion = True
 
                     elif nombre == "sustituir_ejercicio":
