@@ -1,5 +1,6 @@
 import ollama
 import json
+import math
 import os
 import asyncio
 import re
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiofiles
+from services.handlers_v9 import DISPATCHER_V9
 from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashboard_analitico
 from services.conexion_entrenamiento_llm_orquestacion import recibir_peticion
 from services.calculadora_rm import calcular_1rm, TipoEjercicio
@@ -134,6 +136,93 @@ CAMBIAR_DIAS_INTENT_RE = re.compile(
     r"|\bentrenar\s+\d\s*d[ií]as\b|\bpasar\s+a\s+\d\s*d[ií]as\b",
     re.IGNORECASE)
 
+# ==============================================================================
+# EQUIPAMIENTO: DISCO MÍNIMO DISPONIBLE
+# ==============================================================================
+# El plan calcula cargas en múltiplos de 2.5 kg (discos de 1.25 por lado). Si el
+# atleta solo tiene discos de 2.5, una prescripción de 112.5 kg es INEJECUTABLE:
+# necesita bajar a 110 o subir a 115. Sin registrar esto, el coach proponía el
+# ajuste correcto y el validador anti-alucinación lo bloqueaba por "kg inventado".
+INCREMENTO_KG_POR_DEFECTO = 2.5     # discos de 1.25 kg por lado
+
+# Escalera canónica de discos en kg; evita leer "no llego a 100 kg" como disco.
+# Se omiten medidas no estándar (1.0, 2.0): si el atleta dice que no tiene los de
+# 1.25, el siguiente escalón real de su gimnasio es 2.5, no 2.
+_DISCOS_PLAUSIBLES = (0.25, 0.5, 1.25, 2.5, 5.0, 10.0, 15.0, 20.0, 25.0)
+
+# Exigimos mención explícita de disco/placa: sin esto, "levanto 20 kg como
+# mínimo" se interpretaría como equipamiento y corrompería el perfil.
+_MENCIONA_DISCO_RE = re.compile(r"\bdiscos?\b|\bplacas?\b|\bfraccional", re.IGNORECASE)
+_NEGACION_DISCO_RE = re.compile(r"\bno\b|\bsin\b|\bcarezco\b|\bfaltan?\b", re.IGNORECASE)
+_NUM_DISCO_RE = re.compile(r"(\d+(?:[.,]\d+)?)")
+
+
+def _extraer_disco_minimo(texto: str) -> float | None:
+    """Disco más pequeño que el atleta declara TENER. Devuelve el valor del disco
+    (no el incremento de la barra): 'solo tengo de 2.5 kg' -> 2.5.
+
+    Trabaja por cláusulas porque la frase natural mezcla lo que no tiene con lo
+    que sí: 'no tengo discos de 1.25, solo de 2.5 kg como mínimo'. Un regex único
+    devolvería 1.25 (lo negado) o el máximo de una lista ('tengo de 2.5, 5, 10 y
+    20' -> 20), ambos incorrectos.
+    """
+    if not texto or not _MENCIONA_DISCO_RE.search(texto):
+        return None
+
+    disponibles, negados = [], []
+    # El separador NO puede partir decimales: "2.5" debe seguir entero, si no
+    # se leería como los discos "2" y "5" y el mínimo saldría mal.
+    separador = r"(?<!\d)[,;.]|[,;.](?!\d)|\bpero\b|\bsolo\b|\bs[oó]lo\b|\b[uú]nicamente\b"
+    for clausula in re.split(separador, texto):
+        if not clausula.strip():
+            continue
+        negada = bool(_NEGACION_DISCO_RE.search(clausula))
+        for bruto in _NUM_DISCO_RE.findall(clausula):
+            try:
+                v = float(bruto.replace(",", "."))
+            except ValueError:
+                continue
+            if not any(abs(v - d) < 0.01 for d in _DISCOS_PLAUSIBLES):
+                continue
+            (negados if negada else disponibles).append(v)
+
+    if disponibles:
+        return min(disponibles)
+    if negados:
+        # Solo dijo lo que le falta: el mínimo real es el siguiente disco arriba.
+        mayor_negado = max(negados)
+        arriba = [d for d in _DISCOS_PLAUSIBLES if d > mayor_negado]
+        return arriba[0] if arriba else None
+    return None
+
+
+def _incremento_barra(numero_usuario: str) -> float:
+    """Salto mínimo REAL en la barra = 2 discos (uno por lado)."""
+    try:
+        valor = cargar_perfil(numero_usuario).get("incremento_kg")
+        if valor and float(valor) > 0:
+            return float(valor)
+    except Exception as e:
+        print(f"[EQUIPO] perfil ilegible para incremento: {e}")
+    return INCREMENTO_KG_POR_DEFECTO
+
+
+def _registrar_equipamiento(numero_usuario: str, texto: str) -> float | None:
+    """Si el atleta declara su disco mínimo, lo persiste como incremento de barra.
+    Devuelve el incremento guardado, o None si no declaró nada."""
+    disco = _extraer_disco_minimo(texto)
+    if disco is None:
+        return None
+    incremento = round(disco * 2, 2)          # un disco por lado
+    actual = _incremento_barra(numero_usuario)
+    if abs(actual - incremento) < 0.01:
+        return incremento                      # ya estaba registrado
+    actualizar_perfil(numero_usuario, incremento_kg=incremento)
+    log(numero_usuario, "EQUIPO",
+        f"disco mínimo {disco:g}kg -> incremento de barra {incremento:g}kg")
+    return incremento
+
+
 _DIAS_NUM_RE = re.compile(r"(\d)\s*d[ií]as|\bd[ií]as\b\s*(?:a\s+)?(\d)", re.IGNORECASE)
 
 def _extraer_dias(texto: str):
@@ -168,12 +257,66 @@ _CLAIM_ACCION_RE = re.compile(
     r"|\b(?:lo\s+)?tengo\s+(?:anotad|apuntad|guardad|registrad)",
     re.IGNORECASE)
 
+# ==============================================================================
+# CATÁLOGO V9: DICCIONARIO MAESTRO DE EJERCICIOS
+# ==============================================================================
+# IMPORTANTE: El orden importa. Las variantes específicas (con mancuernas, en máquina)
+# van primero para evitar falsos positivos con los ejercicios base.
+_CATALOGO_EJERCICIOS = {
+    # --- VARIANTES ESPECÍFICAS ---
+    "Press Banco Plano con Mancuernas": ["banca con mancuernas", "plano con mancuernas", "pecho con mancuernas",
+                                         "banca mancuernas"],
+    "Press Inclinado con Mancuernas": ["inclinado con mancuernas", "inclinado mancuernas"],
+    "Press Inclinado en Maquina": ["inclinado maquina", "inclinado en maquina", "inclinado máquina"],
+    "Press Pecho en Maquina": ["pecho maquina", "pecho en maquina", "press maquina", "press en maquina"],
+    "Dominadas Asistidas en Maquina": ["dominadas asistidas", "dominada asistida"],
+    "Dominadas Lastradas": ["dominadas lastradas", "dominada lastrada", "pull up lastrado", "dominadas con lastre"],
+    "Remo en Maquina": ["remo maquina", "remo en maquina", "remo sentado"],
+    "Jalon en Maquina": ["jalon", "jalón", "lat pulldown", "jalones"],
+    "Extension de Triceps Katana": ["katana", "triceps katana", "extensión katana"],
+    "Curl de Biceps con Barra": ["curl con barra", "curl barra", "biceps barra"],
+    "Curl de Biceps con Mancuernas": ["curl con mancuernas", "curl mancuernas", "biceps mancuernas"],
+    "Curl de Biceps en Polea": ["curl polea", "curl en polea", "biceps polea"],
+    "Curl Martillo": ["martillo", "curl martillo", "biceps martillo"],
+    "Sentadilla Copa con Mancuerna": ["sentadilla copa", "copa mancuerna", "goblet"],
+    "Sentadilla en Maquina Hack": ["hack", "sentadilla hack", "maquina hack"],
+    "Sentadilla en Maquina Smith": ["sentadilla smith", "smith squat", "sentadilla en smith"],
+    "Peso Muerto Rumano con Mancuernas": ["rumano con mancuernas", "rumano mancuernas", "rdl mancuernas"],
+    "Peso Muerto con Mancuernas": ["peso muerto mancuernas", "peso muerto con mancuernas"],
+    "Peso Muerto en Maquina Smith": ["peso muerto smith", "peso muerto en smith"],
+
+    # --- EJERCICIOS BASE / GENERALES ---
+    "Press Banco Plano": ["banca", "banco plano", "press plano", "bench press", "pecho plano"],
+    "Press Inclinado": ["inclinado", "incline press", "press inclinado"],
+    "Vuelos Laterales": ["vuelos", "laterales", "elevaciones laterales", "vuelo lateral"],
+    "Crunch Abdominal": ["crunch", "abdomen", "abdominales"],
+    "Sentadillas": ["sentadilla", "squat", "sentadillas"],
+    "Peso Muerto Rumano": ["rumano", "rdl", "peso muerto rumano"],
+    "Peso Muerto": ["peso muerto", "deadlift", "muerto convencional"],
+    "Prensa de Piernas": ["prensa", "leg press"],
+    "Extension de Cuadriceps": ["extension de cuadriceps", "extensiones", "leg extension", "cuadriceps en maquina"],
+    "Curl Femoral": ["femoral", "curl femoral", "leg curl"],
+    "Abductor de Piernas": ["abductor", "abductores"],
+    "Aductor de Piernas": ["aductor", "aductores"],
+    "Extension de Tobillo": ["pantorrilla", "gemelos", "gemelo", "tobillo", "elevacion de talones", "costureras"],
+    "Dominadas": ["dominadas", "dominada", "pull up", "pull-up", "barra"]
+}
+
 
 def _inferir_ejercicio_serie(mensaje: str) -> str | None:
+    """v9: Infiere el ejercicio interceptado usando el catálogo maestro extendido."""
     m = str(mensaje).lower()
+
+    # 1. Buscamos en tu catálogo oficial primero
+    for nombre_canonico, palabras_clave in _CATALOGO_EJERCICIOS.items():
+        if any(k in m for k in palabras_clave):
+            return nombre_canonico
+
+    # 2. Fallback al diccionario legacy (onboarding) por seguridad
     for kws, campo in _KW_EJERCICIO:
         if any(k in m for k in kws):
             return RM_CANONICO[campo]
+
     return None
 
 # ==============================================================================
@@ -1139,8 +1282,12 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
         )
 
         try:
+            # enviar_mensaje_whatsapp es SÍNCRONA (requests) y devuelve None:
+            # el 'await' anterior lanzaba "object NoneType can't be used in
+            # 'await' expression". Va a un hilo para no bloquear el event loop.
             from api.rutas_whatsapp import enviar_mensaje_whatsapp
-            await enviar_mensaje_whatsapp(
+            await asyncio.to_thread(
+                enviar_mensaje_whatsapp,
                 numero_usuario,
                 "🔥 ¡Listo bro! Tu nuevo plan ya está armado y guardado. Escríbeme *ver mi rutina* y arrancamos."
             )
@@ -1446,9 +1593,7 @@ async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> s
             + "\n\n".join(bloques) + "\n--- FIN DEL CONTEXTO ---")
 
 def detectar_series_multiples(mensaje: str) -> list[dict]:
-    """v4.4 — Timeline 01:22: un volcado de varias marcas solo registraba la
-    primera. Enumera TODAS las series (peso, reps y ejercicio si es deducible)
-    para que la señal al modelo las liste completas."""
+    """v9: Enumera TODAS las series (peso, reps, rpe y ejercicio) en un volcado de marcas."""
     encontradas = []
     for parte in re.split(r"[,;\n]|\s+y\s+", str(mensaje).lower()):
         s = detectar_serie_en_mensaje(parte)
@@ -1459,29 +1604,36 @@ def detectar_series_multiples(mensaje: str) -> list[dict]:
             if any(k in parte for k in kws):
                 ejercicio = RM_CANONICO[campo]
                 break
-        encontradas.append({"peso": s["peso"], "reps": s["reps"], "ejercicio": ejercicio})
+        # Aquí agregamos el RPE al diccionario
+        encontradas.append({"peso": s["peso"], "reps": s["reps"], "rpe": s.get("rpe"), "ejercicio": ejercicio})
     return encontradas
 
 # ==============================================================================
 # INTERCEPTOR DE SERIES
 # ==============================================================================
 def detectar_serie_en_mensaje(mensaje: str) -> dict | None:
+    """v9: Detecta peso, repeticiones y opcionalmente el RPE en mensajes directos."""
     patrones = [
-        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*[xX×]\s*(\d+)',
-        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*por\s*(\d+)',
-        r'hice\s+(\d+)\s+(?:reps?|repeticiones?)\s+con\s+(\d+(?:[.,]\d+)?)',
-        r'(\d+)\s+(?:reps?|repeticiones?)\s+(?:con|a)\s+(\d+(?:[.,]\d+)?)\s*kg',
-        r'(\d+(?:[.,]\d+)?)\s*kg\s+(?:por|x|×)\s*(\d+)\s+(?:reps?|repeticiones?)',
+        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*[xX×]\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*por\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'hice\s+(\d+)\s+(?:reps?|repeticiones?)\s+con\s+(\d+(?:[.,]\d+)?)\s*kg(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
+        r'(\d+)\s+(?:reps?|repeticiones?)\s+(?:con|a)\s+(\d+(?:[.,]\d+)?)\s*kg(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
     ]
     for patron in patrones:
         match = re.search(patron, mensaje, re.IGNORECASE)
         if match:
-            a = float(match.group(1).replace(",", "."))
-            b = float(match.group(2).replace(",", "."))
+            g = match.groups()
+            # Asignación inteligente dependiendo del orden de los grupos en el patrón
+            if len(g) >= 3 and g[2]:  # El tercer grupo atrapó el RPE
+                a, b, rpe = float(g[0].replace(",", ".")), float(g[1].replace(",", ".")), float(g[2].replace(",", "."))
+            else:
+                a, b, rpe = float(g[0].replace(",", ".")), float(g[1].replace(",", ".")), None
+
             peso, reps = (a, b) if a > b else (b, a)
             reps = int(reps)
+
             if 1 <= reps <= 30 and peso >= 1:
-                return {"peso": peso, "reps": reps}
+                return {"peso": peso, "reps": reps, "rpe": rpe}
     return None
 
 # ==============================================================================
@@ -1934,6 +2086,24 @@ def _construir_whitelist_kgs(numero_usuario: str, fuentes_turno: str,
                     permitidos.add(round(float(h["peso"]), 1))
     except (FileNotFoundError, json.JSONDecodeError, TypeError):
         pass
+
+    # 6) ADAPTACIÓN AL EQUIPAMIENTO. El plan calcula en múltiplos de 2.5, pero si
+    #    el atleta solo tiene discos de 2.5 kg no puede montar 112.5: el ajuste
+    #    correcto es 110 o 115. Ese ajuste NO estaba en ninguna fuente y el
+    #    validador lo marcaba inventado, así que el coach terminaba negándose a
+    #    adaptar la carga. Se admite únicamente el redondeo de un valor YA
+    #    legítimo a su múltiplo adyacente: nunca se aleja más de un incremento
+    #    del ancla real, así que no habilita cifras salidas de la nada.
+    incremento = _incremento_barra(numero_usuario)
+    if incremento > 0:
+        derivados = set()
+        for p in permitidos:
+            if p < 20.0:          # discos y accesorios: no aplica el redondeo de barra
+                continue
+            base = math.floor(p / incremento) * incremento
+            derivados.add(round(base, 1))
+            derivados.add(round(base + incremento, 1))
+        permitidos |= derivados
 
     return permitidos
 
@@ -2691,6 +2861,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     serie_registrada_python = False
     peso_registrado_python = False
     sustitucion_hecha_python = False
+    equipo_registrado_python = False
     acciones_ok: list[str] = []          # v8: escrituras COMPLETADAS de verdad
     acciones_fallidas: list[str] = []    # v8: errores/candados/timeouts del turno
     texto_tools_acumulado = ""           # v8: payloads de tools -> whitelist de kg
@@ -2699,7 +2870,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     if serie and not rutina_vacia:
         series_todas = detectar_series_multiples(mensaje_usuario)
         if not series_todas:
-            series_todas = [{"peso": serie["peso"], "reps": serie["reps"],
+            series_todas = [{"peso": serie["peso"], "reps": serie["reps"], "rpe": serie.get("rpe"),
                              "ejercicio": _inferir_ejercicio_serie(mensaje_usuario)}]
         registradas, pendientes = [], []
         for s in series_todas:
@@ -2708,10 +2879,16 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 pendientes.append(f"{s['peso']:g} kg x {s['reps']}")
                 continue
             try:
+                # v9: Se inyecta el rpe_reportado para que vaya directo a la base de datos
                 await asyncio.to_thread(guardar_serie_sql, numero_usuario,
                                         {"ejercicio": ej, "peso_kg": s["peso"],
-                                         "repeticiones": int(s["reps"])})
+                                         "repeticiones": int(s["reps"]),
+                                         "rpe_reportado": s.get("rpe")})
+
                 detalle = f"{ej} {s['peso']:g} kg x {int(s['reps'])}"
+                if s.get("rpe"):
+                    detalle += f" @RPE {s['rpe']:g}"
+
                 if 1 <= int(s["reps"]) <= 15:
                     rm_val = calcular_1rm(TipoEjercicio("peso_libre"), int(s["reps"]), s["peso"])
                     await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm_val,
@@ -2722,12 +2899,13 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             except Exception as e:
                 log(numero_usuario, "SERIE-AUTO", f"error: {e}")
                 acciones_fallidas.append(f"registro automático de serie ({s['peso']:g}x{s['reps']}): {e}")
+
         if registradas:
             serie_registrada_python = True
             accion_ejecutada = True
             acciones_ok.append("series registradas por el sistema: " + "; ".join(registradas))
             contenido_mensaje += ("\n\n[SISTEMA — SERIES YA REGISTRADAS]: " + "; ".join(registradas)
-                                  + ". Ya quedaron guardadas con su 1RM. NO llames herramientas para esto; solo "
+                                  + ". Ya quedaron guardadas. NO llames herramientas para esto; solo "
                                     "confírmaselo con tu tono y un comentario breve. Usa EXACTAMENTE esos números.")
             log(numero_usuario, "SERIE-AUTO", f"registradas: {registradas}")
         if pendientes:
@@ -2753,6 +2931,26 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                       f"de {pc:g} kg y actualicé su ficha. NO llames herramientas para esto; solo "
                                       "confírmaselo brevemente.")
                 log(numero_usuario, "PESO-AUTO", f"{pc} kg")
+
+    # --- EQUIPAMIENTO (DISCOS DISPONIBLES) ---
+    # Debe correr ANTES de construir la whitelist de kg: registra el incremento
+    # real de la barra para que el coach pueda reajustar las cargas del plan a
+    # algo montable sin que el validador lo trate como cifra inventada.
+    if not onboarding_activo and not bloque_onboarding:
+        incremento_nuevo = await asyncio.to_thread(
+            _registrar_equipamiento, numero_usuario, texto_puro)
+        if incremento_nuevo:
+            equipo_registrado_python = True
+            accion_ejecutada = True
+            acciones_ok.append(f"equipamiento registrado: saltos de {incremento_nuevo:g} kg")
+            contenido_mensaje += (
+                f"\n\n[SISTEMA — EQUIPAMIENTO REGISTRADO]: el atleta solo puede cargar la "
+                f"barra en múltiplos de {incremento_nuevo:g} kg (disco mínimo "
+                f"{incremento_nuevo / 2:g} kg por lado). Ya quedó guardado en su ficha y las "
+                f"próximas rutinas se redondearán así. Para ESTE turno: reajusta las cargas "
+                f"de hoy al múltiplo de {incremento_nuevo:g} kg más cercano (hacia abajo si "
+                f"quedan a medio camino) y dile los kg exactos que debe montar. NO llames "
+                f"herramientas para esto.")
 
     # --- SUSTITUCIÓN DE EJERCICIO ---
     if (not onboarding_activo and not bloque_onboarding and not rutina_vacia
@@ -3006,35 +3204,42 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                             acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
                         necesita_reinvocacion = True
 
-                    elif nombre == "registrar_serie_completada":
-                        if serie_registrada_python:
+
+                    elif nombre in DISPATCHER_V9:
+
+                        # Si es la tool de registrar serie y Python ya la agarró por regex, saltamos para no duplicar
+
+                        if nombre == "registrar_serie_completada" and serie_registrada_python:
+
                             resultados_texto.append("[registrar_serie_completada]: la serie YA la registró el "
-                                                    "sistema en este turno; NO se duplicó.")
+
+                                                    "sistema en este turno determinísticamente; NO se duplicó.")
+
                         else:
-                            ej = (str(args.get("ejercicio") or "").strip()
-                                  or _inferir_ejercicio_serie(texto_puro))
-                            peso = _num_seguro(args.get("peso_kg") or args.get("peso"))
-                            reps = _num_seguro(args.get("repeticiones") or args.get("reps"))
-                            if not ej or not peso or not reps:
-                                resultados_texto.append(
-                                    f"[registrar_serie_completada]: faltan datos (ejercicio={ej!r}, "
-                                    f"peso={peso}, reps={reps}); NO se guardó. Pregunta lo que falte.")
-                                acciones_fallidas.append("registrar_serie_completada: datos incompletos, no se guardó")
+
+                            # Ejecutamos la herramienta V9 (viaja asíncrono y en thread seguro)
+
+                            res_v9 = await DISPATCHER_V9[nombre](numero_usuario, args)
+
+                            # El resultado viaja directo como JSON string al LLM
+
+                            resultados_texto.append(f"[{nombre}]: {json.dumps(res_v9, ensure_ascii=False)}")
+
+                            # Engranaje con tu sistema de honestidad v8
+
+                            if res_v9.get("ok"):
+
+                                if nombre in ("registrar_serie_completada", "autorregular_dia",
+                                              "enviar_grafica_progreso"):
+                                    acciones_ok.append(f"{nombre}: {res_v9.get('resumen', 'ejecutado con éxito')}")
+
                             else:
-                                # v8 (Mandato 2): SQLite en thread — la escritura síncrona
-                                # bloqueaba el event loop y disparaba los 64s del reporte.
-                                await asyncio.to_thread(guardar_serie_sql, numero_usuario,
-                                                        {"ejercicio": ej, "peso_kg": float(peso),
-                                                         "repeticiones": int(reps)})
-                                detalle = f"{ej} {float(peso):g} kg x {int(reps)}"
-                                if 1 <= int(reps) <= 15:
-                                    rm = calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
-                                    await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
-                                                            peso_origen=float(peso),
-                                                            reps_origen=int(reps), fuente="auto_serie")
-                                    detalle += f" (1RM estimado {rm:g} kg)"
-                                resultados_texto.append(f"[registrar_serie_completada]: guardada {detalle}.")
-                                acciones_ok.append(f"serie guardada: {detalle}")
+
+                                # Si faltan datos, no lo marcamos como fallo catastrófico, sino como instrucción pendiente
+
+                                if res_v9.get("error") not in ("datos_insuficientes", "faltan_datos"):
+                                    acciones_fallidas.append(f"{nombre}: {res_v9.get('error', 'fallo interno')}")
+
                         necesita_reinvocacion = True
 
                     elif nombre == "sustituir_ejercicio":
@@ -3419,9 +3624,13 @@ async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_puro: st
 # ==============================================================================
 # LECTURA DE RUTINA (kg calculados y redondeados EN CÓDIGO)
 # ==============================================================================
-def _redondear_carga(kg: float) -> float:
-    """Redondeo a discos reales de 1.25 (múltiplos de 2.5 en la barra)."""
-    return round(round(kg / 2.5) * 2.5, 1)
+def _redondear_carga(kg: float, incremento: float = INCREMENTO_KG_POR_DEFECTO) -> float:
+    """Redondea al salto MONTABLE por el atleta. Por defecto 2.5 (discos de 1.25
+    por lado); si solo tiene discos de 2.5, el incremento es 5 y prescribir 112.5
+    sería pedirle algo que no puede cargar."""
+    if not incremento or incremento <= 0:
+        incremento = INCREMENTO_KG_POR_DEFECTO
+    return round(round(kg / incremento) * incremento, 1)
 
 def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool = False) -> str:
     numero_usuario = str(numero_usuario).strip()
@@ -3444,6 +3653,7 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
 
     overrides = _cargar_overrides(numero_usuario)
     rms = cargar_rms(numero_usuario)
+    incremento = _incremento_barra(numero_usuario)   # discos reales del atleta
     descarga = {}
     try:
         with open(os.path.join(carpeta_data, f"descargas_{numero_usuario}.json"),
@@ -3464,7 +3674,13 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
         encabezado = "HOY — " if (solo_hoy and indice_hoy is not None) else ""
         lineas.append(f"*{encabezado}Semana {semana} · Día {i} · {ses.get('Enfoque', 'Sesión')}*")
         for ej in ses.get("Ejercicios", []):
-            nombre = str(ej.get("Nombre", "?"))
+            # El generador (Entrenamiento.py) escribe la clave "Ejercicio"; leer
+            # solo "Nombre" devolvía "?" para TODOS los movimientos del plan.
+            # Se aceptan las variantes por si hay planes de formatos anteriores.
+            nombre = str(ej.get("Ejercicio")
+                         or ej.get("Nombre")
+                         or ej.get("nombre")
+                         or "?")
             base = _norm_ej(nombre)
             for o_orig, o_new in overrides.items():
                 if _norm_ej(o_orig) == base:
@@ -3477,7 +3693,10 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
             except (TypeError, ValueError):
                 pass
             reps = ej.get("Reps", ej.get("Repeticiones", "?"))
-            pct = ej.get("Porcentaje_RM", ej.get("%RM"))
+            # Idem: el generador escribe "1RM" con formato "70.0%". Sin esta
+            # variante el plan salía sin cargas en kg, solo series x reps.
+            pct = next((ej[k] for k in ("Porcentaje_RM", "%RM", "1RM")
+                        if ej.get(k) not in (None, "")), None)
             rpe = ej.get("RPE")
             carga_txt = ""
             if pct not in (None, ""):
@@ -3493,7 +3712,7 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
                     if red_int:
                         pct_f = max(1.0, pct_f - red_int)
                     if rm_base:
-                        carga_txt = (f" — *{_redondear_carga(float(rm_base) * pct_f / 100.0):g} kg* "
+                        carga_txt = (f" — *{_redondear_carga(float(rm_base) * pct_f / 100.0, incremento):g} kg* "
                                      f"({pct_f:g}% RM)")
                     else:
                         carga_txt = f" — {pct_f:g}% RM"

@@ -30,6 +30,34 @@ NUEVO EN v3 — Métricas derivadas y autorregulación:
      sugerencia de ajuste de carga en % y kg). El reporte de WhatsApp y el
      prompt del LLM se construyen sobre estos hallazgos: nada de texto genérico.
 
+FIXES v3.3 — PÉRDIDA DEL DISCO Y VELOCIDADES ERRÓNEAS EN VIDEO REAL
+  (medido sobre el dataset de grabaciones propias, no supuesto):
+  * LÍNEA DE SUELO: `frac_linea_suelo` EXCLUÍA toda caja por debajo del 75% de
+    la altura de imagen para ignorar discos apilados. En peso muerto el disco
+    de trabajo arranca en el piso, así que el filtro tiraba el setup y el primer
+    tirón: en un video, YOLO veía el disco en el 99.6% de los frames y el motor
+    solo usaba el 55.7% (211 frames descartados; enganche recién en el frame
+    212). Ahora estar abajo PENALIZA la puntuación en vez de excluir.
+  * TRACK IRRECUPERABLE: una vez fijado `id_fijado`, la re-fijación desde cero
+    era código inalcanzable. Si el disco se perdía más allá del radio, no se
+    recuperaba en todo el video. Ahora el radio de búsqueda se abre con los
+    frames perdidos y, pasado un umbral, se libera el ID para re-fijar.
+  * VELOCIDAD SOBRE HUECOS: Savitzky-Golay asume muestreo uniforme, pero la
+    ventana solo recibe frames CON detección. Ajustaba a través de huecos de
+    hasta 6 s como si fueran consecutivos -> picos imposibles. Sustituido por
+    ajuste polinómico local sobre los TIEMPOS REALES, con descarte de ventana
+    cuando el hueco supera `gap_reinicio_s`.
+  * POSICIÓN Y VELOCIDAD DESFASADAS: se devolvía la posición del último punto
+    y la velocidad del penúltimo — instantes distintos, y la máquina de estados
+    cruza ambas para decidir las fases. Ahora se evalúan en el mismo instante.
+  * ESCALA px->m: se sembraba con el PRIMER disco visto; un fotograma con la
+    caja recortada desviaba TODA la serie (la velocidad es proporcional a ella).
+    Ahora se siembra con la mediana de los primeros N y se rechazan los saltos
+    de tamaño físicamente imposibles.
+  * DIAGNÓSTICO HONESTO: con cobertura baja el motor culpaba al atleta
+    ("movimiento insuficiente"); ahora reporta la falta de visibilidad del
+    disco y explica cómo reencuadrar.
+
 FIXES respecto a v2:
   * El cierre por inactividad NUNCA se disparaba: `frames_estables` solo se
     actualizaba en estado "calibrando". Ahora hay un contador de quietud global
@@ -61,7 +89,6 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from scipy.signal import savgol_filter
 from ultralytics import YOLO
 from moviepy import VideoFileClip
 
@@ -156,9 +183,27 @@ class ConfigVBT:
     factor_reenganche: float = 1.5          # x alto de caja como radio máximo
     ema_alto_caja: float = 0.15             # Suavizado exponencial de la escala
 
+    # Recuperación del tracking (v3.3)
+    frames_para_soltar_id: int = 25         # ~0.8 s a 30 fps: tras esto se
+                                            # libera el ID y se re-fija de cero
+    crecimiento_radio_por_frame: float = 0.35   # el radio de búsqueda se abre
+                                            # mientras el disco sigue perdido
+    penalizacion_suelo: float = 0.5         # factor de puntuación, NO exclusión:
+                                            # en peso muerto el disco de trabajo
+                                            # arranca legítimamente en el piso
+
+    # Estabilidad de la escala px->m (v3.3). La velocidad es proporcional a
+    # ella: un mal fotograma inicial desvía TODAS las mediciones de la serie.
+    frames_semilla_escala: int = 10         # mediana de los primeros N discos
+    salto_max_escala: float = 0.35          # cambio de alto imposible entre
+                                            # frames -> caja de otro objeto
+
     # Cinemática
-    ventana_savgol: int = 7                 # Impar. ~0.23 s a 30 fps
-    poly_savgol: int = 2
+    ventana_savgol: int = 7                 # Muestras de la ventana (~0.23 s a 30 fps)
+    poly_savgol: int = 2                    # Grado del ajuste local
+    gap_reinicio_s: float = 0.35            # Hueco de detección que invalida la
+                                            # ventana: ajustar a través de él
+                                            # fabrica velocidades imposibles
     vel_max_valida: float = 3.5             # m/s — techo físico razonable en barra
     umbral_ruido_prop: float = 0.08         # m/s — micro-pausas / ruido
     vel_sticking: float = 0.05              # m/s — por debajo, la barra está
@@ -550,6 +595,47 @@ class RastreadorDisco:
         self.id_fijado: Optional[int] = None
         self.alto_ema: Optional[float] = None
         self.ultima_pos: Optional[tuple] = None
+        # v3.3 — recuperación de tracking y escala robusta
+        self.frames_sin_deteccion = 0
+        self._altos_semilla: deque = deque(maxlen=cfg.frames_semilla_escala)
+        self._escala_sembrada = False
+        self._fallos_yolo_seguidos = 0
+        self._aviso_yolo_emitido = False
+
+    # --------------------------------------------------------------
+    def _perder(self) -> None:
+        """Un frame más sin disco. El ancla de re-enganche NO se toca: sigue
+        siendo la última posición conocida, pero el radio se abre con el tiempo."""
+        self.frames_sin_deteccion += 1
+
+    # --------------------------------------------------------------
+    def _actualizar_escala(self, alto_detectado: float) -> float:
+        """Escala px->m estable. Antes se sembraba con el PRIMER disco visto: si
+        ese fotograma traía la caja recortada o a medio aparecer, la referencia
+        quedaba mal para toda la serie y la velocidad salía escalada en bloque.
+        Ahora se siembra con la MEDIANA de los primeros N discos y después se
+        suaviza por EMA rechazando saltos físicamente imposibles."""
+        self._altos_semilla.append(alto_detectado)
+
+        if not self._escala_sembrada:
+            self.alto_ema = float(np.median(self._altos_semilla))
+            if len(self._altos_semilla) >= self.cfg.frames_semilla_escala:
+                self._escala_sembrada = True
+                logger.info(f"Escala fijada por mediana de "
+                            f"{len(self._altos_semilla)} discos: "
+                            f"{self.alto_ema:.1f}px = "
+                            f"{self.cfg.diametro_disco_m}m")
+            return self.alto_ema
+
+        desvio = abs(alto_detectado - self.alto_ema) / max(self.alto_ema, 1e-6)
+        if desvio > self.cfg.salto_max_escala:
+            # Un disco no cambia de tamaño así entre frames: es otra caja
+            # (sleeve, segundo disco, detección parcial). Se ignora.
+            return self.alto_ema
+
+        a = self.cfg.ema_alto_caja
+        self.alto_ema = self.alto_ema * (1 - a) + alto_detectado * a
+        return self.alto_ema
 
     # --------------------------------------------------------------
     def procesar(self, frame: np.ndarray) -> Optional[Deteccion]:
@@ -572,10 +658,23 @@ class RastreadorDisco:
                 verbose=False,
             )
         except Exception as e:
-            logger.debug(f"YOLO track falló en este frame: {e}")
+            # Un fallo por frame es ruido; fallar SIEMPRE (modelo mal cargado,
+            # device inexistente, OOM) dejaba el video entero sin análisis con
+            # un único log en nivel debug, invisible. Se avisa una sola vez.
+            self._fallos_yolo_seguidos += 1
+            if self._fallos_yolo_seguidos >= 15 and not self._aviso_yolo_emitido:
+                self._aviso_yolo_emitido = True
+                logger.error(f"YOLO lleva {self._fallos_yolo_seguidos} frames "
+                             f"fallando seguidos; no habrá análisis VBT. "
+                             f"Último error: {e}")
+            else:
+                logger.debug(f"YOLO track falló en este frame: {e}")
+            self._perder()
             return None
+        self._fallos_yolo_seguidos = 0
 
         if pred[0].boxes.id is None:
+            self._perder()
             return None
 
         cajas = pred[0].boxes.xyxy.cpu().numpy()
@@ -583,41 +682,44 @@ class RastreadorDisco:
 
         caja = self._seleccionar_caja(cajas, ids, alto_img)
         if caja is None:
+            self._perder()
             return None
 
         x_min, y_min, x_max, y_max = caja
         alto_detectado = float(y_max - y_min)
         if alto_detectado <= 0:
+            self._perder()
             return None
 
-        # EMA sobre el alto de caja: la escala no "parpadea" frame a frame
-        if self.alto_ema and self.alto_ema > 0:
-            self.alto_ema = (self.alto_ema * (1 - self.cfg.ema_alto_caja)
-                             + alto_detectado * self.cfg.ema_alto_caja)
-        else:
-            self.alto_ema = alto_detectado
-
-        m_por_px = self.cfg.diametro_disco_m / self.alto_ema
+        alto_estable = self._actualizar_escala(alto_detectado)
+        m_por_px = self.cfg.diametro_disco_m / alto_estable
         cx = int((x_min + x_max) / 2)
         cy = int((y_min + y_max) / 2)
         self.ultima_pos = (cx, cy)
+        self.frames_sin_deteccion = 0
 
         return Deteccion(cx, cy, float(x_min), float(y_min), float(x_max),
-                         float(y_max), self.alto_ema, m_por_px)
+                         float(y_max), alto_estable, m_por_px)
 
     # --------------------------------------------------------------
     def _seleccionar_caja(self, cajas: np.ndarray, ids: np.ndarray,
                           alto_img: int) -> Optional[np.ndarray]:
+        if len(cajas) == 0:
+            return None
+
         # 1) El ID fijado sigue vivo -> lo seguimos
         if self.id_fijado is not None and self.id_fijado in ids:
             return cajas[int(np.where(ids == self.id_fijado)[0][0])]
 
         # 2) Re-enganche: el tracker perdió el ID, buscamos la caja más cercana
-        if self.id_fijado is not None:
-            if self.ultima_pos is None or len(cajas) == 0:
-                return None
+        if self.id_fijado is not None and self.ultima_pos is not None:
+            # El radio se ABRE mientras el disco sigue perdido: con un radio
+            # fijo, tras medio segundo de oclusión la barra ya está más lejos
+            # que el umbral y el re-enganche era imposible por construcción.
             radio_max = (self.alto_ema * self.cfg.factor_reenganche
                          if self.alto_ema else alto_img * 0.15)
+            radio_max *= (1.0 + self.frames_sin_deteccion
+                          * self.cfg.crecimiento_radio_por_frame)
             centros = np.column_stack([(cajas[:, 0] + cajas[:, 2]) / 2,
                                        (cajas[:, 1] + cajas[:, 3]) / 2])
             dists = np.linalg.norm(centros - np.array(self.ultima_pos), axis=1)
@@ -625,21 +727,41 @@ class RastreadorDisco:
             if dists[i_mejor] <= radio_max:
                 self.id_fijado = int(ids[i_mejor])
                 logger.info(f"Re-enganche de tracking a ID {self.id_fijado} "
-                            f"(dist {dists[i_mejor]:.0f}px)")
+                            f"(dist {dists[i_mejor]:.0f}px, radio "
+                            f"{radio_max:.0f}px)")
                 return cajas[i_mejor]
-            return None
 
-        # 3) Primera fijación: caja más grande por encima de la línea de suelo
+            # Perdido demasiado tiempo: se libera el ID para poder re-fijar
+            # desde cero. Sin esto, `id_fijado` quedaba puesto para siempre,
+            # el bloque 3 era inalcanzable y el disco no se recuperaba nunca.
+            if self.frames_sin_deteccion < self.cfg.frames_para_soltar_id:
+                return None
+            logger.info(f"Disco perdido {self.frames_sin_deteccion} frames: "
+                        f"se libera el ID y se vuelve a fijar desde cero.")
+            self.id_fijado = None
+            self.ultima_pos = None
+
+        # 3) Fijación por PUNTUACIÓN (no por exclusión).
+        # Antes se descartaba toda caja por debajo de la línea de suelo para
+        # ignorar discos apilados. Pero en peso muerto el disco de trabajo
+        # ARRANCA en el piso: el filtro tiraba el setup y el primer tirón
+        # completos (medido: 211 de 481 frames con el disco perfectamente
+        # visible). Ahora estar abajo solo PENALIZA la puntuación, así que si
+        # no hay nada elevado se sigue el mejor candidato disponible.
         linea_suelo = alto_img * self.cfg.frac_linea_suelo
-        mejor, area_max = None, 0.0
+        mejor, mejor_id, mejor_score = None, None, 0.0
         for caja, id_caja in zip(cajas, ids):
+            area = float((caja[2] - caja[0]) * (caja[3] - caja[1]))
+            if area <= 0:
+                continue
             cy = (caja[1] + caja[3]) / 2
-            if cy >= linea_suelo:
-                continue  # probablemente un disco apilado en el piso
-            area = (caja[2] - caja[0]) * (caja[3] - caja[1])
-            if area > area_max:
-                area_max, mejor = area, caja
-                self.id_fijado = int(id_caja)
+            score = area * (self.cfg.penalizacion_suelo
+                            if cy >= linea_suelo else 1.0)
+            if score > mejor_score:
+                mejor_score, mejor, mejor_id = score, caja, int(id_caja)
+
+        if mejor is not None:
+            self.id_fijado = mejor_id
         return mejor
 
 
@@ -648,11 +770,25 @@ class RastreadorDisco:
 # ==============================================================================
 class EstimadorCinematica:
     """
-    Mantiene una ventana deslizante de (t, y) y devuelve:
-      - y suavizada (Savitzky-Golay, deriv=0)
-      - velocidad vertical CON SIGNO en m/s (SG deriv=1): + sube, − baja.
-    Nota: SG asume muestreo uniforme; con VFR usamos el dt medio de la ventana,
-    aproximación válida porque la ventana es corta (~0.2 s).
+    Mantiene una ventana deslizante de (t, y) y devuelve la posición suavizada
+    y la velocidad vertical CON SIGNO en m/s (+ sube, − baja).
+
+    v3.3 — Se sustituyó Savitzky-Golay por un ajuste polinómico local por
+    mínimos cuadrados sobre los TIEMPOS REALES. Motivo (medido en video real):
+
+      1. SG exige muestreo uniforme y aquí NO lo hay: la ventana solo recibe
+         frames CON disco detectado, así que cada pérdida de tracking abre un
+         hueco. Con `delta=dt_medio` el filtro ajustaba a través de huecos de
+         hasta 6 s como si fueran frames consecutivos, produciendo velocidades
+         imposibles (2.39 m/s en un peso muerto, saltos de >1 m/s por frame).
+      2. Devolvía la posición del último punto pero la velocidad del penúltimo:
+         posición y velocidad describían INSTANTES DISTINTOS, y la máquina de
+         estados cruza ambas para decidir las fases de la repetición.
+
+    El ajuste sobre t reales absorbe VFR y frames caídos de forma nativa, y
+    ambas magnitudes se evalúan en el mismo instante. Si el hueco supera
+    `gap_reinicio_s` la ventana se descarta: durante una pérdida larga no
+    sabemos qué hizo la barra, e inventarlo es peor que no medir.
     """
 
     def __init__(self, cfg: ConfigVBT = CONFIG):
@@ -660,18 +796,27 @@ class EstimadorCinematica:
         n = cfg.ventana_savgol
         self.ts: deque = deque(maxlen=n)
         self.ys: deque = deque(maxlen=n)
+        self.reinicios_por_hueco = 0
 
     def reiniciar(self):
         self.ts.clear()
         self.ys.clear()
 
     def actualizar(self, t: float, y_px: float, m_por_px: float) -> tuple:
-        self.ts.append(float(t))
-        self.ys.append(float(y_px))
-        n = self.cfg.ventana_savgol
+        t = float(t)
 
-        if len(self.ys) < n:
-            # Arranque: diferencia finita simple
+        # Hueco de detección: lo ocurrido durante la pérdida es desconocido.
+        if self.ts and (t - self.ts[-1]) > self.cfg.gap_reinicio_s:
+            self.reinicios_por_hueco += 1
+            logger.debug(f"Hueco de {t - self.ts[-1]:.2f}s sin disco: "
+                         f"se reinicia la ventana cinemática.")
+            self.reiniciar()
+
+        self.ts.append(t)
+        self.ys.append(float(y_px))
+
+        # Arranque (o post-hueco): diferencia finita entre frames contiguos
+        if len(self.ys) < 3:
             if len(self.ys) >= 2:
                 dt = self.ts[-1] - self.ts[-2]
                 v = (-(self.ys[-1] - self.ys[-2]) / dt * m_por_px) if dt > 0 else 0.0
@@ -679,18 +824,29 @@ class EstimadorCinematica:
                 v = 0.0
             return float(self.ys[-1]), self._limitar(v)
 
-        ys = np.asarray(self.ys)
-        ts = np.asarray(self.ts)
-        dts = np.diff(ts)
-        dt_medio = float(np.mean(dts[dts > 0])) if np.any(dts > 0) else 1.0 / 30.0
+        ts = np.asarray(self.ts, dtype=float)
+        ys = np.asarray(self.ys, dtype=float)
+        t_rel = ts - ts[-1]                      # centrado: mejor condicionado
 
-        y_suave = savgol_filter(ys, n, self.cfg.poly_savgol)
-        dy_dt = savgol_filter(ys, n, self.cfg.poly_savgol, deriv=1, delta=dt_medio)
+        # Se evalúa en el penúltimo punto: la derivada en el borde de la
+        # ventana es la más ruidosa. Un frame de latencia (~33 ms) a cambio de
+        # una señal mucho más limpia — y ahora la POSICIÓN se evalúa en ese
+        # mismo instante, no en el último.
+        t_eval = t_rel[-2]
+        grado = self.cfg.poly_savgol if ts.size >= self.cfg.poly_savgol + 2 else 1
 
-        # Evaluamos en el penúltimo punto: la derivada SG en el borde es ruidosa.
-        # Un frame de latencia (~33 ms) a cambio de una señal mucho más limpia.
-        v = -float(dy_dt[-2]) * m_por_px
-        return float(y_suave[-1]), self._limitar(v)
+        try:
+            coef = np.polyfit(t_rel, ys, grado)
+        except Exception as e:
+            logger.debug(f"Ajuste local falló ({e}); uso diferencia finita.")
+            dt = ts[-1] - ts[-2]
+            v = (-(ys[-1] - ys[-2]) / dt * m_por_px) if dt > 0 else 0.0
+            return float(ys[-1]), self._limitar(v)
+
+        y_ajustada = float(np.polyval(coef, t_eval))
+        dy_dt = float(np.polyval(np.polyder(coef), t_eval))
+        v = -dy_dt * m_por_px
+        return y_ajustada, self._limitar(v)
 
     def _limitar(self, v: float) -> float:
         tope = self.cfg.vel_max_valida
@@ -1822,10 +1978,25 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
 # ==============================================================================
 def _generar_autopsia_vbt(totales: int, con_disco: int, fase: str,
                           max_descenso: float, max_vel: float) -> str:
+    cobertura = (100.0 * con_disco / totales) if totales else 0.0
+    consejo = ""
+
     if totales == 0:
         razon = "El video está corrupto o tiene 0 frames leíbles."
     elif con_disco == 0:
         razon = "YOLO no detectó el disco en ningún momento."
+        consejo = ("Graba de lado, con el disco COMPLETO dentro del encuadre "
+                   "y sin que el cuerpo lo tape.")
+    elif cobertura < 40.0:
+        # Antes esto caía en "movimiento insuficiente" y el atleta entendía que
+        # no había bajado lo suficiente, cuando el problema real es que el disco
+        # apenas se ve. Con tan pocos frames NINGUNA métrica es fiable.
+        razon = (f"El disco solo fue visible en el {cobertura:.0f}% del video "
+                 f"({con_disco} de {totales} frames): no hay señal suficiente "
+                 f"para medir la barra.")
+        consejo = ("Reencuadra: el disco debe verse completo durante toda la "
+                   "serie. Cámara de lado, a la altura de la barra, y que no "
+                   "quede fuera de plano al subir.")
     elif fase in ("calibrando", "reposo"):
         razon = f"Movimiento insuficiente: descenso máximo de {max_descenso:.1f}px."
     elif fase == "excentrica":
@@ -1834,9 +2005,12 @@ def _generar_autopsia_vbt(totales: int, con_disco: int, fase: str,
         razon = "La barra subió, pero la repetición no cerró correctamente."
     else:
         razon = f"Fase final atípica: {fase}."
-    return (f"Fallo VBT.\nCAUSA: {razon}\n"
-            f"TELEMETRÍA -> Frames: {totales} | Tracked: {con_disco} | "
-            f"Descenso Max: {max_descenso:.1f}px")
+
+    texto = (f"Fallo VBT.\nCAUSA: {razon}\n")
+    if consejo:
+        texto += f"CÓMO ARREGLARLO: {consejo}\n"
+    return (texto + f"TELEMETRÍA -> Frames: {totales} | Tracked: {con_disco} "
+            f"({cobertura:.0f}%) | Descenso Max: {max_descenso:.1f}px")
 
 
 # ==============================================================================

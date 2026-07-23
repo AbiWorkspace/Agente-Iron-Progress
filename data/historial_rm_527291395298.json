@@ -104,5 +104,41 @@
     "ejercicio": "press banco plano",
     "rm": 216.7,
     "peso_origen": 200.0
+  },
+  {
+    "fecha": "2026-07-24 13:13",
+    "ejercicio": "press banco plano",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-07-24 13:19",
+    "ejercicio": "sentadilla",
+    "rm": 216.7,
+    "peso_origen": 200.0
+  },
+  {
+    "fecha": "2026-07-24 13:19",
+    "ejercicio": "peso muerto",
+    "rm": 258.9,
+    "peso_origen": 230.0
+  },
+  {
+    "fecha": "2026-07-24 13:20",
+    "ejercicio": "dominadas",
+    "rm": 30.0,
+    "peso_origen": 30.0
+  },
+  {
+    "fecha": "2026-07-24 14:21",
+    "ejercicio": "press banco plano",
+    "rm": 131.5,
+    "peso_origen": 125.0
+  },
+  {
+    "fecha": "2026-07-24 15:58",
+    "ejercicio": "press banco plano",
+    "rm": 188.8,
+    "peso_origen": 150.0
   }
 ]

@@ -32,10 +32,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -45,7 +69,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -185,147 +209,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "abduccion",
-                "Ejercicio": "Vuelos Laterales",
-                "tipo": "complementario",
-                "Series": 2,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "flexion_tronco",
-                "Ejercicio": "Crunch Abdominal",
-                "tipo": "complementario",
-                "Series": 2,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 27,
-        "Fase": "Fuerza",
-        "Enfoque": "Pierna",
-        "Vol_Sistemico_Target": 5,
-        "Vol_Por_Patron": {
-            "empuje": 5,
-            "traccion": 5
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Sentadillas",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 3,
-                "RPE": 8.0,
-                "1RM": "85.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "traccion",
-                "Ejercicio": "Peso Muerto",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 3,
-                "RPE": 8.0,
-                "1RM": "85.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "abduccion",
-                "Ejercicio": "Abductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "aduccion",
-                "Ejercicio": "Aductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Tobillo",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 27,
-        "Fase": "Potencia",
-        "Enfoque": "Torso",
-        "Vol_Sistemico_Target": 4,
-        "Vol_Por_Patron": {
-            "empuje": 4,
-            "traccion": 4
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Torso",
-                "Categoria": "empuje",
-                "Ejercicio": "Press Banco Plano",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "traccion",
-                "Ejercicio": "Remo en Maquina",
-                "tipo": "multiarticular",
-                "Series": 4,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Triceps Katana",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -374,6 +258,170 @@
                 "tipo": "basico-multiarticular",
                 "Series": 4,
                 "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "85.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
+                "RPE": 8.0,
+                "1RM": "85.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Remo en Maquina",
+                "tipo": "multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 27,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 5,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 3,
                 "RPE": 8.5,
                 "1RM": "87.5%"
             },
@@ -389,10 +437,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -402,7 +474,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -412,7 +484,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -465,7 +537,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -529,10 +601,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -542,7 +638,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -669,10 +765,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -682,147 +802,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 28,
-        "Fase": "Potencia",
-        "Enfoque": "Pierna",
-        "Vol_Sistemico_Target": 6,
-        "Vol_Por_Patron": {
-            "empuje": 6,
-            "traccion": 5
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Sentadillas",
-                "tipo": "basico-multiarticular",
-                "Series": 5,
-                "Reps": 4,
-                "RPE": 5.5,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "traccion",
-                "Ejercicio": "Peso Muerto",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 4,
-                "RPE": 5.5,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Cuadriceps",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "traccion",
-                "Ejercicio": "Curl Femoral",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "abduccion",
-                "Ejercicio": "Abductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "aduccion",
-                "Ejercicio": "Aductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Tobillo",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 28,
-        "Fase": "Fuerza",
-        "Enfoque": "Torso",
-        "Vol_Sistemico_Target": 4,
-        "Vol_Por_Patron": {
-            "empuje": 4,
-            "traccion": 4
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Torso",
-                "Categoria": "empuje",
-                "Ejercicio": "Press Banco Plano",
-                "tipo": "basico-multiarticular",
-                "Series": 3,
-                "Reps": 6,
-                "RPE": 8.0,
-                "1RM": "80.0%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "traccion",
-                "Ejercicio": "Remo en Maquina",
-                "tipo": "multiarticular",
-                "Series": 3,
-                "Reps": 6,
-                "RPE": 8.0,
-                "1RM": "80.0%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "abduccion",
-                "Ejercicio": "Vuelos Laterales",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "flexion_tronco",
-                "Ejercicio": "Crunch Abdominal",
-                "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -847,6 +827,170 @@
                 "tipo": "basico-multiarticular",
                 "Series": 5,
                 "Reps": 4,
+                "RPE": 5.5,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 4,
+                "RPE": 5.5,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 3,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Fuerza",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 6,
+                "RPE": 8.0,
+                "1RM": "80.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Remo en Maquina",
+                "tipo": "multiarticular",
+                "Series": 3,
+                "Reps": 6,
+                "RPE": 8.0,
+                "1RM": "80.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 28,
+        "Fase": "Potencia",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 6,
+        "Vol_Por_Patron": {
+            "empuje": 6,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 5,
+                "Reps": 4,
                 "RPE": 5.0,
                 "1RM": "77.5%"
             },
@@ -949,10 +1093,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -962,7 +1130,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1015,7 +1183,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -1079,10 +1247,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1092,7 +1284,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1102,7 +1294,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1155,7 +1347,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -1219,10 +1411,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1232,7 +1448,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1242,147 +1458,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 29,
-        "Fase": "Potencia",
-        "Enfoque": "Torso",
-        "Vol_Sistemico_Target": 4,
-        "Vol_Por_Patron": {
-            "empuje": 4,
-            "traccion": 5
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Torso",
-                "Categoria": "empuje",
-                "Ejercicio": "Press Banco Plano",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 4,
-                "RPE": 5.5,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "traccion",
-                "Ejercicio": "Remo en Maquina",
-                "tipo": "multiarticular",
-                "Series": 4,
-                "Reps": 4,
-                "RPE": 5.5,
-                "1RM": "77.5%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Triceps Katana",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
-                "tipo": "monoarticular/analitico",
-                "Series": 1,
-                "Reps": 5,
-                "RPE": 6.0,
-                "1RM": "77.5%",
-                "Factor_Estiramiento": 1.0,
-                "Series_Efectivas": 1.0
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "abduccion",
-                "Ejercicio": "Vuelos Laterales",
-                "tipo": "complementario",
                 "Series": 2,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Torso",
-                "Categoria": "flexion_tronco",
-                "Ejercicio": "Crunch Abdominal",
-                "tipo": "complementario",
-                "Series": 2,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            }
-        ]
-    },
-    {
-        "Mesociclo": "3 - Realizacion",
-        "Semana_Abs": 29,
-        "Fase": "Fuerza",
-        "Enfoque": "Pierna",
-        "Vol_Sistemico_Target": 4,
-        "Vol_Por_Patron": {
-            "empuje": 5,
-            "traccion": 4
-        },
-        "Ejercicios": [
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Sentadillas",
-                "tipo": "basico-multiarticular",
-                "Series": 4,
-                "Reps": 5,
-                "RPE": 8.5,
-                "1RM": "82.5%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "traccion",
-                "Ejercicio": "Peso Muerto",
-                "tipo": "basico-multiarticular",
-                "Series": 3,
-                "Reps": 5,
-                "RPE": 8.5,
-                "1RM": "82.5%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "abduccion",
-                "Ejercicio": "Abductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "aduccion",
-                "Ejercicio": "Aductor de Piernas",
-                "tipo": "complementario",
-                "Series": 3,
-                "Reps": 8,
-                "RPE": 8.5,
-                "1RM": "75.0%"
-            },
-            {
-                "Enfoque": "Pierna",
-                "Categoria": "empuje",
-                "Ejercicio": "Extension de Tobillo",
-                "tipo": "complementario",
-                "Series": 3,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1407,6 +1483,170 @@
                 "tipo": "basico-multiarticular",
                 "Series": 4,
                 "Reps": 4,
+                "RPE": 5.5,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Remo en Maquina",
+                "tipo": "multiarticular",
+                "Series": 4,
+                "Reps": 4,
+                "RPE": 5.5,
+                "1RM": "77.5%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 5,
+                "RPE": 6.0,
+                "1RM": "77.5%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "abduccion",
+                "Ejercicio": "Vuelos Laterales",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "flexion_tronco",
+                "Ejercicio": "Crunch Abdominal",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Fuerza",
+        "Enfoque": "Pierna",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 5,
+            "traccion": 4
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Sentadillas",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "82.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Peso Muerto",
+                "tipo": "basico-multiarticular",
+                "Series": 3,
+                "Reps": 5,
+                "RPE": 8.5,
+                "1RM": "82.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "abduccion",
+                "Ejercicio": "Abductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "aduccion",
+                "Ejercicio": "Aductor de Piernas",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Tobillo",
+                "tipo": "complementario",
+                "Series": 2,
+                "Reps": 8,
+                "RPE": 8.5,
+                "1RM": "75.0%"
+            }
+        ]
+    },
+    {
+        "Mesociclo": "3 - Realizacion",
+        "Semana_Abs": 29,
+        "Fase": "Potencia",
+        "Enfoque": "Torso",
+        "Vol_Sistemico_Target": 4,
+        "Vol_Por_Patron": {
+            "empuje": 4,
+            "traccion": 5
+        },
+        "Ejercicios": [
+            {
+                "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Press Banco Plano",
+                "tipo": "basico-multiarticular",
+                "Series": 4,
+                "Reps": 4,
                 "RPE": 5.0,
                 "1RM": "77.5%"
             },
@@ -1435,7 +1675,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -1499,10 +1739,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1512,7 +1776,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1639,10 +1903,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1652,7 +1940,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1779,10 +2067,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1792,7 +2104,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1919,10 +2231,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1932,7 +2268,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -1985,7 +2321,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -2049,10 +2385,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2062,7 +2422,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2072,7 +2432,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2125,7 +2485,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -2189,10 +2549,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2202,7 +2586,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2212,7 +2596,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2265,7 +2649,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -2329,10 +2713,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2342,7 +2750,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2352,7 +2760,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2405,7 +2813,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -2469,10 +2877,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2482,7 +2914,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2609,10 +3041,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2622,7 +3078,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2749,10 +3205,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2762,7 +3242,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2889,10 +3369,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2902,7 +3406,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -2955,7 +3459,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -3019,10 +3523,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3032,7 +3560,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3042,7 +3570,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3095,7 +3623,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -3159,10 +3687,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3172,7 +3724,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3182,7 +3734,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3235,7 +3787,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -3299,10 +3851,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3312,7 +3888,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3322,7 +3898,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3375,7 +3951,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -3439,10 +4015,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3452,7 +4052,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3579,10 +4179,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3592,7 +4216,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3719,10 +4343,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3732,7 +4380,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3859,10 +4507,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3872,7 +4544,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -3925,7 +4597,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -3989,10 +4661,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4002,7 +4698,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4012,7 +4708,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4065,7 +4761,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -4129,10 +4825,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4142,7 +4862,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4152,7 +4872,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4205,7 +4925,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -4269,10 +4989,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4282,7 +5026,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4292,7 +5036,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4345,7 +5089,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -4409,10 +5153,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4422,7 +5190,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4549,10 +5317,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4562,7 +5354,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4689,10 +5481,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4702,7 +5518,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4829,10 +5645,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4842,7 +5682,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4895,7 +5735,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -4959,10 +5799,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4972,7 +5836,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -4982,7 +5846,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5035,7 +5899,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -5099,10 +5963,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5112,7 +6000,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5122,7 +6010,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5175,7 +6063,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -5239,10 +6127,34 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5252,7 +6164,7 @@
                 "Categoria": "aduccion",
                 "Ejercicio": "Aductor de Piernas",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5262,7 +6174,7 @@
                 "Categoria": "empuje",
                 "Ejercicio": "Extension de Tobillo",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5315,7 +6227,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -5379,10 +6291,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5392,7 +6328,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5519,10 +6455,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5532,7 +6492,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5659,10 +6619,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5672,7 +6656,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5799,10 +6783,34 @@
             },
             {
                 "Enfoque": "Torso",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Triceps Katana",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl de Biceps en Polea",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Torso",
                 "Categoria": "abduccion",
                 "Ejercicio": "Vuelos Laterales",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5812,7 +6820,7 @@
                 "Categoria": "flexion_tronco",
                 "Ejercicio": "Crunch Abdominal",
                 "tipo": "complementario",
-                "Series": 3,
+                "Series": 2,
                 "Reps": 8,
                 "RPE": 8.5,
                 "1RM": "75.0%"
@@ -5865,7 +6873,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -5929,6 +6937,30 @@
             },
             {
                 "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
                 "Categoria": "abduccion",
                 "Ejercicio": "Abductor de Piernas",
                 "tipo": "complementario",
@@ -6005,7 +7037,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -6066,6 +7098,30 @@
                 "Reps": 3,
                 "RPE": 8.0,
                 "1RM": "85.0%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
             },
             {
                 "Enfoque": "Pierna",
@@ -6145,7 +7201,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,
@@ -6206,6 +7262,30 @@
                 "Reps": 3,
                 "RPE": 8.5,
                 "1RM": "87.5%"
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "empuje",
+                "Ejercicio": "Extension de Cuadriceps",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
+            },
+            {
+                "Enfoque": "Pierna",
+                "Categoria": "traccion",
+                "Ejercicio": "Curl Femoral",
+                "tipo": "monoarticular/analitico",
+                "Series": 1,
+                "Reps": 6,
+                "RPE": 8.5,
+                "1RM": "80.0%",
+                "Factor_Estiramiento": 1.0,
+                "Series_Efectivas": 1.0
             },
             {
                 "Enfoque": "Pierna",
@@ -6285,7 +7365,7 @@
             {
                 "Enfoque": "Torso",
                 "Categoria": "traccion",
-                "Ejercicio": "Curl de Biceps con Barra",
+                "Ejercicio": "Curl de Biceps en Polea",
                 "tipo": "monoarticular/analitico",
                 "Series": 1,
                 "Reps": 5,

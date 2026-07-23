@@ -1,6 +1,8 @@
 import uvicorn
 import asyncio
-from contextlib import asynccontextmanager # <--- Nuevo
+import json
+import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,19 +10,45 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.rutas_whatsapp import router as whatsapp_router
 from api.rutas_whatsapp import limpiar_cache_videos
 
-from services.proactive_coach import iniciar_scheduler
+# V9: Importamos el motor proactivo desde el nuevo archivo
+from services.proactividad import iniciar_scheduler
+
+def mis_usuarios_activos():
+    """Lee el estado de los atletas y filtra a quién enviarle el Readiness a las 6:30 AM."""
+    ruta_estado = os.path.join("data", "estado_usuarios.json")
+    activos = []
+    try:
+        with open(ruta_estado, "r", encoding="utf-8") as f:
+            estados = json.load(f)
+        for numero, estado in estados.items():
+            # Filtros V9: No enviamos a atletas pausados o en onboarding
+            if estado.get("plan_pausado") == 1:
+                continue
+            if estado.get("onboarding_activo"):
+                continue
+            # Agregamos al atleta con un nombre por defecto (el bot lo usará en la plantilla)
+            activos.append((numero, "campeón"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return activos
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # [STARTUP]: Todo lo que pongas antes del yield se ejecuta al encender
-    print("[SISTEMA]: Inicializando motores de Iron Progress...")
+    print("[SISTEMA]: Inicializando motores de Iron Progress V9...")
 
     # 1. Tarea en segundo plano original (Limpieza de caché)
     tarea_limpieza = asyncio.create_task(limpiar_cache_videos())
 
-    # 2. NUEVO: Arrancando el cerebro proactivo (Cron Jobs)
-    print("[SISTEMA]: Arrancando motor de proactividad (Cron Jobs)...")
-    scheduler = iniciar_scheduler()
+    # 2. NUEVO: Arrancando el cerebro proactivo (Cron Jobs a las 6:30 AM)
+    # scheduler se inicializa antes del try: si iniciar_scheduler revienta,
+    # el shutdown de abajo daría UnboundLocalError y la app no cerraría limpio.
+    scheduler = None
+    try:
+        print("[SISTEMA]: Arrancando motor de proactividad matutino...")
+        scheduler = iniciar_scheduler(mis_usuarios_activos, hora=6, minuto=30)
+    except Exception as e:
+        print(f"[SISTEMA]: ERROR al arrancar la proactividad -> {e}")
 
     yield  # Aquí es donde la aplicación "vive" y atiende peticiones
 
@@ -29,7 +57,7 @@ async def lifespan(app: FastAPI):
 
     # Apagamos el motor de proactividad de forma segura
     if scheduler:
-        scheduler.shutdown()
+        scheduler.shutdown(wait=False)
         print("[SISTEMA]: Motor de proactividad apagado correctamente.")
 
     # Apagamos la tarea de limpieza de videos
@@ -42,14 +70,13 @@ async def lifespan(app: FastAPI):
 
 # 1. Inicializamos FastAPI con metadatos de produccion
 app = FastAPI(
-    title="Agente Entrenador Multimodal VBT",
-    description="Motor de IA local para planificación de Powerlifting vía WhatsApp",
-    version="1.2.0",
-    lifespan=lifespan # <--- Registramos el manejador aquí
+    title="Iron Progress V9 - Coach Predictivo",
+    description="Motor de IA local para planificación proactiva vía WhatsApp",
+    version="9.0.0",
+    lifespan=lifespan
 )
 
 # 2. Configuracion CORS (Cross-Origin Resource Sharing)
-# Vital para que servidores externos (como Meta/Ngrok) puedan hacer peticiones a tu API local
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,28 +86,27 @@ app.add_middleware(
 )
 
 # 3. Conectamos el router de WhatsApp
-# Le asignamos un prefijo para mantener la arquitectura limpia
 app.include_router(whatsapp_router, prefix="/api/v1")
 
-
-
 # 4. Endpoint de Salud (Health Check)
-# Los balanceadores de carga y herramientas de monitoreo usan esto para saber si tu PC sigue viva
 @app.get("/", tags=["Sistema"])
 def health_check():
-    # Podemos incluso ver el estado del event loop aquí
     return {
         "estado": "operativo",
-        "motor": "Lifespan Context Manager activo",
-        "versión": "1.1.0"
+        "motor": "Iron Progress V9 (Lifespan + APScheduler activos)",
+        "versión": "9.0.0"
     }
 
 if __name__ == "__main__":
-    # host="0.0.0.0" permite que la app sea accesible desde tu red local y tuneles como Ngrok
+    # IMPORTANTE: reload=True levanta DOS procesos en FastAPI, el APScheduler
+    # corre doble y el readiness sale duplicado a cada atleta. Por eso ahora
+    # depende del entorno: solo recarga si ENTORNO != "prod" (default: dev).
+    entorno = os.getenv("ENTORNO", "dev").lower()
+    print(f"[SISTEMA]: Entorno '{entorno}' -> reload={entorno != 'prod'}")
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
-        reload_excludes=["*.sqlite3", "*.json", "data", "resources"]
+        reload=(entorno != "prod"),
+        reload_excludes=["*.sqlite3", "*.json", "data", "resources", "tmp"]
     )

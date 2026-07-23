@@ -126,6 +126,28 @@ CONFIGURACION_VOLUMEN_SESION = MappingProxyType({
             "Fuerza":      {"compuestos": 1, "aislamiento": 0},
         },
     },
+    # _detectar_meta() del orquestador reconoce 'hipertrofia' como meta canónica
+    # ("masa", "volumen", "músculo") y la persiste en el perfil, así que el motor
+    # DEBE soportarla o la generación revienta en el hilo de background.
+    # Perfil: más aislamiento que powerbuilding en todos los bloques, y la fase de
+    # Realización no vacía el volumen accesorio (no hay peaking neural que proteger).
+    "hipertrofia": {
+        "Acumulamiento": {
+            "Potencia":    {"compuestos": 2, "aislamiento": 3},
+            "Hipertrofia": {"compuestos": 2, "aislamiento": 5},
+            "Fuerza":      {"compuestos": 2, "aislamiento": 3},
+        },
+        "Fuerza": {
+            "Potencia":    {"compuestos": 1, "aislamiento": 2},
+            "Hipertrofia": {"compuestos": 2, "aislamiento": 4},
+            "Fuerza":      {"compuestos": 2, "aislamiento": 2},
+        },
+        "Realizacion": {
+            "Potencia":    {"compuestos": 1, "aislamiento": 1},
+            "Hipertrofia": {"compuestos": 2, "aislamiento": 3},
+            "Fuerza":      {"compuestos": 1, "aislamiento": 1},
+        },
+    },
 })
 
 
@@ -386,6 +408,9 @@ class Distribucion_Torso_Pierna:
             contexto_usuario=contexto_del_usuario,
             rango_compuestos=str(max_compuestos),
             rango_aislamiento=str(max(1, max_aislamiento)),
+            meta=meta,   # sin esto el selector recibía '' y caía al perfil por
+                         # defecto (powerbuilding), ignorando la meta real del
+                         # atleta al elegir la mecánica de los ejercicios.
         )
 
         ruta_db_ejercicios = (

@@ -2,16 +2,13 @@
     "527291395298": {
         "semana": 1,
         "dia": 1,
-        "fecha_programada": "2026-07-22",
+        "fecha_programada": "2026-07-24",
         "ultima_fecha_completada": "",
         "onboarding_activo": false,
         "campo_pendiente": "",
         "estado_generacion": "lista",
-        "meta": "powerbuilding",
-        "dias": 7,
-        "generacion_ts": 1784700399.3117104,
-        "cursor_semana": 2,
-        "cursor_dia": 6,
-        "confirmar_regeneracion": 0
+        "generacion_ts": 1784922396.5165966,
+        "cursor_semana": 1,
+        "cursor_dia": 6
     }
 }

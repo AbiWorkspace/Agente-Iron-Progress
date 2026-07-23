@@ -35,10 +35,14 @@ _RUTA_RAIZ = Path(__file__).resolve().parent.parent
 RUTA_DB_ATLETAS = _RUTA_RAIZ / "data" / "iron_progress.db"
 
 CAMPOS_PERFIL = ("peso_kg", "altura_m", "edad", "genero",
-                 "porcentaje_grasa", "dias_semana", "meta")
+                 "porcentaje_grasa", "dias_semana", "meta", "incremento_kg")
 
+# incremento_kg = salto MÍNIMO real en la barra según los discos del atleta.
+# Con discos de 1.25 (par) = 2.5; solo con discos de 2.5 (par) = 5.0. Es lo que
+# permite prescribir cargas que el atleta puede montar de verdad.
 _CAMPOS_NUMERICOS = {"peso_kg": float, "altura_m": float, "edad": int,
-                     "porcentaje_grasa": float, "dias_semana": int}
+                     "porcentaje_grasa": float, "dias_semana": int,
+                     "incremento_kg": float}
 
 
 def _norm_ej(nombre) -> str:
@@ -76,6 +80,7 @@ class RepositorioAtleta:
                 porcentaje_grasa REAL,
                 dias_semana      INTEGER,
                 meta             TEXT,
+                incremento_kg    REAL,
                 creado_en        TEXT NOT NULL,
                 actualizado_en   TEXT NOT NULL
             );
@@ -107,6 +112,15 @@ class RepositorioAtleta:
             CREATE INDEX IF NOT EXISTS idx_rm_usr_ej
                 ON marcas_rm(numero_usuario, ejercicio, fecha);
             """)
+
+        # Escudo de migración: las BD creadas antes de que existiera el campo
+        # no tienen la columna y el UPDATE de actualizar_perfil fallaría.
+        with self._conn() as con:
+            columnas = {f[1] for f in con.execute("PRAGMA table_info(atletas)")}
+            for columna, tipo in (("incremento_kg", "REAL"),):
+                if columna not in columnas:
+                    con.execute(f"ALTER TABLE atletas ADD COLUMN {columna} {tipo}")
+                    print(f"[REPO] + columna atletas.{columna}")
 
     # -------------------------------------------------------------- migración
     def _migrar_json_legado(self):

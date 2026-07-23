@@ -146,29 +146,6 @@
   {
     "type": "function",
     "function": {
-      "name": "registrar_serie_completada",
-      "description": "Guarda en el diario SQL una serie que el atleta ACABA de hacer. USA CUANDO: reporte una serie ejecutada con peso y reps ('hice', 'acabo de sacar', 'terminé la serie'), incluyendo RPE, datos VBT y dolor si los menciona — normalmente en el MISMO turno que 'calcular_rm_exacto'. NO LA USES CUANDO: hable de marcas pasadas o hipotéticas ('mi mejor marca fue', '¿qué pasa si levanto X?') o esté dando datos en el Modo Creación de plan.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "ejercicio": { "type": "string", "description": "Nombre exacto del ejercicio (ej. 'Press Banco Plano')." },
-          "peso_kg": { "type": "number", "description": "Carga en kilogramos. Si es peso corporal, pon 0." },
-          "repeticiones": { "type": "integer", "description": "Reps completadas en esa serie." },
-          "rpe_reportado": { "type": "number", "description": "RPE subjetivo o calculado (ej. 8, 8.5)." },
-          "vbt_velocidad_media": { "type": "number", "description": "Velocidad media en m/s (si la da)." },
-          "vbt_velocidad_pico": { "type": "number", "description": "Velocidad pico máxima en m/s (si la da)." },
-          "vbt_perdida_velocidad": { "type": "number", "description": "Fatiga intra-serie o pérdida de velocidad (porcentaje %)." },
-          "rom_cm": { "type": "number", "description": "Rango de movimiento en centímetros (si lo da el VBT)." },
-          "dolor_articular": { "type": "string", "description": "Si el atleta menciona molestias (ej. 'rodilla', 'hombro'). Si no, null." },
-          "calidad_tecnica": { "type": "string", "enum": ["perfecta", "buena", "deterioro_leve", "fallo_tecnico"], "description": "Tu evaluación de la técnica." }
-        },
-        "required": ["ejercicio", "peso_kg", "repeticiones"]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "consultar_historial_narrativo",
       "description": "Busca en las bitácoras de largo plazo del atleta (mesociclos pasados, evolución, episodios antiguos). USA CUANDO: pregunte por su progreso histórico, dolores o lesiones viejas, cómo le fue 'la vez pasada', o quieras comparar si un estancamiento actual ya le ocurrió antes (física o psicológicamente). NO LA USES CUANDO: el dato sea reciente o de su perfil actual (eso es 'consultar_expediente_personal') o esté en la conversación visible.",
       "parameters": {
@@ -329,6 +306,110 @@
       "name": "reanudar_plan",
       "description": "Reactiva un plan que estaba pausado; hoy vuelve a haber entrenamiento disponible. USA CUANDO: el atleta regresa y quiere seguir. NO LA USES si el plan no estaba pausado.",
       "parameters": {"type": "object", "properties": {}}
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "registrar_serie_completada",
+      "description": "Registra UNA serie efectiva YA completada por el atleta. OBLIGATORIO tener la tríada completa: peso_kg, repeticiones y rpe. Si el atleta no mencionó las repeticiones o el RPE, NO llames esta herramienta todavía: pregúntale primero SOLO el dato que falta. Nunca inventes un RPE.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": {
+            "type": "string",
+            "description": "Nombre canónico del ejercicio, p. ej. 'press banca', 'sentadilla', 'peso muerto'"
+          },
+          "peso_kg": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Carga total en kilogramos"
+          },
+          "repeticiones": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Repeticiones completadas en la serie"
+          },
+          "rpe": {
+            "type": "number",
+            "minimum": 5,
+            "maximum": 10,
+            "description": "Esfuerzo percibido 5-10 en pasos de 0.5. Guía: 'fácil'≈6, 'me quedaban 2'=8, 'me quedaba 1'=9, 'casi no sube / a punto de fallar'=9.5, 'fallé o fallo técnico'=10"
+          },
+          "dolor_articular": {
+            "type": "string",
+            "description": "Zona con molestia ('hombro', 'rodilla'...) o 'ninguno'"
+          }
+        },
+        "required": ["ejercicio", "peso_kg", "repeticiones", "rpe"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "predecir_carga_optima",
+      "description": "Predice la carga (kg) que el atleta debe usar en su próxima serie top de un ejercicio para asegurar sobrecarga progresiva sin exceder su recuperación. Usa su historial de e1RM, fatiga acumulada (ACWR) y readiness de hoy. Úsala cuando pregunte '¿con cuánto le entro hoy?', al armar la sesión del día, o antes de sugerir subir peso. Cita SOLO los kg y señales del resultado.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": { "type": "string", "description": "Ejercicio a predecir, p. ej. 'press banca'" },
+          "repeticiones_objetivo": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Reps prescritas para la serie top de hoy" },
+          "rpe_objetivo": { "type": "number", "minimum": 5, "maximum": 10, "description": "RPE objetivo de la prescripción (default 8)" }
+        },
+        "required": ["ejercicio", "repeticiones_objetivo"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "analizar_mrv",
+      "description": "Analiza si el volumen de la última semana excedió el Máximo Volumen Recuperable (MRV) del atleta comparándola con la semana anterior: caída del e1RM, subida del RPE a cargas iguales y reportes de dolor. Úsala cuando el atleta se sienta 'molido', pregunte si debe descargar, lleve varios RPE altos seguidos, o cada fin de microciclo. Devuelve veredicto y recomendación con números.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "grupo_muscular": { "type": "string", "description": "Opcional: 'pecho', 'pierna', 'espalda', 'hombro', 'brazo', 'cadena posterior'. Sin él, análisis global." },
+          "ventana_dias": { "type": "integer", "minimum": 5, "maximum": 14, "description": "Tamaño de cada ventana a comparar (default 7)" }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "autorregular_dia",
+      "description": "OBLIGATORIA cuando el atleta reporta RPE ≥ 9.5 en su PRIMERA serie de un día (especialmente hipertrofia con objetivo RPE 7-8): recalcula el bloque restante bajando carga (~3% por punto de overshoot) y recortando series; si es la segunda alarma del día convierte la sesión en descarga técnica. Pásale exactamente lo reportado, no estimes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": { "type": "string" },
+          "rpe_reportado": { "type": "number", "minimum": 5, "maximum": 10, "description": "RPE que el atleta acaba de reportar en la 1.ª serie" },
+          "rpe_objetivo": { "type": "number", "minimum": 5, "maximum": 10, "description": "RPE prescrito para hoy en ese ejercicio" },
+          "series_restantes": { "type": "integer", "minimum": 0, "maximum": 12, "description": "Series que quedaban planeadas (sin contar la ya hecha)" },
+          "carga_actual_kg": { "type": "number", "minimum": 1, "maximum": 500 }
+        },
+        "required": ["ejercicio", "rpe_reportado", "rpe_objetivo", "series_restantes", "carga_actual_kg"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "enviar_grafica_progreso",
+      "description": "Genera y envía por WhatsApp una gráfica de la tendencia del e1RM de un ejercicio (puntos por sesión + línea EWMA + récords marcados). Úsala cuando el atleta pregunte cómo va ('¿cómo voy este mes?'), logre un récord, o pida ver su progreso. Tras enviarla, comenta los números del resumen que devuelve.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": { "type": "string" },
+          "periodo_dias": { "type": "integer", "minimum": 14, "maximum": 365, "description": "Ventana de la gráfica (default 90)" },
+          "caption": { "type": "string", "description": "Pie de foto corto opcional" }
+        },
+        "required": ["ejercicio"]
+      }
     }
   }
 ]
