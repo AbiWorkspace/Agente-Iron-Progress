@@ -13,7 +13,7 @@ import asyncio
 import traceback
 
 
-async def procesar_y_responder_video_vbt(media_id_entrada: str, numero_usuario: str, nombre_ejercicio: str = "Movimiento Libre"):
+async def procesar_y_responder_video_vbt(media_id_entrada: str, numero_usuario: str, nombre_ejercicio: str = "Movimiento Libre", carga_kg: float = None):
     """
     Orquestador completo: Descarga de Meta -> Procesa VBT -> Sube a Meta -> Envia WhatsApp.
     """
@@ -68,7 +68,8 @@ async def procesar_y_responder_video_vbt(media_id_entrada: str, numero_usuario: 
             ruta_salida=ruta_video_procesado,
             media_id=media_id_entrada,
             numero_usuario=numero_usuario,
-            nombre_ejercicio=nombre_ejercicio  # <--- ¡AQUÍ ESTÁ LA MAGIA!
+            nombre_ejercicio=nombre_ejercicio,
+            carga_kg=carga_kg  # <--- AQUÍ VIAJA EL PESO PARA EL 1RM
         )
 
         if resultado_vbt["estado"] == "error":

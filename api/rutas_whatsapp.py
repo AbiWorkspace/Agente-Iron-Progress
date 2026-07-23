@@ -36,6 +36,26 @@ videos_pendientes = {}
 mensajes_procesados = set()
 usuarios_procesando = set()
 
+
+def corregir_ejercicio_usuario(texto_usuario: str, ejercicio_ia: str) -> str:
+    """
+    Analiza el texto del atleta para detectar si corrigió a la IA.
+    Si detecta un ejercicio válido, lo sobreescribe.
+    """
+    t = texto_usuario.lower()
+
+    # Mapeo estricto a las claves de tu PERFILES_EJERCICIO en motor_vbt.py
+    if any(x in t for x in ["peso muerto", "deadlift", "sumo", "rdl"]):
+        return "peso_muerto"
+    if any(x in t for x in ["sentadilla", "squat", "hack"]):
+        return "sentadilla"
+    if any(x in t for x in ["press", "banca", "bench", "pecho"]):
+        return "press_banca"
+    if any(x in t for x in ["dominada", "pull up", "jalon"]):
+        return "dominadas"
+
+    return ejercicio_ia
+
 async def limpiar_cache_videos():
     while True:
         await asyncio.sleep(300)  # Se ejecuta cada 5 minutos
@@ -69,9 +89,16 @@ def contiene_peso(texto: str) -> bool:
     # Regex: Busca dígitos enteros o decimales, y opcionalmente la palabra kg/kilos
     patron_peso = r"\b\d+(?:[.,]\d+)?\s*(?:kg|kilos?|k)?\b"
     return bool(re.search(patron_peso, texto, re.IGNORECASE))
-
+def extraer_peso(texto: str) -> float:
+    """Extrae el primer número exacto (ej. 180 o 180.5) del texto."""
+    if not texto: return None
+    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?|k)?\b", texto, re.IGNORECASE)
+    if match:
+        numero_str = match.group(1).replace(",", ".")
+        return float(numero_str)
+    return None
 async def procesar_y_enviar_mensaje(
-        numero_usuario: str, texto_usuario: str = None, media_id: str = None, nombre_ejercicio:str = None
+        numero_usuario: str, texto_usuario: str = None, media_id: str = None, nombre_ejercicio:str = None, carga_kg: float = None
 ):
     """
     Esta función vivirá en segundo plano.
@@ -86,7 +113,8 @@ async def procesar_y_enviar_mensaje(
         if media_id and media_id != "0":
             print("[INFO]: Iniciando pipeline de video desde WhatsApp...")
             texto_contexto_vbt = await procesar_y_responder_video_vbt(
-                media_id_entrada=media_id, numero_usuario=numero_usuario, nombre_ejercicio= nombre_ejercicio
+                media_id_entrada=media_id, numero_usuario=numero_usuario, nombre_ejercicio=nombre_ejercicio,
+                carga_kg=carga_kg
             )
             texto_limpio = texto_contexto_vbt.strip() if texto_contexto_vbt else ""
 
@@ -146,10 +174,10 @@ async def tarea_en_segundo_plano_segura(numero_usuario: str, texto: str, media_i
         if numero_usuario in usuarios_procesando:
             usuarios_procesando.remove(numero_usuario)
 
-async def tarea_en_segundo_plano_video(numero_usuario: str, texto: str, media_id: str, nombre_ejercicio: str):
+async def tarea_en_segundo_plano_video(numero_usuario: str, texto: str, media_id: str, nombre_ejercicio: str, carga_kg: float = None):
     usuarios_procesando.add(numero_usuario)
     try:
-        await procesar_y_enviar_mensaje(numero_usuario, texto, media_id, nombre_ejercicio= nombre_ejercicio)
+        await procesar_y_enviar_mensaje(numero_usuario, texto, media_id, nombre_ejercicio=nombre_ejercicio, carga_kg=carga_kg)
     finally:
         if numero_usuario in usuarios_procesando:
             usuarios_procesando.remove(numero_usuario)
@@ -335,35 +363,50 @@ async def recibir_mensaje_whatsapp(request: Request, background_tasks: Backgroun
                                 None,
                             )
 
+
                     elif tipo_mensaje == "text":
+
                         texto_recibido = mensaje["text"]["body"].strip()
 
                         if "[ERROR]" in texto_recibido or "[INFO]" in texto_recibido:
                             return
 
                         if numero_usuario in videos_pendientes:
-                            # VALIDACIÓN 3: Si el texto responde al video, pero no trae peso
+
+                            # VALIDACIÓN: Verificar si trae peso
                             if not contiene_peso(texto_recibido):
+                                # ¡CURA AMNESIA!: Si corrigió el ejercicio, lo guardamos ANTES de pedir el peso
+                                ej_previo = videos_pendientes[numero_usuario].get("ejercicio_detectado", "")
+                                ej_actualizado = corregir_ejercicio_usuario(texto_recibido, ej_previo)
+                                videos_pendientes[numero_usuario]["ejercicio_detectado"] = ej_actualizado
+
                                 enviar_mensaje_whatsapp(
                                     telefono_destino=numero_usuario,
                                     texto="No logré identificar los kilos en tu mensaje. Escríbeme el peso (ej. '140kg') para poder iniciar el análisis VBT."
                                 )
-                                return  # Cortamos aquí, el video sigue pendiente
+                                return
 
                             video_id_esperando = videos_pendientes[numero_usuario]["id"]
                             ej_previo = videos_pendientes[numero_usuario].get("ejercicio_detectado", "Movimiento Libre")
                             del videos_pendientes[numero_usuario]
 
-                            # 🛠️ CORRECCIÓN: Aquí se usa texto_recibido en lugar de texto_transcrito
-                            texto_fusionado = f"Ejercicio detectado por IA: {ej_previo}. Atleta responde: {texto_recibido}"
+                            # 1. INTERCEPTAMOS LA CORRECCIÓN
+                            ej_corregido = corregir_ejercicio_usuario(texto_recibido, ej_previo)
 
-                            # 🛠️ CORRECCIÓN: Usamos la tarea de video y le pasamos el nombre!
+                            # 2. EXTRAEMOS EL PESO EN KILOS (NUEVO)
+                            kilos_detectados = extraer_peso(texto_recibido)
+
+                            # 3. FUSIONAMOS EL CONTEXTO PARA EL LLM
+                            texto_fusionado = f"IA detectó inicialmente: {ej_previo}. Atleta corrigió/confirmó con: {texto_recibido}"
+
+                            # 4. ENVIAMOS TODO AL MOTOR VBT
                             background_tasks.add_task(
                                 tarea_en_segundo_plano_video,
                                 numero_usuario,
                                 texto_fusionado,
                                 video_id_esperando,
-                                ej_previo  # <--- EL NOMBRE VIAJA AQUÍ
+                                ej_corregido,
+                                kilos_detectados  # <--- AHORA SÍ VIAJA EL PESO
                             )
                         else:
                             background_tasks.add_task(

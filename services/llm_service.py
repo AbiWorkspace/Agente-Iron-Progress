@@ -74,6 +74,34 @@ AFIRMACION_CORTA_RE = re.compile(
     r"^\s*(s[ií]+|sale|dale|va|claro|obvio|porfa|por\s*favor|hazla|h[aá]zmela|adelante|ok(ey)?)\s*[!.]*\s*$",
     re.IGNORECASE)
 
+# v8 (Mandato 4) — NOTACIÓN DE ENTRENAMIENTO. "100 x 10 r @8" no contiene ninguna
+# keyword del vocabulario, mide <60 chars y caía en casual=True: tools apagadas y
+# el modelo afirmando "serie anotada ✅" sin haber guardado nada (bug 3.2). Este
+# patrón detecta la notación estándar (NxM, kg/lbs, @RPE, reps, velocidades VBT)
+# y fuerza ESTRICTAMENTE casual=False en el router.
+NOTACION_ENTRENO_RE = re.compile(
+    r"\d+\s*(?:kg|lbs?|kilos?)?\s*[xX×]\s*\d+"        # 100x10 / 100 kg x 10
+    r"|@\s*\d+(?:[.,]\d+)?"                            # @8 / @ 8.5 (RPE)
+    r"|\brpe\s*\d+"                                    # rpe 8
+    r"|\d+\s*(?:kg|lbs?|kilos?)\b"                     # 100kg / 220 lbs
+    r"|\d+\s*(?:reps?|repeticiones?)\b"                # 10 reps
+    r"|\b0[.,]\d{2,3}\b",                              # 0.25 m/s (VBT)
+    re.IGNORECASE)
+
+# v8 (Mandato 5) — CREACIÓN FUERTE: señal INEQUÍVOCA de que el atleta quiere un
+# plan nuevo. Los verbos débiles de EN_CREACION_RE ("quiero...rutina") ya no
+# bastan para amenazar con regenerar un plan activo: "¿qué peso uso para cumplir
+# mi rutina?" disparaba el REGEN jail (bug 3.3). La señal débil ahora pasa por el
+# clasificador semántico; solo esta señal fuerte confirma directo.
+CREACION_FUERTE_RE = re.compile(
+    r"\b(hazme|haz|crea\w*|arma\w*|genera\w*|dise[ñn]a\w*|reha[zc]\w*|reempl[aá]z\w*)\b"
+    r".{0,50}\b(rutina|plan|programa|mesociclo|entrenamiento)\b"
+    r"|\b(rutina|plan|programa|mesociclo|entrenamiento)\b.{0,40}\b(nuev[oa]|desde\s+cero)\b"
+    r"|\bnuev[oa]\s+(rutina|plan|programa|mesociclo)\b"
+    r"|\botr[oa]\s+(rutina|plan|programa|mesociclo)\b"
+    r"|\bdesde\s+cero\b",
+    re.IGNORECASE)
+
 # v3 — Fallo 4 del informe: restricciones negativas ("no puedo con 215kg") que el
 # modelo ignoraba por inercia. Se detectan en código y se inyectan con prioridad.
 RESTRICCION_RE = re.compile(
@@ -340,11 +368,31 @@ MODELO_LLM = "qwen3.6:27b"   # rollback instantáneo: "qwen3:32b"
 # Con el 35B-A3B (~60-80 tok/s), ~400 tokens de razonamiento cuestan +5-8s:
 # tiempo total similar al 32B sin pensar, pero con mejor criterio.
 # Interruptor global para A/B: ponlo en False y todo vuelve al modo actual.
-PENSAR_HABILITADO = False
+PENSAR_HABILITADO = True
 
+# v8 (Mandato 6) — la síntesis POST-tools ya no piensa: con think=True el
+# razonamiento tardaba 60s+ a baja velocidad y se comía casi todo num_predict
+# (los tokens de thinking y de contenido comparten presupuesto en Ollama),
+# dejando salidas mutiladas tipo "No te" con done_reason='length'. El criterio
+# de QUÉ herramienta usar ya se ejerció en la llamada principal; sintetizar
+# resultados es redacción pura. Interruptor para A/B.
+PENSAR_POST_TOOLS = False
+
+# v8 (Mandato 2) — herramientas que ESCRIBEN estado. Solo estas se deduplican
+# cross-loop dentro del mismo turno (una lectura repetida es inofensiva; una
+# escritura repetida mete filas DUP en SQLite y corrompe el volumen del atleta).
+TOOLS_ESCRITURA = {
+    "generar_rutina", "avanzar_dia", "sustituir_ejercicio", "aplicar_descarga",
+    "registrar_peso_corporal", "pausar_plan", "reanudar_plan",
+    "calcular_rm_exacto", "registrar_serie_completada",
+    "guardar_en_expediente_personal", "actualizar_1rm",
+}
 
 # Sampling recomendado por Qwen para modo thinking (no-thinking usa tu config)
-AJUSTES_PENSANDO = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "num_predict": 2048}
+# v8 (Mandato 6): num_predict 2048 -> 3072. El razonamiento comparte presupuesto
+# con el contenido; con 2048 un thinking largo agotaba los tokens y la respuesta
+# real llegaba truncada al webhook (bug 3.1: [OUT] -> 'No te' tras 82s).
+AJUSTES_PENSANDO = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "num_predict": 3072}
 
 OPCIONES_QWEN_32B = {
     "num_gpu": 99,
@@ -365,8 +413,25 @@ OPCIONES_QWEN_32B = {
 SEM_LLM = asyncio.Semaphore(1)
 TIMEOUT_CHAT = 180.0   # ninguna llamada al modelo puede colgar el orquestador para siempre
 
-async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False):
-    """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional."""
+def _campo_resp(resp, campo, defecto=None):
+    """Lee un campo del objeto/dict de respuesta de Ollama sin romperse por versión."""
+    try:
+        if isinstance(resp, dict):
+            return resp.get(campo, defecto)
+        return getattr(resp, campo, defecto)
+    except Exception:
+        return defecto
+
+async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False,
+                   timeout=None):
+    """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional.
+
+    v8 (Mandato 6): loguea done_reason y, si el modelo se quedó SIN presupuesto de
+    tokens a mitad del razonamiento (done_reason='length' + thinking + contenido
+    diminuto, el patrón exacto del bug 3.1 "[OUT] -> 'No te'"), reintenta UNA vez
+    en frío sin thinking DENTRO del mismo semáforo, para que ninguna otra petición
+    se cuele entre intento y reintento.
+    """
     t0 = time.monotonic()
     async with SEM_LLM:
         espera = time.monotonic() - t0
@@ -380,15 +445,72 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
                       options=opciones or OPCIONES_QWEN_32B)
         if tools:
             kwargs["tools"] = tools
-        resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs), timeout=TIMEOUT_CHAT)
+        resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
+                                      timeout=timeout or TIMEOUT_CHAT)
         msg = resp.get("message", {}) or {}
         razonamiento = msg.get("thinking") or ""
+        contenido = msg.get("content") or ""
+        done_reason = _campo_resp(resp, "done_reason", "")
         print(f"[LLM] '{quien}' respondió en {time.monotonic()-t0:.1f}s "
-              f"({len(mensajes)} msgs, thinking={'sí, ' + str(len(razonamiento)) + ' chars' if razonamiento else 'no'})")
+              f"({len(mensajes)} msgs, done_reason={done_reason or '?'}, "
+              f"thinking={'sí, ' + str(len(razonamiento)) + ' chars' if razonamiento else 'no'})")
         if razonamiento:
             # Oro para depurar el criterio: SE VE por qué eligió (o no) una herramienta.
             print(f"[LLM-THINK] '{quien}': {_trunc(razonamiento, 300)}")
+
+        # v8 (Mandato 6) — AUTO-RESCATE DE TRUNCAMIENTO: el thinking se comió el
+        # num_predict y el contenido real quedó mutilado. Sin tool calls que
+        # procesar, reintenta sin thinking con presupuesto íntegro para contenido.
+        if (str(done_reason) == "length" and usar_thinking
+                and not msg.get("tool_calls") and len(contenido.strip()) < 60):
+            print(f"[LLM] '{quien}' TRUNCADO por presupuesto (contenido={len(contenido)} chars); "
+                  "reintento sin thinking")
+            kwargs["think"] = False
+            kwargs["options"] = {**(opciones or OPCIONES_QWEN_32B), "num_predict": 1536}
+            resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
+                                          timeout=timeout or TIMEOUT_CHAT)
+            print(f"[LLM] '{quien}' reintento sin thinking listo en {time.monotonic()-t0:.1f}s "
+                  f"(done_reason={_campo_resp(resp, 'done_reason', '?')})")
         return resp
+
+# ==============================================================================
+# v8 (Mandato 5) — CLASIFICADOR SEMÁNTICO DE INTENCIÓN DE PLAN
+# Reemplaza el keyword-matching ciego: "¿qué peso uso para cumplir mi rutina?"
+# contenía el token 'rutina' + un verbo débil y secuestraba la conversación
+# hacia el bucle sí/no de regeneración (bug 3.3). La regex fuerte
+# (CREACION_FUERTE_RE) sigue confirmando directo sin costo; SOLO la señal
+# débil ambigua paga esta llamada mínima (una palabra, temp 0, sin thinking).
+# ==============================================================================
+async def clasificar_intencion_plan(mensaje: str, numero_usuario: str = "") -> str:
+    """Devuelve 'crear', 'consultar' u 'otro'. Ante cualquier fallo -> 'otro'
+    (fail-safe: jamás se regenera un plan por un error del clasificador)."""
+    prompt = (
+        "Clasifica la intención del mensaje de un atleta hacia su plan de gimnasio.\n"
+        "Responde EXCLUSIVAMENTE con una de estas palabras, sin nada más:\n"
+        "crear     -> quiere un plan/rutina NUEVO o rehacer el actual desde cero\n"
+        "consultar -> pregunta por su rutina existente: qué le toca, qué peso usar, "
+        "cómo cumplirla, dudas sobre ella\n"
+        "otro      -> cualquier otra cosa (charla, reporte de series, molestias...)\n\n"
+        f"Mensaje: \"{str(mensaje).strip()[:300]}\"\n"
+        "Respuesta:")
+    try:
+        resp = await chat_llm(
+            [{"role": "user", "content": prompt}],
+            opciones={**OPCIONES_QWEN_32B, "temperature": 0.0, "num_predict": 8},
+            pensar=False,
+            quien="clasificador-plan",
+            timeout=20.0,
+        )
+        palabra = (resp.get("message", {}) or {}).get("content", "").strip().lower()
+        palabra = re.sub(r"[^a-záéíóú]", "", palabra.split()[0]) if palabra.split() else ""
+        veredicto = palabra if palabra in ("crear", "consultar", "otro") else "otro"
+        if numero_usuario:
+            log(numero_usuario, "CLASIF-PLAN", f"{mensaje[:60]!r} -> {veredicto}")
+        return veredicto
+    except Exception as e:
+        if numero_usuario:
+            log(numero_usuario, "CLASIF-PLAN", f"falló ({e}); fail-safe -> 'otro'")
+        return "otro"
 
 # ==============================================================================
 # CHROMADB
@@ -484,7 +606,10 @@ def _guardar_descarga(numero_usuario: str, semana: int, red_intensidad: float, r
 def _ruta_historial_rm(numero_usuario: str) -> str:
     return os.path.join(carpeta_data, f"historial_rm_{str(numero_usuario).strip()}.json")
 
-def _append_historial_rm(numero_usuario: str, ejercicio: str, rm) -> None:
+def _append_historial_rm(numero_usuario: str, ejercicio: str, rm, peso_origen=None) -> None:
+    # v8 (Mandato 1): se persiste TAMBIÉN el peso de origen de la marca (ej. el
+    # lastre de 30 kg en dominadas). Antes solo se guardaba el e1RM calculado y
+    # el validador de kilajes bloqueaba el peso real que el atleta sí levantó.
     try:
         rm = float(rm)
     except (TypeError, ValueError): return
@@ -495,8 +620,14 @@ def _append_historial_rm(numero_usuario: str, ejercicio: str, rm) -> None:
             if not isinstance(hist, list): hist = []
     except (FileNotFoundError, json.JSONDecodeError):
         hist = []
-    hist.append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                 "ejercicio": _norm_ej(ejercicio), "rm": round(rm, 1)})
+    entrada = {"fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+               "ejercicio": _norm_ej(ejercicio), "rm": round(rm, 1)}
+    try:
+        if peso_origen is not None:
+            entrada["peso_origen"] = round(float(peso_origen), 1)
+    except (TypeError, ValueError):
+        pass
+    hist.append(entrada)
     hist = hist[-500:]
     try:
         with open(ruta, "w", encoding="utf-8") as f:
@@ -582,8 +713,8 @@ def guardar_rm(numero_usuario: str, ejercicio: str, rm,
                                fuente=fuente)
     except Exception as e:
         print(f"[REPO-ERROR] guardar_rm({ejercicio}): {e}")
-    # Hook del log propio
-    try: _append_historial_rm(numero_usuario, ejercicio, rm)
+    # Hook del log propio (v8: con peso_origen para la whitelist de kilajes)
+    try: _append_historial_rm(numero_usuario, ejercicio, rm, peso_origen=peso_origen)
     except Exception as e: print(f"[HIST-RM] {e}")
 
 def cargar_perfil(u) -> dict:
@@ -1016,8 +1147,15 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
         except Exception as e:
             print(f"[GENERACIÓN BG] Plan listo pero no pude notificar: {e}")
 
+
     except Exception as e:
+
+        import traceback
+
         print(f"[GENERACIÓN BG] ERROR: {e}")
+
+        traceback.print_exc()
+
         _actualizar_estado_json(numero_usuario, estado_generacion="error")
 
 def _normalizar_dia_a_indice(dia_actual) -> int | None:
@@ -1512,7 +1650,16 @@ def detectar_consulta_rutina(mensaje: str) -> dict | None:
         r'(?:mi\s+)?rutina\s+(?:completa|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
         r'plan\s+(?:completo|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
         r'(?:qué|que)\s+(?:ejercicios|entrenamiento)\s+(?:me\s+toca|tengo|hay)\b',
-        r'\b(?:cual|cuál)\s+es\s+mi\s+(?:rutina|plan)\b'
+        r'\b(?:cual|cuál)\s+es\s+mi\s+(?:rutina|plan)\b',
+        # v8 (Mandato 5) — "¿qué peso uso para cumplir mi rutina?" es una CONSULTA
+        # de la rutina existente (los kg ya vienen calculados en el plan). Antes no
+        # matcheaba nada aquí, caía como señal débil de creación y disparaba el
+        # REGEN jail (bug 3.3).
+        r'(?:qu[eé]|cu[aá]nt[oa])s?\s+pesos?\s+(?:le\s+|me\s+)?'
+        r'(?:uso|us[ao]r?|pongo|poner|meto|cargo|carg[ao]r?|debo|deber[ií]a|'
+        r'me\s+toca|corresponde|manejo|levanto)\b',
+        r'(?:c[oó]mo|con\s+qu[eé]\s+peso)\s+(?:cumplo|cumplir|hago|realizo)\s+'
+        r'(?:mi\s+|la\s+)?(?:rutina|plan|sesi[oó]n)\b',
     ]
     for patron in patrones_semana_siguiente:
         if re.search(patron, msg): return {"tipo": "semana_futura"}
@@ -1710,21 +1857,99 @@ _KG_EN_TEXTO_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?)\b", re.IGNORECA
 def _extraer_kgs(texto: str) -> set[float]:
     return {float(v.replace(",", ".")) for v in _KG_EN_TEXTO_RE.findall(texto or "")}
 
-def _verificar_kgs_salida(numero_usuario: str, respuesta: str, fuentes: str) -> list[float]:
-    """v3 — Bug '79% -> 15kg': devuelve la lista de kilajes que el modelo escribió
-    en su respuesta pero que NO existen en ninguna fuente legítima (rutina calculada,
-    telemetría, mensaje del usuario, RMs guardados). Si hay inventados, se rechaza."""
+# v8 (Mandato 1) — números "libres" (sin sufijo kg) en rango plausible de carga.
+# El historial dice "145x3" o "mi PR fue 145": si se exigiera el sufijo, todo eso
+# quedaría fuera de la whitelist y el validador seguiría bloqueando memoria real.
+_NUM_LIBRE_RE = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d{1,2})?)(?![\d%])")
+
+def _extraer_numeros_libres(texto: str) -> set[float]:
+    vals = set()
+    for v in _NUM_LIBRE_RE.findall(texto or ""):
+        try:
+            f = float(v.replace(",", "."))
+        except ValueError:
+            continue
+        if 1.0 <= f <= 500.0:      # rango plausible de cargas/lastres/pesos corporales
+            vals.add(f)
+    return vals
+
+def _construir_whitelist_kgs(numero_usuario: str, fuentes_turno: str,
+                             historial: list, resultados_tools: str) -> set[float]:
+    """v8 (Mandato 1) — WHITELIST DINÁMICA del turno. Junta TODO número legítimo:
+
+    1. Fuentes del turno (mensaje, rutina calculada, dashboard, telemetría).
+    2. Payloads REALES de las tools ([TOOL-RESULT]) — bug 1.3: los 135 kg de la
+       semana 2 devueltos por consultar_rutina_futura se marcaban inventados.
+    3. TODO el historial en memoria (ventana de corto plazo) — bug 1.1: el PR de
+       145 kg dicho turnos atrás se bloqueaba; y bug 1.4: con "siii" como único
+       mensaje, la whitelist quedaba casi vacía y colapsaba por arrastre. Nota de
+       seguridad: los mensajes del assistant en historial YA pasaron este mismo
+       validador cuando se emitieron, así que citarlos no re-abre la puerta.
+    4. Perfil completo (peso, lastre, etc.) — bug 1.2: los 30 kg de lastre del
+       expediente se bloqueaban por no cruzar el perfil global.
+    5. RMs canónicos + historial fechado (rm Y peso_origen) + peso corporal.
+    """
+    permitidos: set[float] = set()
+
+    # 1-2) turno + tools: con sufijo kg Y números libres (notación 145x3)
+    for bloque in (fuentes_turno, resultados_tools):
+        permitidos |= _extraer_kgs(bloque)
+        permitidos |= _extraer_numeros_libres(bloque)
+
+    # 3) ventana de memoria completa del usuario (user + assistant)
+    try:
+        for m in (historial or []):
+            c = m.get("content", "") if isinstance(m, dict) else str(m)
+            permitidos |= _extraer_kgs(c)
+            permitidos |= _extraer_numeros_libres(c)
+    except Exception as e:
+        print(f"[WHITELIST-KG] historial ilegible: {e}")
+
+    # 4) perfil numérico completo
+    try:
+        for v in cargar_perfil(numero_usuario).values():
+            if isinstance(v, (int, float)) and 1.0 <= float(v) <= 500.0:
+                permitidos.add(round(float(v), 1))
+    except Exception as e:
+        print(f"[WHITELIST-KG] perfil ilegible: {e}")
+
+    # 5) RMs canónicos + historial fechado (rm y peso_origen) + peso corporal
+    try:
+        permitidos |= {round(float(v), 1) for v in cargar_rms(numero_usuario).values()
+                       if isinstance(v, (int, float))}
+    except Exception:
+        pass
+    try:
+        with open(_ruta_historial_rm(numero_usuario), "r", encoding="utf-8") as f:
+            for h in json.load(f):
+                for k in ("rm", "peso_origen"):
+                    if isinstance(h, dict) and isinstance(h.get(k), (int, float)):
+                        permitidos.add(round(float(h[k]), 1))
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        pass
+    try:
+        with open(_ruta_peso(numero_usuario), "r", encoding="utf-8") as f:
+            for h in json.load(f):
+                if isinstance(h, dict) and isinstance(h.get("peso"), (int, float)):
+                    permitidos.add(round(float(h["peso"]), 1))
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        pass
+
+    return permitidos
+
+def _verificar_kgs_salida(respuesta: str, permitidos: set[float]) -> list[float]:
+    """v3 → v8 (Mandato 1) — Devuelve los kilajes de la respuesta que NO existen en
+    la whitelist dinámica. Tolerancia ±0.5 (redondeos conversacionales tipo
+    147.5 -> 147) y discos/menciones triviales exentos."""
     kgs_respuesta = _extraer_kgs(respuesta)
     if not kgs_respuesta:
         return []
-    permitidos = _extraer_kgs(fuentes)
-    permitidos |= set(cargar_rms(numero_usuario).values())
-    # tolerancia: números redondos chicos de conversación (0, 2.5 de redondeo) y duplicados ±0.1
+    triviales = {0.0, 1.25, 2.5, 5.0, 10.0, 20.0}   # discos y barra vacía
     inventados = []
     for kg in kgs_respuesta:
-        if any(abs(kg - p) < 0.11 for p in permitidos):
+        if kg in triviales:
             continue
-        if kg in (0.0, 2.5, 5.0):     # menciones triviales ("sube de 2.5 en 2.5")
+        if any(abs(kg - p) <= 0.5 for p in permitidos):
             continue
         inventados.append(kg)
     return sorted(inventados)
@@ -1749,12 +1974,35 @@ async def _forzar_respuesta_texto(mensajes: list, instruccion: str) -> str:
         resp = await chat_llm(
             mensajes + [{"role": "user", "content": f"[SISTEMA]: {instruccion}"}],
             tools=None,   # sin tools a propósito: no puede escaparse a otra tool call
+            opciones={**OPCIONES_QWEN_32B, "num_predict": 512},
+            pensar=False,
             quien="fallback-texto"
         )
         return (resp.get("message", {}) or {}).get("content", "") or ""
     except Exception as e:
         print(f"[FALLBACK TEXTO] {e}")
         return ""
+
+
+def _instruccion_fallback(base: str, acciones_ok: list, acciones_fallidas: list) -> str:
+    """v8 (Mandato 3) — Construye la instrucción del fallback con el ESTADO REAL del
+    turno. Antes la instrucción era genérica y el modelo, sin contexto de error,
+    ASUMÍA éxito y redactaba '¡Listo! Serie anotada ✅' con la base de datos vacía
+    (bug 2.2). Ahora la verdad viaja explícita y la mentira queda prohibida."""
+    partes = [base]
+    if acciones_ok:
+        partes.append("ACCIONES QUE SÍ SE COMPLETARON en este turno (puedes confirmarlas): "
+                      + "; ".join(acciones_ok) + ".")
+    else:
+        partes.append("NINGUNA acción de guardado/registro se completó en este turno: "
+                      "tienes PROHIBIDO afirmar que algo quedó guardado, anotado o registrado.")
+    if acciones_fallidas:
+        partes.append("ACCIONES QUE FALLARON (informa al atleta con honestidad y en corto que "
+                      "esto NO se guardó, y pídele reintentarlo o los datos que falten): "
+                      + "; ".join(acciones_fallidas) + ".")
+    partes.append("Responde al atleta en 1-3 frases, con tu tono de coach, sin tecnicismos "
+                  "ni nombres de herramientas.")
+    return " ".join(partes)
 
 
 async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario: str):
@@ -1853,6 +2101,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         log(numero_usuario, "INTENCION", "consulta de rutina, no creación; se suprime en_creacion")
         en_creacion = False
 
+    # v8 (Mandato 5) — GATE SEMÁNTICO: con un plan ACTIVO, una señal DÉBIL de
+    # creación (verbos tipo "quiero" + token 'rutina', el keyword-matching que
+    # secuestraba la charla) ya NO basta para amenazar con regenerar. Solo si el
+    # clasificador LLM confirma 'crear' se sigue; 'consultar'/'otro' devuelven la
+    # conversación a su cauce. La señal FUERTE (CREACION_FUERTE_RE) no paga esta
+    # llamada, y el flujo de onboarding sin plan tampoco se toca.
+    if (en_creacion and not rutina_vacia and estado_gen != "generando"
+            and not onboarding_activo and not bloque_onboarding
+            and not CREACION_FUERTE_RE.search(texto_puro)
+            and not estado_hoy.get("confirmar_regeneracion")
+            and not estado_hoy.get("confirmar_datos_regen")):
+        veredicto = await clasificar_intencion_plan(mensaje_usuario, numero_usuario)
+        if veredicto != "crear":
+            en_creacion = False
+            log(numero_usuario, "INTENCION",
+                f"señal débil de creación con plan activo; clasificador dice '{veredicto}' -> NO regenerar")
+
     # v5.1 — TIMELINE 01:46 (bypass del pipeline): "¿qué entrenamiento?" sin plan
     # no arrancaba la máquina, y el LLM montaba su PROPIA entrevista de onboarding
     # fuera del control de Python (7 turnos, sin pipeline, rutina alucinada al
@@ -1924,7 +2189,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         # de creación -> el flag moría como "sin confirmación clara" y la
         # regeneración jamás se disparaba (el modelo luego lo alucinaba).
         # Ahora mencionar la meta deseada TAMBIÉN confirma, y actualiza el perfil.
-        if (AFIRMACION_CORTA_RE.match(texto_puro) or EN_CREACION_RE.search(texto_puro)
+        # v8 (Mandato 5): la señal débil EN_CREACION_RE ya NO confirma — "quiero
+        # saber qué peso usar para mi rutina" durante el flag pendiente contaba
+        # como un "sí" al reemplazo. Solo afirmación corta, señal FUERTE o meta.
+        if (AFIRMACION_CORTA_RE.match(texto_puro) or CREACION_FUERTE_RE.search(texto_puro)
                 or meta_mencionada):
             _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
             if meta_mencionada:
@@ -1955,6 +2223,16 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             bloque_onboarding = ("El atleta decidió CONSERVAR su plan actual. Confírmaselo en "
                                  "una línea, sin drama, y sigue la conversación normal.")
             log(numero_usuario, "REGEN", "reemplazo rechazado; conserva plan")
+        elif (detectar_consulta_rutina(texto_puro)
+              or ("?" in texto_puro and len(texto_puro) > 8)):
+            # v8 (Mandato 5) — ESCAPE DEL JAIL: si en vez de sí/no el atleta hace
+            # una PREGUNTA o consulta su rutina, el bucle se cancela y su duda se
+            # atiende. Antes esto caía en "re-pregunta" hasta 2 veces: el bucle
+            # sí/no ineludible del bug 3.3.
+            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
+            en_creacion = False
+            log(numero_usuario, "REGEN",
+                "el atleta preguntó otra cosa; se cancela la confirmación y se atiende su duda")
         elif intentos_regen < 2:
             # Mensaje ambiguo: NO se descarta la intención; se re-pregunta una vez
             _actualizar_estado_json(numero_usuario, confirmar_regeneracion=intentos_regen + 1)
@@ -2150,84 +2428,85 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 "naturalidad (si pregunta qué eres: su entrenador personal de Iron Progress, "
                 "un coach de fuerza que lo acompaña por WhatsApp) y luego retoma pidiendo "
                 f"SOLO {_desc_campo(campo_pendiente)}.")
-            # ==========================================================================
-            # v6 — FLUJOS DESTRUCTIVOS (Intercepción Python)
-            # ==========================================================================
-            if not onboarding_activo and not bloque_onboarding and estado_hoy.get("confirmar_borrado"):
-                intentos_b = int(estado_hoy.get("confirmar_borrado") or 0)
-                if AFIRMACION_CORTA_RE.match(texto_puro) or re.search(
-                        r"\b(b[oó]rralo|elim[ií]nalo|s[ií]\s+b[oó]rra|s[ií]\s+elim[ií]na|hazlo|conf[ií]rmo|adelante)\b",
-                        texto_puro):
-                    borrados = _ejecutar_borrado_plan(numero_usuario)
-                    _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
-                    log(numero_usuario, "BORRAR", f"confirmado ({borrados} archivos)")
-                    bloque_onboarding = (f"El sistema ELIMINÓ el plan del atleta ({borrados} archivos). "
-                                         "Sus marcas e historial se conservan. Confírmaselo sin drama y ofrécele armar uno "
-                                         "nuevo cuando quiera. NO afirmes que sigue habiendo un plan activo.")
-                elif NEGACION_CORTA_RE.match(texto_puro) or CANCELAR_ONBOARDING_RE.search(texto_puro):
-                    _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
-                    log(numero_usuario, "BORRAR", "cancelado; conserva plan")
-                    bloque_onboarding = "El atleta decidió CONSERVAR su plan. Confírmaselo en una línea y sigue normal."
-                elif intentos_b < 2:
-                    _actualizar_estado_json(numero_usuario, confirmar_borrado=intentos_b + 1)
-                    bloque_onboarding = ("SIGUE PENDIENTE confirmar el borrado (es IRREVERSIBLE). Responde a "
-                                         "lo que dijo y vuelve a preguntarle claro, en UNA línea, si de verdad quiere ELIMINAR "
-                                         "su plan (sí/no). NO borres nada aún.")
-                else:
-                    _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
-            elif (not onboarding_activo and not bloque_onboarding and not rutina_vacia
-                  and BORRAR_PLAN_RE.search(texto_puro)):
-                _actualizar_estado_json(numero_usuario, confirmar_borrado=1)
-                log(numero_usuario, "BORRAR", "intención detectada -> pide confirmación")
-                bloque_onboarding = (f"El atleta pidió ELIMINAR su plan (va en semana {estado_hoy['semana']}). "
-                                     "Es IRREVERSIBLE. Pregúntale en UNA línea, con tu tono, si está seguro de borrarlo "
-                                     "(sus marcas se conservan). NO borres nada todavía; solo pregunta.")
 
-            if not onboarding_activo and not bloque_onboarding and estado_hoy.get("confirmar_cambio_dias"):
-                nuevos_dias = int(estado_hoy.get("confirmar_cambio_dias") or 0)
-                intentos_d = int(estado_hoy.get("intentos_cambio_dias") or 0)
-                if AFIRMACION_CORTA_RE.match(texto_puro) or EN_CREACION_RE.search(texto_puro):
-                    actualizar_perfil(numero_usuario, dias_semana=nuevos_dias)
-                    _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
-                    resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
-                    log(numero_usuario, "CAMBIO-DIAS", f"confirmado {nuevos_dias} días -> {resultado_pipeline!r}")
-                    if "[ERROR" in resultado_pipeline or "Faltan" in resultado_pipeline:
-                        bloque_onboarding = f"Se intentó rehacer el plan a {nuevos_dias} días pero: {resultado_pipeline}."
-                    else:
-                        bloque_onboarding = (f"El sistema YA está rehaciendo el plan para {nuevos_dias} días. "
-                                             "Dile que estará listo en 2-3 minutos y le avisarás. NO muestres ejercicios.")
-                elif NEGACION_CORTA_RE.match(texto_puro) or CANCELAR_ONBOARDING_RE.search(texto_puro):
-                    _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
-                    bloque_onboarding = "El atleta prefiere mantener sus días actuales. Confírmaselo y sigue."
-                elif intentos_d < 2:
-                    _actualizar_estado_json(numero_usuario, intentos_cambio_dias=intentos_d + 1)
-                    bloque_onboarding = (f"SIGUE PENDIENTE confirmar el cambio a {nuevos_dias} días (rehará el "
-                                         "plan desde cero). Vuelve a preguntarle en UNA línea si lo confirma (sí/no).")
-                else:
-                    _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
-            elif (not onboarding_activo and not bloque_onboarding and not rutina_vacia
-                  and CAMBIAR_DIAS_INTENT_RE.search(texto_puro)):
-                nd = _extraer_dias(texto_puro)
-                perfil_actual = cargar_perfil(numero_usuario)
-                if nd and nd != perfil_actual.get("dias_semana"):
-                    _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=nd, intentos_cambio_dias=0)
-                    log(numero_usuario, "CAMBIO-DIAS", f"intención {nd} días -> pide confirmación")
-                    bloque_onboarding = (
-                        f"El atleta quiere entrenar {nd} días (antes: {perfil_actual.get('dias_semana', '?')}). "
-                        "Cambiar los días rehace el plan desde cero. Pregúntale en UNA línea si quiere que "
-                        "lo rehagas con esa nueva frecuencia (sí/no). NO rehagas nada todavía.")
+    # ==========================================================================
+    # v6 → v8 — FLUJOS DESTRUCTIVOS (Borrar plan / Cambiar días)
+    # v8 FIX ESTRUCTURAL: este bloque completo vivía INDENTADO dentro del `else`
+    # de "mensaje no responde al onboarding", donde sus condiciones
+    # (`not onboarding_activo and not bloque_onboarding`) eran SIEMPRE falsas:
+    # era código muerto y ni el borrado ni el cambio de días se ejecutaban jamás.
+    # Reubicado al nivel del orquestador, después de toda la cadena de onboarding.
+    # ==========================================================================
+    if not onboarding_activo and not bloque_onboarding and estado_hoy.get("confirmar_borrado"):
+        intentos_b = int(estado_hoy.get("confirmar_borrado") or 0)
+        if AFIRMACION_CORTA_RE.match(texto_puro) or re.search(
+                r"\b(b[oó]rralo|elim[ií]nalo|s[ií]\s+b[oó]rra|s[ií]\s+elim[ií]na|hazlo|conf[ií]rmo|adelante)\b",
+                texto_puro):
+            borrados = _ejecutar_borrado_plan(numero_usuario)
+            _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
+            log(numero_usuario, "BORRAR", f"confirmado ({borrados} archivos)")
+            bloque_onboarding = (f"El sistema ELIMINÓ el plan del atleta ({borrados} archivos). "
+                                 "Sus marcas e historial se conservan. Confírmaselo sin drama y ofrécele armar uno "
+                                 "nuevo cuando quiera. NO afirmes que sigue habiendo un plan activo.")
+        elif NEGACION_CORTA_RE.match(texto_puro) or CANCELAR_ONBOARDING_RE.search(texto_puro):
+            _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
+            log(numero_usuario, "BORRAR", "cancelado; conserva plan")
+            bloque_onboarding = "El atleta decidió CONSERVAR su plan. Confírmaselo en una línea y sigue normal."
+        elif intentos_b < 2:
+            _actualizar_estado_json(numero_usuario, confirmar_borrado=intentos_b + 1)
+            bloque_onboarding = ("SIGUE PENDIENTE confirmar el borrado (es IRREVERSIBLE). Responde a "
+                                 "lo que dijo y vuelve a preguntarle claro, en UNA línea, si de verdad quiere ELIMINAR "
+                                 "su plan (sí/no). NO borres nada aún.")
+        else:
+            _actualizar_estado_json(numero_usuario, confirmar_borrado=0)
+    elif (not onboarding_activo and not bloque_onboarding and not rutina_vacia
+          and BORRAR_PLAN_RE.search(texto_puro)):
+        _actualizar_estado_json(numero_usuario, confirmar_borrado=1)
+        log(numero_usuario, "BORRAR", "intención detectada -> pide confirmación")
+        bloque_onboarding = (f"El atleta pidió ELIMINAR su plan (va en semana {estado_hoy['semana']}). "
+                             "Es IRREVERSIBLE. Pregúntale en UNA línea, con tu tono, si está seguro de borrarlo "
+                             "(sus marcas se conservan). NO borres nada todavía; solo pregunta.")
+
+    if not onboarding_activo and not bloque_onboarding and estado_hoy.get("confirmar_cambio_dias"):
+        nuevos_dias = int(estado_hoy.get("confirmar_cambio_dias") or 0)
+        intentos_d = int(estado_hoy.get("intentos_cambio_dias") or 0)
+        if AFIRMACION_CORTA_RE.match(texto_puro) or CREACION_FUERTE_RE.search(texto_puro):
+            actualizar_perfil(numero_usuario, dias_semana=nuevos_dias)
+            _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
+            resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
+            log(numero_usuario, "CAMBIO-DIAS", f"confirmado {nuevos_dias} días -> {resultado_pipeline!r}")
+            if "[ERROR" in resultado_pipeline or "Faltan" in resultado_pipeline:
+                bloque_onboarding = f"Se intentó rehacer el plan a {nuevos_dias} días pero: {resultado_pipeline}."
+            else:
+                bloque_onboarding = (f"El sistema YA está rehaciendo el plan para {nuevos_dias} días. "
+                                     "Dile que estará listo en 2-3 minutos y le avisarás. NO muestres ejercicios.")
+        elif NEGACION_CORTA_RE.match(texto_puro) or CANCELAR_ONBOARDING_RE.search(texto_puro):
+            _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
+            bloque_onboarding = "El atleta prefiere mantener sus días actuales. Confírmaselo y sigue."
+        elif intentos_d < 2:
+            _actualizar_estado_json(numero_usuario, intentos_cambio_dias=intentos_d + 1)
+            bloque_onboarding = (f"SIGUE PENDIENTE confirmar el cambio a {nuevos_dias} días (rehará el "
+                                 "plan desde cero). Vuelve a preguntarle en UNA línea si lo confirma (sí/no).")
+        else:
+            _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=0, intentos_cambio_dias=0)
+    elif (not onboarding_activo and not bloque_onboarding and not rutina_vacia
+          and CAMBIAR_DIAS_INTENT_RE.search(texto_puro)):
+        nd = _extraer_dias(texto_puro)
+        perfil_actual = cargar_perfil(numero_usuario)
+        if nd and nd != perfil_actual.get("dias_semana"):
+            _actualizar_estado_json(numero_usuario, confirmar_cambio_dias=nd, intentos_cambio_dias=0)
+            log(numero_usuario, "CAMBIO-DIAS", f"intención {nd} días -> pide confirmación")
+            bloque_onboarding = (
+                f"El atleta quiere entrenar {nd} días (antes: {perfil_actual.get('dias_semana', '?')}). "
+                "Cambiar los días rehace el plan desde cero. Pregúntale en UNA línea si quiere que "
+                "lo rehagas con esa nueva frecuencia (sí/no). NO rehagas nada todavía.")
+
     # ==========================================================================
     # MODO NORMAL (rutina activa / charla) — señales e interceptores
     # ==========================================================================
     # v4.1: vocabulario ampliado — "ya terminé", "me duele el hombro" o "dormí mal"
     # eran clasificados como casuales y se quedaban SIN herramientas (avanzar_dia,
     # expediente...). Además, un mensaje largo nunca es casual aunque no matchee.
-        # ==========================================================================
-        # MODO NORMAL (rutina activa / charla) — señales e interceptores
-        # ==========================================================================
-        # v4.1: vocabulario ampliado — "ya terminé", "me duele el hombro" o "dormí mal"
-        # eran clasificados como casuales y se quedaban SIN herramientas (avanzar_dia,
-        # expediente...). Además, un mensaje largo nunca es casual aunque no matchee.
     PALABRAS_ENTRENAMIENTO = {
         "rutina", "plan", "serie", "ejercicio", "rm", "banca", "sentadilla",
         "muerto", "dominada", "rpe", "kg", "rep", "entreno", "entrena", "entrenar",
@@ -2242,8 +2521,14 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         "viaje", "volvi", "volví", "regrese", "regresé", "seguir", "continuar",
         "reactiva", "reanuda", "reanudar", "vuelta"
     }
+    # v8 (Mandato 4) — la NOTACIÓN de entrenamiento manda sobre el conteo de
+    # keywords: "100 x 10 r @8" no contiene ninguna palabra del set y medía <=60
+    # chars, así que caía en casual=True, se apagaban las tools y el modelo
+    # afirmaba "serie anotada ✅" sin haber guardado NADA (bug 3.2). Cualquier
+    # patrón NxM, @RPE, kg, reps o velocidad VBT fuerza estrictamente casual=False.
     es_casual = (not any(p in texto_puro for p in PALABRAS_ENTRENAMIENTO)
-                 and len(texto_puro) <= 60)
+                 and len(texto_puro) <= 60
+                 and not NOTACION_ENTRENO_RE.search(texto_puro))
 
     # v5.2 — Reporte "okey espero": un mensaje de transición corto tras un turno
     # donde el coach habló de plan/generación NO debe apagar herramientas ni
@@ -2254,7 +2539,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         es_casual = False
         log(numero_usuario, "MODO", "transición corta tras tema de plan -> NO casual (tools activas)")
 
-        # v7 — NUNCA casual si hay una acción latente que necesita herramientas.
+    # v7 — NUNCA casual si hay una acción latente que necesita herramientas.
     if es_casual:
         accion_latente = (estado_hoy.get("plan_pausado")
                           or estado_hoy.get("confirmar_borrado")
@@ -2273,6 +2558,12 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     if not onboarding_activo and not bloque_onboarding:
         consulta_rutina = detectar_consulta_rutina(mensaje_usuario) if not rutina_vacia else None
         serie = detectar_serie_en_mensaje(mensaje_usuario)
+
+    # v8 (Mandato 4) — cinturón extra: si el interceptor de series SÍ ve una serie,
+    # el turno jamás puede ser casual (necesita registro y confirmación honesta).
+    if serie and es_casual:
+        es_casual = False
+        log(numero_usuario, "MODO", "serie detectada -> NO casual (forzado por notación)")
 
     log(numero_usuario, "MODO",
         f"casual={es_casual} onboarding={onboarding_activo or bool(bloque_onboarding)} "
@@ -2389,14 +2680,20 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                               + rutina_pedida)
 
     # ==========================================================================
-    # v7 — REGISTRO DETERMINISTA (serie / peso / sustitución).
+    # v7 → v8 — REGISTRO DETERMINISTA (serie / peso / sustitución).
     # Python ejecuta la acción con lo que ya parseó; el modelo SOLO confirma.
-    # Esto elimina la dependencia de que el modelo emita la tool call.
+    # v8 (Mandatos 2 y 3): las escrituras pesadas van a asyncio.to_thread (una
+    # escritura SQLite/Chroma síncrona bloqueaba el event loop completo y sumaba
+    # segundos al turno), y toda acción real alimenta la contabilidad del turno
+    # (acciones_ok / acciones_fallidas) que luego consumen los fallbacks.
     # ==========================================================================
     accion_ejecutada = False
     serie_registrada_python = False
     peso_registrado_python = False
     sustitucion_hecha_python = False
+    acciones_ok: list[str] = []          # v8: escrituras COMPLETADAS de verdad
+    acciones_fallidas: list[str] = []    # v8: errores/candados/timeouts del turno
+    texto_tools_acumulado = ""           # v8: payloads de tools -> whitelist de kg
 
     # --- SERIE(S) ---
     if serie and not rutina_vacia:
@@ -2411,20 +2708,24 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 pendientes.append(f"{s['peso']:g} kg x {s['reps']}")
                 continue
             try:
-                guardar_serie_sql(numero_usuario, {"ejercicio": ej, "peso_kg": s["peso"],
-                                                   "repeticiones": int(s["reps"])})
+                await asyncio.to_thread(guardar_serie_sql, numero_usuario,
+                                        {"ejercicio": ej, "peso_kg": s["peso"],
+                                         "repeticiones": int(s["reps"])})
                 detalle = f"{ej} {s['peso']:g} kg x {int(s['reps'])}"
                 if 1 <= int(s["reps"]) <= 15:
                     rm_val = calcular_1rm(TipoEjercicio("peso_libre"), int(s["reps"]), s["peso"])
-                    guardar_rm(numero_usuario, ej, rm_val, peso_origen=s["peso"],
-                               reps_origen=int(s["reps"]), fuente="auto_serie")
+                    await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm_val,
+                                            peso_origen=s["peso"], reps_origen=int(s["reps"]),
+                                            fuente="auto_serie")
                     detalle += f" (1RM estimado {rm_val:g} kg)"
                 registradas.append(detalle)
             except Exception as e:
                 log(numero_usuario, "SERIE-AUTO", f"error: {e}")
+                acciones_fallidas.append(f"registro automático de serie ({s['peso']:g}x{s['reps']}): {e}")
         if registradas:
             serie_registrada_python = True
             accion_ejecutada = True
+            acciones_ok.append("series registradas por el sistema: " + "; ".join(registradas))
             contenido_mensaje += ("\n\n[SISTEMA — SERIES YA REGISTRADAS]: " + "; ".join(registradas)
                                   + ". Ya quedaron guardadas con su 1RM. NO llames herramientas para esto; solo "
                                     "confírmaselo con tu tono y un comentario breve. Usa EXACTAMENTE esos números.")
@@ -2443,10 +2744,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             except (TypeError, ValueError):
                 pc = None
             if pc and 35 <= pc <= 300:
-                _registrar_peso_corporal(numero_usuario, pc)
+                await asyncio.to_thread(_registrar_peso_corporal, numero_usuario, pc)
                 actualizar_perfil(numero_usuario, peso_kg=round(pc, 1))
                 peso_registrado_python = True
                 accion_ejecutada = True
+                acciones_ok.append(f"peso corporal {pc:g} kg registrado por el sistema")
                 contenido_mensaje += (f"\n\n[SISTEMA — PESO YA REGISTRADO]: guardé su peso corporal "
                                       f"de {pc:g} kg y actualicé su ficha. NO llames herramientas para esto; solo "
                                       "confírmaselo brevemente.")
@@ -2463,10 +2765,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 alcance = "solo_hoy" if re.search(r"solo\s+hoy|s[oó]lo\s+hoy|por\s+hoy",
                                                   texto_puro) else "permanente"
                 _guardar_override_ejercicio(numero_usuario, orig, nuevo, alcance)
-                guardar_dato_en_expediente(numero_usuario,
-                                           f"El atleta sustituyó '{orig}' por '{nuevo}' (alcance: {alcance}).")
+                await asyncio.to_thread(guardar_dato_en_expediente, numero_usuario,
+                                        f"El atleta sustituyó '{orig}' por '{nuevo}' (alcance: {alcance}).")
                 sustitucion_hecha_python = True
                 accion_ejecutada = True
+                acciones_ok.append(f"sustitución aplicada por el sistema: '{orig}' -> '{nuevo}' ({alcance})")
                 contenido_mensaje += (f"\n\n[SISTEMA — SUSTITUCIÓN YA APLICADA]: cambié '{orig}' por "
                                       f"'{nuevo}' ({'todo el plan' if alcance == 'permanente' else 'solo hoy'}), "
                                       "manteniendo series, reps y cargas. NO llames herramientas; solo confírmaselo.")
@@ -2495,8 +2798,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         resueltas |= set(partes) if partes else {"general"}
         estado_hoy["lesiones_resueltas"] = sorted(resueltas)  # refresco local
         _actualizar_estado_json(numero_usuario, lesiones_resueltas=sorted(resueltas))
-        guardar_dato_en_expediente(
-            numero_usuario,
+        await asyncio.to_thread(
+            guardar_dato_en_expediente, numero_usuario,
             f"({fecha_actual}) El atleta reportó RECUPERACIÓN: "
             f"\"{str(mensaje_usuario).strip()[:180]}\". Tratar como RESUELTA cualquier molestia "
             f"previa en: {', '.join(partes) or 'no especificado'}.")
@@ -2557,839 +2860,715 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     log(numero_usuario, "THINK", "activado este turno" if pensar_turno else "desactivado (solo redacción)")
 
     try:
+        t_llm = time.monotonic()
         try:
-            respuesta_ia = await chat_llm(
+            respuesta = await chat_llm(
                 historial_memoria[numero_usuario],
                 tools=tools_de_turno,
                 opciones=opciones_turno,
-                quien="principal",
-                pensar=pensar_turno
+                pensar=pensar_turno,
+                quien="principal"
             )
         except asyncio.TimeoutError:
-            # v5.2 — Reporte 131.6s: el turno crítico con thinking puede exceder
-            # el timeout (sobre todo con un modelo denso). Antes esto caía al
-            # fallback sin tools y ahí nacía la promesa falsa. Ahora se reintenta
-            # UNA vez sin thinking y con presupuesto corto: rápido y con tools.
-            log(numero_usuario, "THINK-TIMEOUT",
-                "turno principal excedió el timeout; reintento SIN thinking")
-            respuesta_ia = await chat_llm(
+            # v5.2 — el modelo se colgó: un reintento en frío (sin thinking, presupuesto
+            # corto) casi siempre sale en <15s y evita el silencio total hacia WhatsApp.
+            log(numero_usuario, "TIMEOUT", "llamada principal; reintento sin thinking")
+            respuesta = await chat_llm(
                 historial_memoria[numero_usuario],
                 tools=tools_de_turno,
                 opciones={**OPCIONES_QWEN_32B, "num_predict": 768},
-                quien="principal-retry",
-                pensar=False
+                pensar=False,
+                quien="principal-retry"
             )
 
-        mensaje_salida = respuesta_ia.get("message", {})
-        texto_final    = mensaje_salida.get("content", "") or ""
+        mensaje_salida = respuesta.get("message", {}) or {}
+        texto_final = mensaje_salida.get("content", "") or ""
 
-        max_loops = 4
+        # v8 (Mandato 2) — estado del loop de herramientas:
+        #   firmas_ejecutadas: dedupe cross-loop (el modelo repetía el MISMO call en
+        #   Loop 1 y Loop 2 bajo latencia alta -> filas DUP en SQLite).
+        max_loops = 3
         loop_count = 0
+        firmas_ejecutadas: set[str] = set()
         mensajes_orquestador = list(historial_memoria[numero_usuario])
+
+        # v8 (Mandato 6) — la síntesis post-tools va SIN thinking (PENSAR_POST_TOOLS):
+        # con think=True el razonamiento consumía casi todo num_predict a ~30 tok/s
+        # (los 64s del reporte) y el contenido llegaba mutilado (done_reason=length).
+        post_opts = {**OPCIONES_QWEN_32B,
+                     "num_predict": 2048 if quiere_semana_completa else 1024}
 
         while tools_de_turno and loop_count < max_loops:
             calls = mensaje_salida.get("tool_calls") or []
             if not calls:
-                # v7 — RESCATE: el modelo pudo escribir la tool call como TEXTO.
-                # Se recupera y se procesa por el MISMO dispatcher (todas las tools).
-                texto_bruto = mensaje_salida.get("content", "") or ""
-                calls = _extraer_tools_de_texto(texto_bruto)
-                if calls:
+                # v7 — RESCATE: el modelo a veces escribe la tool call como TEXTO
+                rescatadas = _extraer_tools_de_texto(texto_final)
+                if rescatadas:
                     log(numero_usuario, "TOOL-RESCATE",
-                        f"{len(calls)} recuperada(s) del texto: "
-                        f"{[_extraer_tool(t)[0] for t in calls]}")
-                    mensaje_salida = dict(mensaje_salida)
-                    mensaje_salida["content"] = ""  # se limpia para no mezclar JSON con la redacción
+                        f"{len(rescatadas)} call(s) recuperadas del texto")
+                    calls = rescatadas
                 else:
-                    texto_final = texto_bruto
                     break
-            accion_ejecutada = True
+            loop_count += 1
 
-            texto_herramientas_agregado = ""
-            necesita_reinvocacion = False
-            log(numero_usuario, "TOOL-CALLS",
-                f"loop {loop_count+1}/{max_loops}: {[_extraer_tool(t)[0] for t in calls]}")
-
+            # v8 (Mandato 2) — dedupe INTRA-BATCH: dos calls idénticas en el mismo
+            # batch se colapsan a una antes de tocar la base de datos.
+            calls_filtradas: list[tuple] = []
+            firmas_batch: set[str] = set()
             for tool in calls:
-                nombre, args = _extraer_tool(tool)
-                if not nombre: continue
-                nombre = _normalizar_nombre_tool(nombre, numero_usuario)
-                log(numero_usuario, "TOOL", f"{nombre}({_trunc(args, 160)})")
+                n_t, a_t = _extraer_tool(tool)
+                firma = f"{_normalizar_nombre_tool(n_t)}|{json.dumps(a_t, sort_keys=True, ensure_ascii=False)}"
+                if firma in firmas_batch:
+                    log(numero_usuario, "TOOL-DUP", f"call duplicada en el batch omitida: {_trunc(firma, 100)}")
+                    continue
+                firmas_batch.add(firma)
+                calls_filtradas.append((tool, firma))
 
-                # v4.1: una excepción dentro de UNA herramienta ya no aborta el
-                # turno completo hacia el mensaje enlatado; se reporta y se sigue.
+            resultados_texto: list[str] = []
+            necesita_reinvocacion = False
+
+            for tool, firma in calls_filtradas:
+                nombre, args = _extraer_tool(tool)
+                nombre = _normalizar_nombre_tool(nombre, numero_usuario)
+
+                # v8 (Mandato 2) — dedupe CROSS-LOOP: una escritura ya ejecutada en
+                # una vuelta anterior de ESTE turno no se repite jamás.
+                if firma in firmas_ejecutadas and nombre in TOOLS_ESCRITURA:
+                    resultados_texto.append(f"[{nombre}]: ya se ejecutó en este turno con esos mismos "
+                                            "datos; NO se repitió (anti-duplicados).")
+                    log(numero_usuario, "TOOL-DUP", f"{nombre} repetida cross-loop; omitida")
+                    necesita_reinvocacion = True
+                    continue
+                firmas_ejecutadas.add(firma)
+                log(numero_usuario, "TOOL",
+                    f"{nombre}({_trunc(json.dumps(args, ensure_ascii=False), 150)}) [loop {loop_count}]")
+
                 try:
                     if nombre == "generar_rutina":
-                        resultado_rutina = await _handle_generar_rutina(args, numero_usuario, "")
-                        texto_herramientas_agregado += resultado_rutina
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "avanzar_dia":
-
-                        if obtener_estado_usuario(numero_usuario).get("plan_pausado"):
-
-                            texto_herramientas_agregado += ("[SISTEMA]: El plan está PAUSADO. No se "
-
-                                                            "avanzó nada. Pregúntale si quiere reactivarlo antes de entrenar.\n")
-
-                        elif avanzar_estado_usuario(numero_usuario, forzar=bool(args.get("forzar"))):
-
-                            _limpiar_overrides_solo_hoy(numero_usuario)
-
-                            nuevo_estado = obtener_estado_usuario(numero_usuario)
-
-                            nueva_rutina = obtener_rutina_del_json(
-
-                                numero_usuario, nuevo_estado["semana"], nuevo_estado["dia"], solo_hoy=True)
-
-                            texto_herramientas_agregado += (f"[SISTEMA: DÍA AVANZADO]\nSemana "
-
-                                                            f"{nuevo_estado['semana']}, Día: {nuevo_estado['dia']}.\nNueva rutina:\n"
-
-                                                            f"{nueva_rutina}\n")
-
+                        res = await _handle_generar_rutina(args, numero_usuario, texto_puro)
+                        resultados_texto.append(f"[generar_rutina]: {res}")
+                        if "[ERROR" in res or "Faltan" in res or "Ya hay" in res:
+                            acciones_fallidas.append(f"generar_rutina: {_trunc(res, 110)}")
                         else:
-
-                            texto_herramientas_agregado += ("[SISTEMA]: CANDADO ACTIVO — el calendario "
-
-                                                            "ya avanzó hoy. NO afirmes que avanzaste. Explícaselo y pregúntale si "
-
-                                                            "de verdad quiere forzar otro avance hoy.\n")
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "sustituir_ejercicio":
-
-                        orig = str(args.get("ejercicio_original", "")).strip()
-
-                        nuevo = str(args.get("ejercicio_nuevo", "")).strip()
-
-                        alcance = args.get("alcance", "permanente")
-
-                        if alcance not in ("permanente", "solo_hoy"): alcance = "permanente"
-
-                        if orig and nuevo:
-
-                            _guardar_override_ejercicio(numero_usuario, orig, nuevo, alcance)
-
-                            guardar_dato_en_expediente(numero_usuario,
-
-                                                       f"El atleta sustituyó '{orig}' por '{nuevo}' (motivo: {args.get('motivo', 'n/e')}, alcance: {alcance}).")
-
-                            texto_herramientas_agregado += (f"[SISTEMA]: Sustitución guardada: '{orig}' -> '{nuevo}' "
-
-                                                            f"({'todo el plan' if alcance == 'permanente' else 'solo hoy'}). Confírmaselo con naturalidad; series, reps y cargas se mantienen.\n")
-
-                        else:
-
-                            texto_herramientas_agregado += "[SISTEMA - ERROR]: faltó el ejercicio original o el nuevo.\n"
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "aplicar_descarga":
-
-                        sem = int(_num_seguro(args.get("semana"), estado_hoy["semana"]) or estado_hoy["semana"])
-
-                        red_int = min(max(float(_num_seguro(args.get("reduccion_intensidad_pct"), 10) or 10), 0), 40)
-
-                        red_ser = min(max(int(_num_seguro(args.get("reduccion_series"), 1) or 1), 0), 3)
-
-                        disponibles = _semanas_disponibles(numero_usuario)
-
-                        if disponibles and sem in disponibles:
-
-                            _guardar_descarga(numero_usuario, sem, red_int, red_ser)
-
-                            guardar_dato_en_expediente(numero_usuario,
-                                                       f"Semana {sem} marcada como DESCARGA el {fecha_actual}.")
-
-                            texto_herramientas_agregado += (f"[SISTEMA]: Descarga aplicada a la semana {sem} "
-
-                                                            f"(-{red_int:g}% intensidad, -{red_ser} series). Explícale que es una semana para recuperar.\n")
-
-                        else:
-
-                            texto_herramientas_agregado += f"[SISTEMA - ERROR]: semana {sem} no existe.\n"
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "consultar_progreso":
-
-                        metrica = str(args.get("metrica", "1rm")).lower().strip()
-
-                        if metrica == "peso_corporal":
-                            resumen = _resumen_progreso_peso(numero_usuario)
-
-                        else:
-                            resumen = _resumen_progreso_rm(numero_usuario, args.get("ejercicio"))
-
-                        if resumen:
-                            texto_herramientas_agregado += f"[SISTEMA - PROGRESO]:\n{resumen}\nTranscríbeselo celebrando lo positivo.\n"
-
-                        else:
-                            texto_herramientas_agregado += "[SISTEMA - PROGRESO]: aún no hay suficientes registros para mostrar evolución.\n"
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "explicar_tecnica_ejercicio":
-
-                        ejercicio = str(args.get("ejercicio", "")).strip()
-
-                        if not ejercicio:
-                            texto_herramientas_agregado += "[SISTEMA - ERROR]: no se indicó ejercicio.\n"
-
-                        else:
-
-                            resultado = consultar_literatura_cientifica(
-                                f"cues técnicos, ejecución correcta y errores comunes del ejercicio {ejercicio}")
-
-                            texto_herramientas_agregado += f"[BIBLIOTECA CIENTÍFICA — TÉCNICA {ejercicio}]:\n{resultado}\nResume en 2-3 puntos accionables.\n"
-
-                        necesita_reinvocacion = True
-
-
-
-                    elif nombre == "registrar_peso_corporal":
-
-                        if peso_registrado_python:
-
-                            texto_herramientas_agregado += ("[SISTEMA]: el peso ya quedó registrado; "
-
-                                                            "solo confírmalo.\n")
-
-                        else:
-
-                            peso = _num_seguro(args.get("peso_kg"), None)
-
-                            if peso is None or not (35 <= float(peso) <= 300):
-
-                                texto_herramientas_agregado += ("[SISTEMA - ERROR]: peso fuera de "
-
-                                                                "rango o ausente.\n")
-
-                            else:
-
-                                _registrar_peso_corporal(numero_usuario, float(peso))
-
-                                actualizar_perfil(numero_usuario, peso_kg=round(float(peso), 1))
-
-                                texto_herramientas_agregado += (f"[SISTEMA]: Peso {float(peso):g} kg "
-
-                                                                "registrado.\n")
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "pausar_plan":
-
-                        _actualizar_estado_json(numero_usuario, plan_pausado=1)
-
-                        guardar_dato_en_expediente(numero_usuario, f"El atleta pausó su plan el {fecha_actual}.")
-
-                        texto_herramientas_agregado += "[SISTEMA]: Plan PAUSADO. El calendario no avanzará hasta reactivarlo.\n"
-
-                        necesita_reinvocacion = True
-
-
-                    elif nombre == "reanudar_plan":
-
-                        _actualizar_estado_json(numero_usuario, plan_pausado=0,
-                                                fecha_programada=datetime.now().strftime("%Y-%m-%d"))
-
-                        texto_herramientas_agregado += "[SISTEMA]: Plan REACTIVADO. Hoy vuelve a haber entrenamiento.\n"
-
-                        necesita_reinvocacion = True
-
-                    elif nombre == "evaluar_nivel_fuerza":
-                        resultado = evaluar_nivel_fuerza(args)
-                        actualizar_perfil(numero_usuario, genero=args.get("genero"), edad=args.get("edad"))
-                        texto_herramientas_agregado += f"[LABORATORIO FUERZA]:\n{resultado['reporte_texto']}\n"
+                            acciones_ok.append("generación de plan disparada en segundo plano")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_rutina_futura":
-                        try:
-                            semana_req = int(args.get("semana") or estado_hoy["semana"])
-                            dia_req = args.get("dia")
-                            resultado_consulta = obtener_rutina_del_json(
-                                numero_usuario, semana_req, dia_req, solo_hoy=(dia_req is not None)
-                            )
-                            texto_herramientas_agregado += f"[SISTEMA - RUTINA]:\n{resultado_consulta}\n"
-                            necesita_reinvocacion = True
-                        except Exception as e:
-                            texto_herramientas_agregado += f"[SISTEMA - ERROR]: {e}\n"
-                            necesita_reinvocacion = True
+                        sem = int(_num_seguro(args.get("semana"), estado_hoy["semana"]) or estado_hoy["semana"])
+                        dia_v = _num_seguro(args.get("dia"))
+                        dia_num = int(dia_v) if dia_v else None
+                        res = obtener_rutina_del_json(numero_usuario, sem, dia_num,
+                                                      solo_hoy=dia_num is not None)
+                        resultados_texto.append(
+                            f"[consultar_rutina_futura semana {sem}"
+                            f"{' día ' + str(dia_num) if dia_num else ''}]:\n{res}")
+                        necesita_reinvocacion = True
 
-                    elif nombre == "actualizar_1rm":
-                        texto_herramientas_agregado += "[SISTEMA]: Esa vía quedó deshabilitada. Registra el PR con calcular_rm_exacto (ejercicio, peso y reps literales); eso ya lo guarda.\n"
+                    elif nombre == "avanzar_dia":
+                        if estado_hoy.get("plan_pausado"):
+                            resultados_texto.append("[avanzar_dia]: el plan está PAUSADO; NO se avanzó. "
+                                                    "El atleta debe reanudarlo primero.")
+                            acciones_fallidas.append("avanzar_dia: plan pausado, NO se avanzó")
+                        else:
+                            avance = avanzar_estado_usuario(numero_usuario)
+                            if avance.get("ok"):
+                                estado_hoy = obtener_estado_usuario(numero_usuario)
+                                resultados_texto.append(
+                                    f"[avanzar_dia]: calendario avanzado a semana {avance['semana']}, "
+                                    f"día {avance['dia']}. Próximo entreno: {avance['fecha_programada']}.")
+                                acciones_ok.append(
+                                    f"día avanzado a semana {avance['semana']}, día {avance['dia']}")
+                            else:
+                                resultados_texto.append(f"[avanzar_dia]: {avance.get('motivo', 'no se pudo avanzar')}")
+                                acciones_fallidas.append(
+                                    f"avanzar_dia: {_trunc(avance.get('motivo', 'bloqueado'), 90)}")
                         necesita_reinvocacion = True
 
                     elif nombre == "calcular_rm_exacto":
-                        try:
-                            if serie:   # v4.1: backfill — si el modelo omitió args, usa el interceptor
-                                args.setdefault("peso_levantado", serie["peso"])
-                                args.setdefault("repeticiones", serie["reps"])
-                            reps = int(_num_seguro(args.get("repeticiones"), 1) or 1)
-                            peso = float(_num_seguro(args.get("peso_levantado"), 0.0) or 0.0)
-                            ejercicio = args.get("nombre_ejercicio", "este ejercicio")
-                            if not (1 <= reps <= 15):
-                                texto_herramientas_agregado += f"[CALCULADORA 1RM — RECHAZADO]: {reps} repeticiones está fuera del rango confiable (1-15) para estimar un 1RM. NO se guardó nada. Pregúntale al atleta si la cifra es correcta antes de reintentar.\n"
-                            else:
-                                tipo_str = args.get("tipo_ejercicio") or "peso_libre"
-                                resultado = calcular_1rm(TipoEjercicio(tipo_str), reps, peso)
-                                guardar_rm(numero_usuario, ejercicio, resultado,
-                                           peso_origen=peso, reps_origen=reps, fuente="pr_chat")
-                                texto_herramientas_agregado += f"✅ [CÁLCULO EXITOSO]: 1RM de {ejercicio} = {resultado} kg. Quedó guardado en su ficha; no lo vuelvas a preguntar.\n"
-                        except Exception as e:
-                            texto_herramientas_agregado += f"[CALCULADORA 1RM — ERROR]: {repr(e)}.\n"
+                        peso = _num_seguro(args.get("peso_kg") or args.get("peso"))
+                        reps = _num_seguro(args.get("repeticiones") or args.get("reps"))
+                        ej = (str(args.get("ejercicio") or "").strip()
+                              or _inferir_ejercicio_serie(texto_puro) or "press banco plano")
+                        if not peso or not reps or not (1 <= int(reps) <= 15):
+                            resultados_texto.append(
+                                f"[calcular_rm_exacto]: datos inválidos (peso={peso}, reps={reps}); el "
+                                "rango confiable es 1-15 reps. NO se calculó ni guardó nada.")
+                            acciones_fallidas.append("calcular_rm_exacto: datos fuera de rango, no se guardó")
+                        else:
+                            rm = calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
+                            # v8 (Mandato 2): escritura fuera del event loop
+                            await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
+                                                    peso_origen=float(peso), reps_origen=int(reps),
+                                                    fuente="tool")
+                            resultados_texto.append(
+                                f"[calcular_rm_exacto]: {ej} -> 1RM estimado {rm:g} kg "
+                                f"(a partir de {float(peso):g} kg x {int(reps)}). Ya quedó guardado.")
+                            acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
                         necesita_reinvocacion = True
-
-                    elif nombre == "consultar_libro_cientifico":
-                        resultado = consultar_literatura_cientifica(args.get("pregunta_teorica", ""))
-                        texto_herramientas_agregado += f"[BIBLIOTECA CIENTÍFICA]:\n{resultado}\n"
-                        necesita_reinvocacion = True
-
-                    elif nombre == "evaluar_perfil_fisico":
-                        resultado = evaluar_perfil_completo(args)
-                        actualizar_perfil(numero_usuario, peso_kg=args.get("peso_kg"),
-                                          altura_m=args.get("altura_m"), porcentaje_grasa=args.get("porcentaje_grasa"),
-                                          genero=args.get("genero"))
-                        texto_herramientas_agregado += f"[LABORATORIO FFMI]:\n{resultado['reporte_texto']}\n"
-                        necesita_reinvocacion = True
-
-                    elif nombre == "consultar_expediente_personal":
-                        resultado = consultar_expediente_atleta(numero_usuario, args.get("concepto_a_buscar", ""))
-                        texto_herramientas_agregado += f"[EXPEDIENTE]:\n{resultado}\n"
-                        necesita_reinvocacion = True
-
 
                     elif nombre == "registrar_serie_completada":
-
                         if serie_registrada_python:
-
-                            texto_herramientas_agregado += ("[SISTEMA]: esa serie ya la registró el "
-
-                                                            "sistema; no la dupliques, solo confírmala.\n")
-
+                            resultados_texto.append("[registrar_serie_completada]: la serie YA la registró el "
+                                                    "sistema en este turno; NO se duplicó.")
                         else:
+                            ej = (str(args.get("ejercicio") or "").strip()
+                                  or _inferir_ejercicio_serie(texto_puro))
+                            peso = _num_seguro(args.get("peso_kg") or args.get("peso"))
+                            reps = _num_seguro(args.get("repeticiones") or args.get("reps"))
+                            if not ej or not peso or not reps:
+                                resultados_texto.append(
+                                    f"[registrar_serie_completada]: faltan datos (ejercicio={ej!r}, "
+                                    f"peso={peso}, reps={reps}); NO se guardó. Pregunta lo que falte.")
+                                acciones_fallidas.append("registrar_serie_completada: datos incompletos, no se guardó")
+                            else:
+                                # v8 (Mandato 2): SQLite en thread — la escritura síncrona
+                                # bloqueaba el event loop y disparaba los 64s del reporte.
+                                await asyncio.to_thread(guardar_serie_sql, numero_usuario,
+                                                        {"ejercicio": ej, "peso_kg": float(peso),
+                                                         "repeticiones": int(reps)})
+                                detalle = f"{ej} {float(peso):g} kg x {int(reps)}"
+                                if 1 <= int(reps) <= 15:
+                                    rm = calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
+                                    await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
+                                                            peso_origen=float(peso),
+                                                            reps_origen=int(reps), fuente="auto_serie")
+                                    detalle += f" (1RM estimado {rm:g} kg)"
+                                resultados_texto.append(f"[registrar_serie_completada]: guardada {detalle}.")
+                                acciones_ok.append(f"serie guardada: {detalle}")
+                        necesita_reinvocacion = True
 
-                            if serie:
-                                args.setdefault("peso_kg", serie["peso"])
+                    elif nombre == "sustituir_ejercicio":
+                        if sustitucion_hecha_python:
+                            resultados_texto.append("[sustituir_ejercicio]: la sustitución YA la aplicó el "
+                                                    "sistema en este turno; NO se repitió.")
+                        else:
+                            orig = str(args.get("ejercicio_original") or args.get("original") or "").strip()
+                            nuevo = str(args.get("ejercicio_nuevo") or args.get("nuevo") or "").strip()
+                            alcance = ("solo_hoy" if str(args.get("alcance", "")).lower().startswith("solo")
+                                       else "permanente")
+                            if not orig or not nuevo:
+                                resultados_texto.append("[sustituir_ejercicio]: faltan el ejercicio original "
+                                                        "y/o el nuevo; NO se aplicó nada.")
+                                acciones_fallidas.append("sustituir_ejercicio: datos incompletos, no se aplicó")
+                            else:
+                                _guardar_override_ejercicio(numero_usuario, orig, nuevo, alcance)
+                                await asyncio.to_thread(  # v8 (Mandato 2): Chroma en thread
+                                    guardar_dato_en_expediente, numero_usuario,
+                                    f"Sustitución vía coach: '{orig}' -> '{nuevo}' ({alcance}).")
+                                resultados_texto.append(
+                                    f"[sustituir_ejercicio]: aplicado '{orig}' -> '{nuevo}' ({alcance}), "
+                                    "manteniendo series, reps y cargas.")
+                                acciones_ok.append(f"sustitución '{orig}' -> '{nuevo}' aplicada")
+                        necesita_reinvocacion = True
 
-                                args.setdefault("repeticiones", serie["reps"])
+                    elif nombre == "aplicar_descarga":
+                        red_int = float(_num_seguro(args.get("reduccion_intensidad"), 10.0) or 10.0)
+                        red_ser = int(_num_seguro(args.get("reduccion_series"), 1) or 1)
+                        _guardar_descarga(numero_usuario, int(estado_hoy["semana"]), red_int, red_ser)
+                        resultados_texto.append(
+                            f"[aplicar_descarga]: descarga aplicada a la semana {estado_hoy['semana']}: "
+                            f"-{red_int:g}% de intensidad y -{red_ser} serie(s) por ejercicio.")
+                        acciones_ok.append(f"descarga aplicada a la semana {estado_hoy['semana']}")
+                        necesita_reinvocacion = True
 
-                            guardar_serie_sql(numero_usuario, args)
+                    elif nombre == "consultar_progreso":
+                        bloques = [b for b in (_resumen_progreso_rm(numero_usuario, args.get("ejercicio")),
+                                               _resumen_progreso_peso(numero_usuario)) if b]
+                        res = "\n".join(bloques) or "Sin historial de progreso todavía."
+                        resultados_texto.append(f"[consultar_progreso]:\n{res}")
+                        necesita_reinvocacion = True
 
-                            texto_herramientas_agregado += "[SQL]: Serie guardada.\n"
+                    elif nombre == "explicar_tecnica_ejercicio":
+                        ej = str(args.get("ejercicio") or "").strip() or texto_puro
+                        res = await asyncio.to_thread(  # v8 (Mandato 2): Chroma en thread
+                            consultar_literatura_cientifica, f"técnica correcta de {ej}")
+                        resultados_texto.append(f"[explicar_tecnica_ejercicio '{_trunc(ej, 50)}']:\n{res}")
+                        necesita_reinvocacion = True
 
+                    elif nombre == "registrar_peso_corporal":
+                        if peso_registrado_python:
+                            resultados_texto.append("[registrar_peso_corporal]: el peso YA lo registró el "
+                                                    "sistema en este turno; NO se duplicó.")
+                        else:
+                            pc = _num_seguro(args.get("peso_kg") or args.get("peso"))
+                            if pc and 35 <= pc <= 300:
+                                await asyncio.to_thread(_registrar_peso_corporal, numero_usuario, float(pc))
+                                actualizar_perfil(numero_usuario, peso_kg=round(float(pc), 1))
+                                resultados_texto.append(f"[registrar_peso_corporal]: {float(pc):g} kg "
+                                                        "guardado y ficha actualizada.")
+                                acciones_ok.append(f"peso corporal {float(pc):g} kg guardado")
+                            else:
+                                resultados_texto.append(f"[registrar_peso_corporal]: valor inválido "
+                                                        f"({args.get('peso_kg')!r}); NO se guardó.")
+                                acciones_fallidas.append("registrar_peso_corporal: valor inválido, no se guardó")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "pausar_plan":
+                        _actualizar_estado_json(numero_usuario, plan_pausado=1)
+                        estado_hoy["plan_pausado"] = 1
+                        resultados_texto.append("[pausar_plan]: plan PAUSADO; el calendario no avanzará "
+                                                "hasta que lo reanude.")
+                        acciones_ok.append("plan pausado")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "reanudar_plan":
+                        _actualizar_estado_json(numero_usuario, plan_pausado=0,
+                                                fecha_programada=fecha_actual)
+                        estado_hoy["plan_pausado"] = 0
+                        resultados_texto.append(f"[reanudar_plan]: plan REANUDADO; próximo entreno "
+                                                f"programado hoy ({fecha_actual}).")
+                        acciones_ok.append("plan reanudado")
                         necesita_reinvocacion = True
 
                     elif nombre == "guardar_en_expediente_personal":
-                        dato = args.get("dato_a_guardar", "")
-                        guardar_dato_en_expediente(numero_usuario, dato)
-                        texto_herramientas_agregado += f"[EXPEDIENTE]: Dato guardado.\n"
+                        dato = str(args.get("dato") or args.get("texto") or args.get("informacion") or "").strip()
+                        if dato:
+                            await asyncio.to_thread(guardar_dato_en_expediente, numero_usuario, dato)
+                            resultados_texto.append(f"[guardar_en_expediente_personal]: anotado: {_trunc(dato, 110)}")
+                            acciones_ok.append("dato guardado en su expediente")
+                        else:
+                            resultados_texto.append("[guardar_en_expediente_personal]: no venía ningún dato.")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "consultar_expediente_personal":
+                        concepto = str(args.get("concepto") or args.get("tema") or texto_puro)
+                        res = await asyncio.to_thread(consultar_expediente_atleta, numero_usuario, concepto)
+                        resultados_texto.append(f"[consultar_expediente_personal '{_trunc(concepto, 50)}']:\n{res}")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_historial_narrativo":
-                        contexto = args.get("contexto_a_buscar", "")
-                        resultado = consultar_memoria_historica_atleta(numero_usuario, contexto)
-                        texto_herramientas_agregado += f"[HISTORIAL NARRATIVO]:\n{resultado}\n"
+                        concepto = str(args.get("concepto") or args.get("tema") or texto_puro)
+                        res = await asyncio.to_thread(consultar_memoria_historica_atleta,
+                                                      numero_usuario, concepto)
+                        resultados_texto.append(f"[consultar_historial_narrativo '{_trunc(concepto, 50)}']:\n{res}")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "consultar_libro_cientifico":
+                        tema = str(args.get("tema") or args.get("pregunta") or texto_puro)
+                        res = await asyncio.to_thread(consultar_literatura_cientifica, tema)
+                        resultados_texto.append(f"[consultar_libro_cientifico '{_trunc(tema, 50)}']:\n{res}")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "evaluar_perfil_fisico":
+                        p = cargar_perfil(numero_usuario)
+                        datos_eval = {
+                            "peso_kg": _num_seguro(args.get("peso_kg"), p.get("peso_kg")),
+                            "altura_m": _num_seguro(args.get("altura_m"), p.get("altura_m")),
+                            "edad": int(_num_seguro(args.get("edad"), p.get("edad")) or 0) or None,
+                            "genero": args.get("genero") or p.get("genero"),
+                            "porcentaje_grasa": _num_seguro(args.get("porcentaje_grasa"),
+                                                            p.get("porcentaje_grasa")),
+                        }
+                        try:
+                            res = evaluar_perfil_completo(datos_eval)
+                        except Exception as e_perf:
+                            res = f"No se pudo evaluar el perfil: {e_perf}"
+                        resultados_texto.append(f"[evaluar_perfil_fisico]:\n{res}")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "evaluar_nivel_fuerza":
+                        p = cargar_perfil(numero_usuario)
+                        r = cargar_rms(numero_usuario)
+                        res = evaluar_nivel_fuerza({
+                            "peso_kg": _num_seguro(args.get("peso_kg"), p.get("peso_kg", 80)),
+                            "rm_banca_kg": _num_seguro(args.get("rm_banca_kg"),
+                                                       r.get("press banco plano", 0)),
+                            "rm_sentadilla_kg": _num_seguro(args.get("rm_sentadilla_kg"),
+                                                            r.get("sentadilla", 0)),
+                            "rm_peso_muerto_kg": _num_seguro(args.get("rm_peso_muerto_kg"),
+                                                             r.get("peso muerto", 0)),
+                            "genero": args.get("genero") or p.get("genero", "hombre"),
+                        })
+                        resultados_texto.append(f"[evaluar_nivel_fuerza]:\n{res['reporte_texto']}")
+                        necesita_reinvocacion = True
+
+                    elif nombre == "actualizar_1rm":
+                        resultados_texto.append("[actualizar_1rm]: los 1RM NO se editan a mano; el sistema "
+                                                "los recalcula con cada serie registrada. Si el atleta reportó "
+                                                "una marca (peso x reps), usa calcular_rm_exacto.")
                         necesita_reinvocacion = True
 
                     else:
-                        # v3 — caso no contemplado: el modelo inventó/deformó un nombre de
-                        # herramienta. Antes esto caía en silencio -> respuesta vacía.
-                        # Ahora se le devuelve el menú real para que se recupere solo.
+                        resultados_texto.append(f"[{nombre}]: herramienta DESCONOCIDA para el sistema; no "
+                                                "existe. NO afirmes haberla usado.")
                         log(numero_usuario, "TOOL-DESCONOCIDA", nombre)
-                        texto_herramientas_agregado += (
-                            f"[SISTEMA]: La herramienta '{nombre}' NO existe. Las válidas son: "
-                            "generar_rutina, consultar_rutina_futura, avanzar_dia, "
-                            "calcular_rm_exacto, registrar_serie_completada, evaluar_perfil_fisico, "
-                            "evaluar_nivel_fuerza, consultar_libro_cientifico, "
-                            "consultar_expediente_personal, guardar_en_expediente_personal, "
-                            "consultar_historial_narrativo. Si ninguna aplica a lo que intentabas, "
-                            "responde al atleta con texto normal usando lo que ya sabes.\n")
                         necesita_reinvocacion = True
+
                 except Exception as e_tool:
-                    log(numero_usuario, "TOOL-ERROR", f"{nombre}: {type(e_tool).__name__}: {e_tool}")
-                    texto_herramientas_agregado += (
-                        f"[SISTEMA - ERROR en {nombre}]: {e_tool}. Explícale al atleta que esa "
-                        "acción falló; NO afirmes que se realizó.\n")
+                    resultados_texto.append(f"[{nombre}]: ERROR del sistema — {e_tool}. La acción NO se completó.")
+                    acciones_fallidas.append(f"{nombre}: {_trunc(str(e_tool), 90)}")  # v8 (Mandato 3)
+                    log(numero_usuario, "TOOL-ERROR", f"{nombre}: {e_tool}")
                     necesita_reinvocacion = True
 
-            if necesita_reinvocacion and texto_herramientas_agregado:
-                log(numero_usuario, "TOOL-RESULT", texto_herramientas_agregado)
-                mensajes_orquestador.append(mensaje_salida)
-                mensajes_orquestador.append(
-                    {"role": "user", "content":
-                        f"Resultados:\n\n{texto_herramientas_agregado}\n\n"
-                        "[SISTEMA AL COACH]: Analiza los resultados y responde al atleta en "
-                        "texto natural. Si un resultado dice RECHAZADO, ERROR o CANDADO, sé "
-                        "honesto: NO afirmes que la acción se realizó."}
-                )
-
-                resp2 = await chat_llm(
-                    mensajes_orquestador,
-                    tools=mis_herramientas,
-                    opciones=opciones_turno,
-                    quien=f"post-tools-{loop_count+1}",
-                    pensar=pensar_turno
-                )
-                mensaje_salida = resp2.get("message", {})
-                texto_final = mensaje_salida.get("content", "") or ""
-                loop_count += 1
-            else:
+            if not (resultados_texto and necesita_reinvocacion):
                 break
 
-        hay_tool_escapado = (texto_final and '"name"' in texto_final and '"arguments"' in texto_final)
-        if hay_tool_escapado:
-            nombre_escapado, args_escapados = extraer_tool_call_escapado(texto_final)
-            log(numero_usuario, "TOOL-ESCAPADA", f"{nombre_escapado} en texto plano")
-            if nombre_escapado == "generar_rutina":
-                await _handle_generar_rutina(args_escapados, numero_usuario, "")
-                texto_final = "¡Listo! Tu mesociclo está siendo calculado. En 2-3 minutos tendrás tu plan."
-            elif nombre_escapado == "consultar_rutina_futura":
-                semana_r = args_escapados.get("semana", estado_hoy["semana"])
-                dia_r = args_escapados.get("dia")
-                resultado_consulta = obtener_rutina_del_json(numero_usuario, semana_r, dia_r, solo_hoy=(dia_r is not None))
-                mensajes_rescate = list(historial_memoria[numero_usuario])
-                mensajes_rescate.append({"role": "user", "content": f"[SISTEMA]:\n{resultado_consulta}\nResponde natural."})
-                resp_rescue = await chat_llm(mensajes_rescate, quien="rescate-consulta")
-                texto_final = resp_rescue.get("message", {}).get("content", "") or texto_final
-            else:
-                texto_final = re.sub(r'```(?:json)?\s*\{.*?"arguments".*?\}\s*```', '', texto_final, flags=re.DOTALL).strip()
+            bloque_resultados = "\n".join(resultados_texto)
+            # v8 (Mandato 1): los payloads REALES de las tools alimentan la whitelist
+            # de kilajes del turno (antes 135 kg de 'semana 2' se marcaba inventado).
+            texto_tools_acumulado += "\n" + bloque_resultados
 
-        # ======================================================================
-        # v2 — RED DE SEGURIDAD 1: nunca responder vacío ("se me cruzaron los cables")
-        # ======================================================================
+            mensajes_orquestador.append({"role": "assistant",
+                                         "content": texto_final or "",
+                                         "tool_calls": calls})
+            mensajes_orquestador.append({
+                "role": "user",
+                "content": ("[TOOL-RESULT — datos REALES devueltos por el sistema. Redacta tu "
+                            "respuesta final para el atleta usando EXACTAMENTE estos datos, sin "
+                            "inventar nada]:\n" + bloque_resultados)})
+
+            ultima_vuelta = loop_count >= max_loops - 1
+            try:
+                respuesta2 = await chat_llm(
+                    mensajes_orquestador,
+                    # v8 (Mandato 2): en la última vuelta tools=None — el modelo ya no
+                    # puede re-emitir calls y queda OBLIGADO a sintetizar texto.
+                    tools=None if ultima_vuelta else tools_de_turno,
+                    opciones=post_opts,
+                    pensar=PENSAR_POST_TOOLS,   # v8 (Mandato 6): False por defecto
+                    quien=f"post-tools-{loop_count}"
+                )
+            except asyncio.TimeoutError:
+                # v8 (Mandato 3): el timeout deja huella para el fallback honesto
+                acciones_fallidas.append("síntesis post-herramientas: timeout del modelo")
+                log(numero_usuario, "TOOL-LOOP", "timeout en síntesis; se sale a fallback honesto")
+                texto_final = ""
+                break
+            mensaje_salida = respuesta2.get("message", {}) or {}
+            texto_final = mensaje_salida.get("content", "") or texto_final
+
+        # v4.1 — tool call ESCAPADA como texto con las tools APAGADAS
+        if not tools_de_turno and texto_final and ('"name"' in texto_final
+                                                   or "tool_call" in texto_final.lower()):
+            n_esc, _a_esc = extraer_tool_call_escapado(texto_final)
+            if n_esc:
+                log(numero_usuario, "TOOL-ESCAPADA", f"'{n_esc}' con tools apagadas; se fuerza redacción")
+                texto_final = await _forzar_respuesta_texto(
+                    historial_memoria[numero_usuario],
+                    "Responde al atleta SOLO con texto natural. Las herramientas están desactivadas "
+                    "en este turno: NO escribas JSON ni llamadas a funciones.")
+
+        # v8 (Mandato 3) — FALLBACK CON CONTEXTO REAL: antes la instrucción era
+        # genérica ('quedó a medias') y el modelo ASUMÍA éxito -> '¡Listo! Serie
+        # anotada ✅' con la base de datos vacía. Ahora viaja el estado verdadero.
         if not texto_final.strip():
-            log(numero_usuario, "FALLBACK", "respuesta vacía tras el loop; forzando texto sin tools")
-            base = mensajes_orquestador if loop_count > 0 else list(historial_memoria[numero_usuario])
+            log(numero_usuario, "FALLBACK", "respuesta vacía tras el loop")
             texto_final = await _forzar_respuesta_texto(
-                base,
-                "Responde AHORA al atleta en texto normal, en español, con la información "
-                "que ya tienes en esta conversación. No llames herramientas. "
-                "PROHIBIDO afirmar que algo se generó, se guardó o 'está en camino': si "
-                "ibas a ejecutar una acción y no se completó, dilo con honestidad y ofrece "
-                "reintentarla.")
+                historial_memoria[numero_usuario],
+                _instruccion_fallback("Tu respuesta anterior llegó vacía.",
+                                      acciones_ok, acciones_fallidas))
         if not texto_final.strip():
-            log(numero_usuario, "FALLBACK", "el fallback también vino vacío; mensaje enlatado")
-            texto_final = "Perdón bro, me trabé un segundo 😅 ¿en qué estábamos? Repíteme lo último."
+            texto_final = "Se me trabó el sistema un segundo bro 🙏 Mándame eso de nuevo porfa."
 
         texto_final = limpiar_texto_para_whatsapp(texto_final)
 
         # ======================================================================
-        # v3 — RED DE SEGURIDAD 2: kilajes inventados (bug "79% -> 15 kg").
-        # Se comparan los kg de la respuesta contra las fuentes legítimas; si el
-        # modelo escribió pesos que no existen en ningún lado, se le obliga a
-        # corregir usando SOLO los números del sistema.
+        # v3 → v8 (Mandato 1) — VALIDADOR DE KILAJES con whitelist DINÁMICA.
+        # Antes solo miraba mensaje+rutina+dashboard+RMs: bloqueaba PRs dichos
+        # turnos atrás (145), el lastre del perfil (30) y los payloads de tools
+        # (135 de semana 2), y colapsaba hasta con un 'siii'. Ahora la whitelist
+        # se construye con TODO lo legítimo del turno + historial + repositorio.
         # ======================================================================
-        fuentes_numericas = (contenido_mensaje + " " + instruccion_de_hoy + " " +
-                             str(dashboard_sql))
-        kgs_inventados = _verificar_kgs_salida(numero_usuario, texto_final, fuentes_numericas)
-        if kgs_inventados:
-            log(numero_usuario, "KG-INVENTADOS", f"{kgs_inventados} no existen en las fuentes; reintento")
-            correccion = await _forzar_respuesta_texto(
-                list(historial_memoria[numero_usuario]) + [{"role": "assistant", "content": texto_final}],
-                f"Tu borrador menciona estos pesos: {kgs_inventados} kg, que NO existen ni en la "
-                "rutina calculada por el sistema ni en lo que dijo el atleta. Ese es un error grave. "
-                "Reescribe tu respuesta usando EXCLUSIVAMENTE los kg que aparecen entre *asteriscos* "
-                "en la telemetría o los que el atleta mencionó. Si un ejercicio dice 'peso por "
-                "calibrar', dilo tal cual, sin inventarle un número.")
-            if correccion.strip():
-                correccion = limpiar_texto_para_whatsapp(correccion)
-                if not _verificar_kgs_salida(numero_usuario, correccion, fuentes_numericas):
-                    texto_final = correccion
-                    log(numero_usuario, "KG-INVENTADOS", "corregido en el reintento")
+        fuentes_turno = "\n".join([str(mensaje_usuario), instruccion_de_hoy,
+                                   dashboard_sql, contenido_mensaje])
+        whitelist_kgs = _construir_whitelist_kgs(numero_usuario, fuentes_turno,
+                                                 historial_memoria[numero_usuario],
+                                                 texto_tools_acumulado)
+        usuario_trae_cifras = bool(re.search(r"\d", str(mensaje_usuario)))
+        # v8 — bypass ACOTADO (pedido del Mandato 1, con cinturón): si el usuario no
+        # trae cifras Y la salida no tiene forma de rutina prescrita, el riesgo real
+        # es un falso positivo de memoria, no una rutina alucinada -> no se bloquea.
+        # Con rutina vacía o salida con forma de prescripción, el chequeo SIEMPRE corre.
+        aplicar_chequeo = (usuario_trae_cifras or rutina_vacia
+                           or _parece_rutina_inventada(texto_final) >= 2)
+        if aplicar_chequeo:
+            inventados = _verificar_kgs_salida(texto_final, whitelist_kgs)
+            if inventados:
+                log(numero_usuario, "KG-INVENTADOS", f"{inventados} no existen en las fuentes")
+                texto_re = await _forzar_respuesta_texto(
+                    historial_memoria[numero_usuario],
+                    f"Tu borrador incluía kilajes que NO existen en ninguna fuente del sistema: "
+                    f"{inventados}. Reescríbelo usando SOLO números presentes en la rutina "
+                    "calculada, la telemetría, sus marcas guardadas o lo que el atleta escribió. "
+                    "Si el dato no existe, dilo con honestidad y pídele el contexto que falte.")
+                texto_re = limpiar_texto_para_whatsapp(texto_re)
+                if texto_re and not _verificar_kgs_salida(texto_re, whitelist_kgs):
+                    texto_final = texto_re
                 else:
-                    # v5.2 — Reporte: la doble derrota entregaba la rutina alucinada
-                    # al usuario. Ahora se BLOQUEA: mejor una respuesta honesta sin
-                    # kilos que kilos inventados en su WhatsApp.
-                    log(numero_usuario, "KG-INVENTADOS",
-                        "el reintento también inventó; respuesta BLOQUEADA y sustituida por honestidad")
-                    if rutina_vacia:
-                        texto_final = ("Bro, freno aquí para no inventarte números 🙅. Tu plan "
-                                       "todavía no está generado en mi sistema, así que no tengo "
-                                       "cargas reales que darte. ¿Le doy ya para armarlo en serio? "
-                                       "Dime *sí* y arrancamos.")
-                    else:
-                        texto_final = ("Bro, prefiero no aventarte cifras al aire. Déjame darte "
-                                       "los números exactos: escríbeme *ver mi rutina* y te paso "
-                                       "las cargas reales calculadas por mis métodos.")
+                    texto_final = ("Bro, prefiero no aventarte cifras al aire 🙏 Dime el ejercicio y "
+                                   "a qué sesión te refieres, o pídeme *ver mi rutina* y te paso los "
+                                   "kg exactos que el sistema ya calculó.")
+        else:
+            log(numero_usuario, "KG-CHECK", "bypass: usuario sin cifras y salida sin forma de rutina")
 
-        # ======================================================================
-        # v6 — RED DE SEGURIDAD (F2): rutina fantasma.
-        # Sin plan real o mientras se genera, el modelo NO puede listar ejercicios.
-        # Se relee el estado de generación por si el pipeline se disparó este turno.
-        # ======================================================================
+        # v4.4 — RED ANTI-RUTINA-FANTASMA: salida con forma de plan sin plan real.
         estado_gen_actual = obtener_estado_usuario(numero_usuario).get("estado_generacion", "")
-        if _parece_rutina_inventada(texto_final) >= 3 and (rutina_vacia or estado_gen_actual == "generando"):
-            log(numero_usuario, "RUTINA-FANTASMA",
-                "salida con forma de rutina sin plan real; BLOQUEADA y sustituida")
-            if estado_gen_actual == "generando":
-                texto_final = ("¡Vamos! 🔥 Tu plan se está armando ahorita mismo. Dame 2-3 "
-                               "minutos y te aviso en cuanto esté listo con tus cargas exactas.")
+        if (rutina_vacia and estado_gen_actual != "lista"
+                and _parece_rutina_inventada(texto_final) >= 2):
+            log(numero_usuario, "RUTINA-FANTASMA", "salida con forma de rutina SIN plan real; se reescribe")
+            if calcular_faltantes(numero_usuario):
+                instr_fant = ("REESCRIBE tu respuesta: NO existe ningún plan generado y NO debes "
+                              "inventar ejercicios ni kilajes. Dile con honestidad que el plan real "
+                              "aún no está y que primero deben terminar de armar su ficha.")
             else:
-                texto_final = ("Ojo bro, todavía no tengo un plan generado para ti, así que no te "
-                               "voy a inventar ejercicios ni pesos 🙅. ¿Le damos para armarte la "
-                               "rutina en serio? Dime *sí* y arrancamos.")
+                instr_fant = ("REESCRIBE tu respuesta: NO existe ningún plan generado todavía. NO "
+                              "inventes ejercicios. Sus datos están completos: el plan real lo "
+                              "genera el sistema en 2-3 minutos cuando se dispare.")
+            texto_final = limpiar_texto_para_whatsapp(
+                await _forzar_respuesta_texto(historial_memoria[numero_usuario], instr_fant)) \
+                or "Todavía no tengo tu plan real generado bro; en cuanto esté, te aviso yo 🙏"
 
-        # ======================================================================
-        # v6 — RED DE SEGURIDAD (F1): reparador de onboarding.
-        # Si estamos en un turno de PREGUNTA de onboarding y el modelo se desvió
-        # (preguntó 'experiencia/nivel' o repreguntó un dato ya guardado), se
-        # reemplaza por una pregunta limpia del campo pendiente.
-        # ======================================================================
-        if onboarding_activo and bloque_onboarding and campo_pendiente:
-            corregido, reparado = _reparar_onboarding(texto_final, numero_usuario, campo_pendiente)
+        # v3.1 — el coach NUNCA se sale del guion durante el onboarding
+        if onboarding_activo and campo_pendiente:
+            texto_final, reparado = _reparar_onboarding(texto_final, numero_usuario, campo_pendiente)
             if reparado:
-                log(numero_usuario, "ONB-REPARADO",
-                    f"pregunta desviada/redundante -> se fuerza '{campo_pendiente}'")
-                texto_final = limpiar_texto_para_whatsapp(corregido)
+                log(numero_usuario, "ONB-REPARADO", f"salida re-encauzada a '{campo_pendiente}'")
 
         # ======================================================================
-        # v7 — ESCUDO ANTI "ACCIÓN ASUMIDA".
+        # v4.4 → v8 (Mandato 3) — GUARDIA CLAIM-FALSO sin bucle infinito.
+        # Antes: la reescritura usaba un prompt genérico -> el modelo volvía a
+        # 'confirmar' el guardado -> el filtro volvía a saltar -> bucle. Ahora:
+        # (1) la condición mira acciones_ok REALES (no un flag genérico),
+        # (2) la instrucción de reescritura lleva el detalle exacto de lo que
+        #     falló, y (3) si el modelo REINCIDE, responde una plantilla honesta
+        #     determinista construida en Python (cero LLM, cero bucle).
         # ======================================================================
-        if (not accion_ejecutada and not onboarding_activo and not bloque_onboarding
-                and _CLAIM_ACCION_RE.search(texto_final)):
-            log(numero_usuario, "CLAIM-FALSO", "afirma una acción que no se ejecutó; se reescribe")
-            honesto = await _forzar_respuesta_texto(
-                list(historial_memoria[numero_usuario]),
-                "Tu borrador afirma que hiciste una acción (cambiar, registrar, reactivar, pausar, "
-                "aplicar, etc.) que en realidad NO se ejecutó en el sistema. Reescribe SIN afirmar "
-                "que ya está hecho: dile con honestidad qué necesitas para hacerlo o pídele que te "
-                "confirme el dato que falta, y ofrécele reintentarlo. Nada de dar por hecha la acción.")
-            if honesto.strip():
-                texto_final = limpiar_texto_para_whatsapp(honesto)
+        if (not acciones_ok and _CLAIM_ACCION_RE.search(texto_final)
+                and (serie or NOTACION_ENTRENO_RE.search(texto_puro) or acciones_fallidas)):
+            log(numero_usuario, "CLAIM-FALSO", "afirma una acción NO ejecutada; reescritura honesta")
+            texto_honesto = await _forzar_respuesta_texto(
+                historial_memoria[numero_usuario],
+                _instruccion_fallback(
+                    "Tu borrador AFIRMABA haber guardado/registrado/actualizado algo, pero ninguna "
+                    "escritura se completó en este turno.",
+                    acciones_ok, acciones_fallidas))
+            texto_honesto = limpiar_texto_para_whatsapp(texto_honesto)
+            if texto_honesto and not _CLAIM_ACCION_RE.search(texto_honesto):
+                texto_final = texto_honesto
+            else:
+                detalle_f = (" Falló: " + "; ".join(acciones_fallidas[:2]) + ".") if acciones_fallidas else ""
+                texto_final = ("Seré honesto contigo bro: eso todavía NO quedó guardado en el "
+                               f"sistema.{detalle_f} Mándamelo así: *ejercicio + peso + reps* "
+                               "(ej: 'banca 100x10') y lo registro al toque 💪")
 
-        # ======================================================================
-        # v2 — RED DE SEGURIDAD 3: no repetir literalmente el mensaje anterior
-        # ======================================================================
-        if texto_final.strip() and texto_final.strip() == ultimo_coach.strip():
-            log(numero_usuario, "DUPLICADO", "respuesta idéntica a la anterior; reformulando")
-            reintento = await _forzar_respuesta_texto(
-                list(historial_memoria[numero_usuario]),
-                "Tu borrador repite EXACTAMENTE tu mensaje anterior. Reformúlalo por completo "
-                "y haz avanzar la conversación tomando en cuenta el último mensaje del atleta.")
-            if reintento.strip():
-                texto_final = limpiar_texto_para_whatsapp(reintento)
+        # v4 — anti-eco: respuesta idéntica a la anterior se varía mínimamente
+        ultimo_asst = next((m.get("content", "") for m in reversed(historial_memoria[numero_usuario])
+                            if m.get("role") == "assistant"), "")
+        if texto_final and texto_final.strip() == ultimo_asst.strip():
+            log(numero_usuario, "DUPLICADO", "respuesta idéntica a la previa; se añade variación")
+            texto_final += "\n\n¿Seguimos bro? 💪"
 
         historial_memoria[numero_usuario].append({"role": "assistant", "content": texto_final})
 
-        if len(historial_memoria[numero_usuario]) > LIMITE_EMERGENCIA:
-            system_msg = historial_memoria[numero_usuario][0]
-            resto      = historial_memoria[numero_usuario][1:]
-            bloque_comprimido = []
-            historial_core    = resto
-            if resto and resto[0].get("content", "").startswith(RESUMEN_MARKER):
-                bloque_comprimido = resto[:2]
-                historial_core    = resto[2:]
-            historial_memoria[numero_usuario] = [system_msg] + bloque_comprimido + historial_core[-14:]
+        # Persistencia SIN la telemetría del turno (no engorda el disco ni contamina
+        # futuros contextos con datos viejos de calendario)
+        try:
+            hist_disco = []
+            for m in historial_memoria[numero_usuario]:
+                c = m.get("content", "")
+                if m.get("role") == "user" and TELEMETRIA_INICIO in c:
+                    c = c.split(TELEMETRIA_INICIO)[0]
+                hist_disco.append({"role": m.get("role"), "content": c})
+            async with aiofiles.open(ruta_historial, mode="w", encoding="utf-8") as f:
+                await f.write(json.dumps(hist_disco, indent=2, ensure_ascii=False))
+        except Exception as e_hist:
+            log(numero_usuario, "HIST-ERROR", f"no se pudo persistir: {e_hist}")
 
-        memoria_limpia = []
-        for m in historial_memoria[numero_usuario]:
-            rol = m.get("role")
-            contenido = str(m.get("content") or "").strip()
-            if rol == "assistant" and m.get("tool_calls") and not contenido: continue
-            if not contenido or rol == "system" or "[SEÑAL INTERNA" in contenido: continue
-            if rol == "assistant" and contenido in ["Procesando la telemetría...", "Procesando..."]: continue
-            if rol == "user" and contenido.startswith("Resultados:"): continue
-
-            if rol == "user":
-                contenido = re.sub(r'\n\n--- TELEMETRÍA ---.*?--- FIN TELEMETRÍA ---', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n--- CONTEXTO ENRIQUECIDO.*?--- FIN DEL CONTEXTO ---', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n\[SEÑAL CRÍTICA\].*?(?=\n\n\[|$)', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n\[NOTA\].*?(?=\n\n\[|$)', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n\[SISTEMA — RUTINA SOLICITADA.*?(?=\n\n\[|$)', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n\[ANÁLISIS NUMÉRICO.*?(?=\n\n\[|$)', '', contenido, flags=re.DOTALL)
-                contenido = re.sub(r'\n\n\[RESTRICCIÓN DEL ATLETA.*?(?=\n\n\[|$)', '', contenido, flags=re.DOTALL)
-            contenido = contenido.strip()
-            if contenido: memoria_limpia.append({"role": rol, "content": contenido})
-
-        async with aiofiles.open(ruta_historial, mode="w", encoding="utf-8") as f:
-            await f.write(json.dumps(memoria_limpia, indent=2, ensure_ascii=False))
-
-        log(numero_usuario, "OUT",
-            f"({time.monotonic()-t_inicio:.1f}s, {loop_count} loops de tools, "
-            f"{len(texto_final)} chars) -> {texto_final!r}")
+        _limpiar_overrides_solo_hoy(numero_usuario)
+        log(numero_usuario, "OUT", f"{time.monotonic() - t_inicio:.1f}s -> {_trunc(texto_final, 150)}")
         return texto_final
 
     except Exception as e:
         import traceback
-        log(numero_usuario, "ERROR-FATAL", f"{type(e).__name__}: {e}")
         traceback.print_exc()
-        return "Bro, tuve un error interno. ¿Me repites lo que necesitas?"
-    finally:
-        historial_memoria.pop(numero_usuario, None)
+        log(numero_usuario, "ERROR-FATAL", f"{type(e).__name__}: {e}")
+        return "Se me cruzaron los cables un segundo bro 🙏 Repíteme eso porfa."
 
 # ==============================================================================
-# HELPER: GENERAR RUTINA
+# GENERACIÓN DE RUTINA (handler compartido: pipeline de onboarding y tool call)
 # ==============================================================================
-async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_base: str) -> str:
-    if obtener_estado_usuario(numero_usuario).get("estado_generacion") == "generando":
-        return ("[SISTEMA]: Ya hay un plan generándose para este atleta. "
-                "Dile que espere el aviso; NO dispares otra generación.")
-
-    meta_cruda = str(args.get("meta", "")).lower().strip()
-    nivel = str(args.get("nivel", "intermedio")).lower().strip()
-    ctx = args.get("contexto_usuario", "")
-    dias = args.get("dias")
-    peso_kg = args.get("peso_kg")
-    grasa = args.get("porcentaje_grasa")
-
-    rm_banca = args.get("rm_banca_kg") or args.get("rm_banca")
-    rm_sq = args.get("rm_sentadilla_kg") or args.get("rm_sentadilla")
-    rm_dl = args.get("rm_peso_muerto_kg") or args.get("rm_peso_muerto")
-    rm_dom = args.get("rm_dominadas_kg", 0.0) or 0.0
-
-    log(numero_usuario, "GENERAR", f"args recibidos: meta={meta_cruda} nivel={nivel} dias={dias} "
-                                   f"peso={peso_kg} grasa={grasa} banca={rm_banca} sq={rm_sq} "
-                                   f"dl={rm_dl} dom={rm_dom}")
-
-    if not dias or not peso_kg or grasa is None:
-        log(numero_usuario, "GENERAR-ERROR", "faltan días/peso/grasa")
-        return "[ERROR DEL SISTEMA]: Faltan argumentos (días, peso, grasa). Pregúntale al atleta."
-
-    if not rm_banca or not rm_sq or not rm_dl:
-        log(numero_usuario, "GENERAR-ERROR", "faltan RMs básicos")
-        return texto_base + "\n\nBro, para armar la rutina necesito que me confirmes tus marcas máximas (1RM) en Sentadilla, Banca y Peso Muerto."
-
-    # v2 FIX: "powerbuilding" caía en el else y se generaba POWERLIFTING.
-    if "powerbuild" in meta_cruda or any(p in meta_cruda for p in ["hipertrofia", "volumen", "masa"]):
-        meta_backend = "powerbuilding"
-    else:
-        meta_backend = "powerlifting"
-    log(numero_usuario, "GENERAR", f"meta '{meta_cruda}' -> backend '{meta_backend}'")
-
-    for ej, val in (("press banco plano", rm_banca), ("sentadilla", rm_sq),
-                    ("peso muerto", rm_dl), ("dominadas", rm_dom)):
-        if val is not None:
-            guardar_rm(numero_usuario, ej, val, fuente="generacion")
-
-    _actualizar_estado_json(numero_usuario, estado_generacion="generando", meta=meta_backend,
-                            dias=int(dias), generacion_ts=time.time())
-
-    # Llaves alineadas con el contrato del generador (tools.json)
+async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_puro: str) -> str:
+    estado = obtener_estado_usuario(numero_usuario)
+    if estado.get("estado_generacion") == "generando":
+        return "Ya hay una generación EN CURSO para este atleta; no se disparó otra."
+    p = cargar_perfil(numero_usuario)
+    r = cargar_rms(numero_usuario)
     datos = {
-        "meta": meta_backend,
-        "nivel": nivel,
-        "dias": int(dias),
-        "peso_kg": float(peso_kg),
-        "porcentaje_grasa": float(grasa),
-        "rm_banca_kg": float(rm_banca),
-        "rm_sentadilla_kg": float(rm_sq),
-        "rm_peso_muerto_kg": float(rm_dl),
-        "rm_dominadas_kg": float(rm_dom),
-        "tipo_periodizacion": "DUP",   # obligatorio para el prompt del generador
-        "contexto_usuario": ctx
+        "meta": args.get("meta") or p.get("meta") or "powerbuilding",
+        "nivel": args.get("nivel") or "intermedio",
+        "dias": int(_num_seguro(args.get("dias"), p.get("dias_semana", 4)) or 4),
+        "peso_kg": _num_seguro(args.get("peso_kg"), p.get("peso_kg")),
+        "porcentaje_grasa": _num_seguro(args.get("porcentaje_grasa"), p.get("porcentaje_grasa")),
+        "rm_banca_kg": _num_seguro(args.get("rm_banca_kg"), r.get("press banco plano")),
+        "rm_sentadilla_kg": _num_seguro(args.get("rm_sentadilla_kg"), r.get("sentadilla")),
+        "rm_peso_muerto_kg": _num_seguro(args.get("rm_peso_muerto_kg"), r.get("peso muerto")),
+        "rm_dominadas_kg": _num_seguro(args.get("rm_dominadas_kg"), r.get("dominadas")),
+        "contexto_usuario": str(args.get("contexto_usuario") or ""),
     }
+    faltan = [k for k in ("peso_kg", "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg")
+              if datos.get(k) in (None, 0)]
+    if faltan:
+        return f"Faltan datos para generar: {', '.join(faltan)}."
+    _actualizar_estado_json(numero_usuario, estado_generacion="generando",
+                            generacion_ts=time.time())
     asyncio.create_task(_generar_rutina_background(datos, numero_usuario))
-    return texto_base or "[SISTEMA]: Generación disparada en segundo plano."
+    log(numero_usuario, "GEN", f"pipeline lanzado en background: {datos}")
+    return ("Generación DISPARADA en segundo plano (tarda 2-3 minutos). NO describas "
+            "ejercicios todavía; el sistema avisará al atleta cuando esté lista.")
 
 # ==============================================================================
-# RUTINA DEL JSON: CÁLCULOS AL VUELO
+# LECTURA DE RUTINA (kg calculados y redondeados EN CÓDIGO)
 # ==============================================================================
-def _redondear_2_5(x: float) -> float:
-    return round(x / 2.5) * 2.5
+def _redondear_carga(kg: float) -> float:
+    """Redondeo a discos reales de 1.25 (múltiplos de 2.5 en la barra)."""
+    return round(round(kg / 2.5) * 2.5, 1)
 
-def _resolver_rm(nombre_ej: str, rms: dict):
-    n = _norm_ej(nombre_ej)
-    if n in rms: return rms[n]
-    if any(k in n for k in _ACCESORIO_KEYWORDS): return None
-    for pat, clave in _HEREDA_RM:
-        if pat.match(n): return rms.get(clave)
-    return None
-
-def obtener_rutina_del_json(numero_usuario: str, semana_actual, dia_actual=None, solo_hoy: bool = False) -> str:
-    numero_usuario_limpio = str(numero_usuario).strip()
-    if obtener_estado_usuario(numero_usuario_limpio).get("estado_generacion") == "generando":
-        return "ESTADO DE RUTINA: GENERÁNDOSE AHORA MISMO.\nDile al atleta que su plan está en el horno."
-
-    try:
-        semana_int = int(str(semana_actual).strip())
-    except Exception as e:
-        return f"Error interno: {e}"
-
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / numero_usuario_limpio
-    rms = cargar_rms(numero_usuario_limpio)
+def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool = False) -> str:
+    numero_usuario = str(numero_usuario).strip()
+    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / numero_usuario
     sesiones = []
-
-    overrides = _cargar_overrides(numero_usuario_limpio)
-    sub_ejercicios = overrides.get("ejercicios", {})
-    descarga = overrides.get("descargas", {}).get(str(semana_int))
-
     for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
         ruta_f = ruta_base / archivo
-        if not ruta_f.exists(): continue
+        if not ruta_f.exists():
+            continue
         try:
             with open(ruta_f, "r", encoding="utf-8") as f:
-                plan = json.load(f)
-                sesiones = [s for s in plan if int(s.get("Semana_Abs", 0)) == semana_int]
-                if sesiones: break
-        except json.JSONDecodeError:
-            return f"Error: {archivo} corrupto."
-
+                data = json.load(f)
+            sesiones = [s for s in data if int(s.get("Semana_Abs", 0)) == int(semana)]
+            if sesiones:
+                break
+        except Exception as e:
+            print(f"[RUTINA] error leyendo {archivo}: {e}")
     if not sesiones:
-        return ("ESTADO DE RUTINA: Vacío.\nEl atleta NO tiene plan. Si pide una rutina, "
-                "ofrécele crear una; si solo charla, conversa normal SIN pedirle datos. "
-                "PROHIBIDO dictarle una rutina tú mismo o improvisar ejercicios y cargas: "
-                "el sistema es el ÚNICO que genera planes.")
+        return "ESTADO DE RUTINA: Vacío (no hay plan generado para esa semana)."
 
-    if solo_hoy and dia_actual is not None:
-        dia_idx = _normalizar_dia_a_indice(dia_actual)
-        if dia_idx is not None and 0 <= dia_idx < len(sesiones):
-            sesiones_mostrar = [sesiones[dia_idx]]
-            idx_base = dia_idx + 1
-            encabezado = f"=== HOY: DÍA {idx_base} — SEMANA {semana_int} ===\n\n"
-        else:
-            sesiones_mostrar, idx_base = sesiones, 1
-            encabezado = f"=== SEMANA {semana_int} ===\n\n"
-    else:
-        sesiones_mostrar, idx_base = sesiones, 1
-        encabezado = f"=== PLANIFICACIÓN DETALLADA - SEMANA {semana_int} ===\n\n"
+    overrides = _cargar_overrides(numero_usuario)
+    rms = cargar_rms(numero_usuario)
+    descarga = {}
+    try:
+        with open(os.path.join(carpeta_data, f"descargas_{numero_usuario}.json"),
+                  "r", encoding="utf-8") as f:
+            todas = json.load(f)
+            if isinstance(todas, dict):
+                descarga = todas.get(str(semana), {}) or {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        descarga = {}
+    red_int = float(descarga.get("red_intensidad", 0) or 0)
+    red_ser = int(descarga.get("red_series", 0) or 0)
 
-    texto = encabezado
-    for offset, sesion in enumerate(sesiones_mostrar):
-        idx = idx_base + offset
-        enfoque_txt = str(sesion.get('Enfoque', 'N/A'))
-        texto += f"--- DÍA {idx}: {enfoque_txt.upper()} | {sesion.get('Fase', 'N/A').upper()} ---\n"
-
-        reps_compuestos = []
-        for ej in sesion.get("Ejercicios", []):
-            tipo = str(ej.get("tipo", "")).lower()
-            nombre_original = ej.get("Ejercicio", "?")
-            nombre_ej = nombre_original
-            ov = sub_ejercicios.get(_norm_ej(nombre_original))
-            if not ov:
-                nn = _norm_ej(nombre_original)
-                for k, v in sub_ejercicios.items():  # v7 — match tolerante por subcadena
-                    if k and (k in nn or nn in k):
-                        ov = v
+    indice_hoy = _normalizar_dia_a_indice(dia_actual)
+    lineas = []
+    for i, ses in enumerate(sesiones, start=1):
+        if solo_hoy and indice_hoy is not None and (i - 1) != indice_hoy:
+            continue
+        encabezado = "HOY — " if (solo_hoy and indice_hoy is not None) else ""
+        lineas.append(f"*{encabezado}Semana {semana} · Día {i} · {ses.get('Enfoque', 'Sesión')}*")
+        for ej in ses.get("Ejercicios", []):
+            nombre = str(ej.get("Nombre", "?"))
+            base = _norm_ej(nombre)
+            for o_orig, o_new in overrides.items():
+                if _norm_ej(o_orig) == base:
+                    nombre, base = o_new, _norm_ej(o_new)
+                    break
+            series = ej.get("Series", "?")
+            try:
+                if red_ser and str(series).isdigit():
+                    series = max(1, int(series) - red_ser)
+            except (TypeError, ValueError):
+                pass
+            reps = ej.get("Reps", ej.get("Repeticiones", "?"))
+            pct = ej.get("Porcentaje_RM", ej.get("%RM"))
+            rpe = ej.get("RPE")
+            carga_txt = ""
+            if pct not in (None, ""):
+                rm_base = None
+                for patron, canon in _HEREDA_RM:
+                    if patron.match(base):
+                        rm_base = rms.get(canon)
                         break
-            m = PORCENTAJE_RE.search(str(ej.get("1RM", "")))
-            es_analitico = any(t in tipo for t in ["monoarticular", "complementario", "analitico"])
-            rm = None if es_analitico else _resolver_rm(nombre_original, rms)
-
-            if not es_analitico:
-                prom_ej = _clasificar_caracter_reps(ej.get("Reps"))
-                if prom_ej is not None:
-                    reps_compuestos.append(prom_ej)
-
-            # v6 — DESCARGA
-            series_val = ej.get("Series")
-            if descarga:
-                m_s = re.search(r"\d+", str(series_val if series_val is not None else ""))
-                if m_s:
-                    series_val = max(1, int(m_s.group(0)) - int(descarga.get("red_series", 0)))
-
-            if m and rm:
-                pct = float(m.group(1))
-                kg = rm * pct / 100.0
-                if descarga:
-                    kg *= (1 - float(descarga.get("red_intensidad_pct", 0)) / 100.0)
-                kg = _redondear_2_5(kg)
-                nota_d = " [semana de descarga]" if descarga else ""
-                carga = f"*{kg:g} kg* ({pct:g}% de su 1RM, ya calculado por el sistema){nota_d}"
-            elif m:
-                carga = ("(*peso por calibrar* — NO calcules ni inventes kg para este "
-                         "ejercicio; dile al atleta que reporte su primera serie y el "
-                         "sistema fijará la carga)")
-            else:
-                carga = "(*peso por calibrar*)"
-
-            texto += (f"- {nombre_ej} ({series_val}x{ej.get('Reps')}) "
-                      f"@ {carga} | RPE {ej.get('RPE', 'N/A')}\n")
-
-        # v3 — Fallo 1 (disonancia cognitiva): si la etiqueta del día contradice
-        # las series/reps reales, el sistema lo detecta y ordena al modelo
-        # describir los NÚMEROS, no la definición de manual de la etiqueta.
-        if reps_compuestos:
-            prom = sum(reps_compuestos) / len(reps_compuestos)
-            enfoque_low = enfoque_txt.lower()
-            etiqueta_pesada = any(k in enfoque_low for k in ("potencia", "fuerza"))
-            etiqueta_volumen = "hipertrofia" in enfoque_low or "volumen" in enfoque_low
-            if (etiqueta_pesada and prom >= 8) or (etiqueta_volumen and prom <= 5):
-                caracter = ("hipertrofia/volumen (reps altas)" if prom >= 8
-                            else "fuerza/potencia (reps bajas)")
-                texto += (f"[AUDITORÍA DEL SISTEMA]: la etiqueta dice '{enfoque_txt}' pero los "
-                          f"compuestos promedian {prom:.0f} reps, es decir trabajo de {caracter}. "
-                          "Al explicar el día, DESCRIBE lo que dicen las series/reps y porcentajes "
-                          "de arriba; PROHIBIDO recitar la definición de la etiqueta si contradice "
-                          "los números.\n")
-                print(f"[AUDITORÍA RUTINA] {numero_usuario_limpio}: etiqueta '{enfoque_txt}' "
-                      f"vs promedio {prom:.1f} reps — incoherencia del generador detectada")
-        texto += "\n"
-    return texto
+                if rm_base is None:
+                    rm_base = rms.get(base)
+                try:
+                    pct_f = float(str(pct).replace("%", "").replace(",", "."))
+                    if red_int:
+                        pct_f = max(1.0, pct_f - red_int)
+                    if rm_base:
+                        carga_txt = (f" — *{_redondear_carga(float(rm_base) * pct_f / 100.0):g} kg* "
+                                     f"({pct_f:g}% RM)")
+                    else:
+                        carga_txt = f" — {pct_f:g}% RM"
+                except (TypeError, ValueError):
+                    pass
+            rpe_txt = f" @RPE {rpe}" if rpe not in (None, "") else ""
+            lineas.append(f"  • {nombre}: {series}x{reps}{carga_txt}{rpe_txt}")
+        lineas.append("")
+    if not any(l.strip() for l in lineas):
+        return "ESTADO DE RUTINA: Vacío (ese día no existe en la semana)."
+    if red_int or red_ser:
+        lineas.append(f"_Semana con DESCARGA: -{red_int:g}% intensidad, -{red_ser} serie(s)._")
+    return "\n".join(lineas).strip()
 
 # ==============================================================================
 # ESTADO Y CALENDARIO
 # ==============================================================================
 def obtener_estado_usuario(numero_usuario: str) -> dict:
-    hoy = datetime.now().strftime("%Y-%m-%d")
-    try:
-        with open(ruta_estado, "r", encoding="utf-8") as f:
-            return json.load(f).get(numero_usuario, {"semana": 1, "dia": 1, "fecha_programada": hoy})
-    except FileNotFoundError:
-        return {"semana": 1, "dia": 1, "fecha_programada": hoy}
-
-def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> bool:
-    hoy = datetime.now().strftime("%Y-%m-%d")
     try:
         with open(ruta_estado, "r", encoding="utf-8") as f:
             estados = json.load(f)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         estados = {}
+    est = estados.get(numero_usuario)
+    if not est:
+        est = {"semana": 1, "dia": 1,
+               "fecha_programada": datetime.now().strftime("%Y-%m-%d"),
+               "ultima_fecha_completada": ""}
+        estados[numero_usuario] = est
+        try:
+            with open(ruta_estado, "w", encoding="utf-8") as f:
+                json.dump(estados, f, indent=4, ensure_ascii=False)
+        except OSError as e:
+            print(f"[ESTADO] no se pudo crear: {e}")
+    est.setdefault("semana", 1)
+    est.setdefault("dia", 1)
+    est.setdefault("fecha_programada", datetime.now().strftime("%Y-%m-%d"))
+    est.setdefault("ultima_fecha_completada", "")
+    return est
 
-    estado = estados.get(numero_usuario, {"semana": 1, "dia": 1, "fecha_programada": hoy})
-
-    if not forzar and estado.get("ultima_fecha_completada") == hoy:
-        print(f"[CANDADO] {numero_usuario} ya avanzó hoy.")
-        return False
-
-    semana_actual = estado["semana"]
-    dia_actual = int(estado["dia"]) if isinstance(estado["dia"], int) else 1
-
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
-    total_sesiones_semana = 3
-
-    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
-        ruta_f = ruta_base / archivo
-        if ruta_f.exists():
-            try:
-                with open(ruta_f, "r", encoding="utf-8") as f:
-                    plan = json.load(f)
-                    sesiones_encontradas = [s for s in plan if int(s.get("Semana_Abs", 0)) == semana_actual]
-                    if sesiones_encontradas:
-                        total_sesiones_semana = len(sesiones_encontradas)
-                        break
-            except Exception:
-                pass
-
-    if dia_actual >= total_sesiones_semana:
-        sig_dia, sig_sem = 1, semana_actual + 1
-        dias_suma = 1 if total_sesiones_semana >= 6 else 3
+def avanzar_estado_usuario(numero_usuario: str) -> dict:
+    """Avanza el calendario UN día real del plan. Candado: máx. un avance por fecha."""
+    est = obtener_estado_usuario(numero_usuario)
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    if est.get("ultima_fecha_completada") == hoy:
+        return {"ok": False,
+                "motivo": ("CANDADO del día: hoy ya se marcó una sesión como completada; el "
+                           "siguiente día se desbloquea mañana (evita avances dobles)."),
+                "semana": est.get("semana"), "dia": est.get("dia"),
+                "fecha_programada": est.get("fecha_programada")}
+    semana = int(est.get("semana", 1))
+    dia = int(_num_seguro(est.get("dia", 1), 1) or 1)
+    total = _contar_sesiones_semana(numero_usuario, semana)
+    if total and dia >= total:
+        if not _contar_sesiones_semana(numero_usuario, semana + 1):
+            _actualizar_estado_json(numero_usuario, ultima_fecha_completada=hoy)
+            return {"ok": False,
+                    "motivo": "FIN DEL PLAN: no hay más semanas generadas después de esta.",
+                    "semana": semana, "dia": dia,
+                    "fecha_programada": est.get("fecha_programada")}
+        semana, dia = semana + 1, 1
     else:
-        sig_dia, sig_sem = dia_actual + 1, semana_actual
-        dias_suma = 1 if total_sesiones_semana >= 6 else 2
+        dia += 1
+    perfil = cargar_perfil(numero_usuario)
+    dias_sem = int(perfil.get("dias_semana") or 4)
+    salto = max(1, round(7 / max(1, dias_sem)))
+    fecha_prox = (datetime.now() + timedelta(days=salto)).strftime("%Y-%m-%d")
+    _actualizar_estado_json(numero_usuario, semana=semana, dia=dia,
+                            fecha_programada=fecha_prox, ultima_fecha_completada=hoy,
+                            cursor_semana=semana, cursor_dia=0)
+    log(numero_usuario, "AVANZAR", f"-> semana {semana}, día {dia}; próximo {fecha_prox}")
+    return {"ok": True, "semana": semana, "dia": dia, "fecha_programada": fecha_prox}
 
-    nueva_fecha = (datetime.now() + timedelta(days=dias_suma)).strftime("%Y-%m-%d")
-    log(numero_usuario, "AVANCE", f"S{semana_actual}D{dia_actual} -> S{sig_sem}D{sig_dia}, próximo: {nueva_fecha}")
-
-    # v2: update parcial en vez de reescribir el dict completo
-    # (antes se perdían onboarding_activo, estado_generacion, meta, etc.)
-    estado.update({
-        "semana": sig_sem, "dia": sig_dia,
-        "fecha_programada": nueva_fecha, "ultima_fecha_completada": hoy,
-        # v5.3: el calendario avanzó -> el cursor de consulta se reancla al día
-        # real en curso; "el siguiente" vuelve a significar "el que sigue a hoy".
-        "cursor_semana": sig_sem, "cursor_dia": sig_dia,
-    })
-    estados[numero_usuario] = estado
-
-    with open(ruta_estado, "w", encoding="utf-8") as f:
-        json.dump(estados, f, indent=4, ensure_ascii=False)
-    return True
+# Arranque de la base analítica (idempotente)
+try:
+    inicializar_db()
+except Exception as e:
+    print(f"[SISTEMA] inicializar_db: {e}")

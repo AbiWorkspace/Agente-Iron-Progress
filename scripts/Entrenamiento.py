@@ -759,6 +759,8 @@ class Distribucion_Torso_Pierna:
                     else:
                         fase = self._asignar_fase_fusion(enfoque, secuencia_fusion, dia_abs)
 
+                    fases_semana.append(fase)
+
                 # ══ PASO 2 · Pesos de volumen por fase presentes esta semana ══
                 # (punto 8: Hipertrofia 50-60 % · Fuerza 20-25 % · Potencia
                 #  15-20 % de las series semanales, renormalizado por grupo).
