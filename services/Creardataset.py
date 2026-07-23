@@ -35,8 +35,10 @@ FIXES respecto a v2:
     actualizaba en estado "calibrando". Ahora hay un contador de quietud global
     (`frames_quietos`) y además se intenta cerrar la última rep al terminar el
     video (caso típico: se corta la grabación con la barra bloqueada arriba).
-  * `quantize="fp16"` no es un argumento válido de Ultralytics (en versiones
-    estrictas hacía caer `track()` silenciosamente). Se usa `half=True`.
+  * El flag de inferencia FP16 (`half` / `quantize`) se detecta una sola vez
+    según la versión de Ultralytics instalada, y si no se reconoce se omite.
+    Evita tanto la caída silenciosa de `track()` como los miles de WARNING de
+    deprecación que se emitían en cada frame.
   * La fase concéntrica ahora arranca en el primer frame real de subida (buffer
     durante la excéntrica), no cuando se supera el umbral de reversa: tiempos
     concéntricos y velocidades medias más fieles.
@@ -48,6 +50,7 @@ Mejoras heredadas de v2 (se conservan):
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import math
 import os
@@ -63,6 +66,66 @@ from ultralytics import YOLO
 from moviepy import VideoFileClip
 
 from data.meta_service import enviar_mensaje_whatsapp
+
+
+# ==============================================================================
+# COMPATIBILIDAD ULTRALYTICS: flag de inferencia FP16 según versión instalada
+# ==============================================================================
+# El nombre del argumento cambió entre versiones: las antiguas solo aceptan
+# `half=True`; las nuevas lo marcan como deprecado y emiten un WARNING **en cada
+# llamada** (con inferencia por frame eso son miles de líneas en consola) pidiendo
+# `quantize="fp16"`. Se resuelve UNA sola vez por proceso inspeccionando la firma
+# real del método, y si no se puede inspeccionar se omite el flag: FP16 es una
+# optimización, nunca vale la pena romper (o ensuciar) la ejecución por ella.
+_KWARGS_FP16: Optional[dict] = None
+
+
+def _kwargs_fp16(metodo) -> dict:
+    """Devuelve {} , {'quantize': 'fp16'} o {'half': True} según la versión."""
+    global _KWARGS_FP16
+    if _KWARGS_FP16 is not None:
+        return _KWARGS_FP16
+
+    kwargs: dict = {}
+    try:
+        params = inspect.signature(metodo).parameters
+        # Ultralytics acepta **kwargs, así que la firma casi siempre es genérica;
+        # se comprueba también el validador de configuración cuando existe.
+        nombres = set(params)
+        try:
+            from ultralytics.cfg import CFG_FRACTION_KEYS, CFG_BOOL_KEYS  # type: ignore
+            nombres |= set(CFG_FRACTION_KEYS) | set(CFG_BOOL_KEYS)
+        except Exception:
+            try:
+                from ultralytics.cfg import DEFAULT_CFG_DICT  # type: ignore
+                nombres |= set(DEFAULT_CFG_DICT)
+            except Exception:
+                pass
+        if "quantize" in nombres:
+            kwargs = {"quantize": "fp16"}
+        elif "half" in nombres:
+            kwargs = {"half": True}
+    except Exception as e:
+        logger_tmp = logging.getLogger("MOTOR_VBT")
+        logger_tmp.debug(f"No se pudo detectar el flag FP16 de Ultralytics: {e}")
+
+    _KWARGS_FP16 = kwargs
+    return kwargs
+
+
+def _silenciar_avisos_ultralytics() -> None:
+    """Ultralytics repite sus WARNING por frame. Se elevan a ERROR una sola vez
+    para que la consola quede legible sin perder los fallos de verdad."""
+    for nombre in ("ultralytics", "yolo"):
+        try:
+            logging.getLogger(nombre).setLevel(logging.ERROR)
+        except Exception:
+            pass
+    try:
+        from ultralytics.utils import LOGGER as UL_LOGGER  # type: ignore
+        UL_LOGGER.setLevel(logging.ERROR)
+    except Exception:
+        pass
 
 # ==============================================================================
 # LOGGING
@@ -98,6 +161,8 @@ class ConfigVBT:
     poly_savgol: int = 2
     vel_max_valida: float = 3.5             # m/s — techo físico razonable en barra
     umbral_ruido_prop: float = 0.08         # m/s — micro-pausas / ruido
+    vel_sticking: float = 0.05              # m/s — por debajo, la barra está
+                                            # "clavada" (sticking point)
 
     # Máquina de estados
     vel_min_registro: float = 0.05
@@ -202,11 +267,18 @@ def _normalizar_nivel(nivel: str) -> str:
 # ESTIMADORES DERIVADOS (RIR / RPE / %1RM / e1RM / Velocity Loss / reps rest.)
 # ==============================================================================
 def estimar_rir_por_velocidad(v_ultima_rep: float, perfil: PerfilEjercicio,
-                              nivel: str) -> Optional[float]:
-    """RIR ≈ (v_última − MVT) / pendiente carga-velocidad del ejercicio."""
+                              nivel: str,
+                              mvt_override: Optional[float] = None
+                              ) -> Optional[float]:
+    """RIR ≈ (v_última − MVT) / pendiente carga-velocidad del ejercicio.
+
+    `mvt_override` permite usar el MVT EFECTIVO del atleta (evidencia de la
+    propia serie) en lugar del de tabla: un atleta que completa reps por
+    debajo del MVT tabulado demuestra que su velocidad de fallo real es más
+    baja, y con la tabla el RIR saldría 0 (o negativo) estando falseado."""
     if v_ultima_rep is None or v_ultima_rep <= 0:
         return None
-    mvt = perfil.mvt[_normalizar_nivel(nivel)]
+    mvt = mvt_override if mvt_override else perfil.mvt[_normalizar_nivel(nivel)]
     if v_ultima_rep <= mvt:
         return 0.0
     rir = (v_ultima_rep - mvt) / perfil.pendiente_rir
@@ -227,7 +299,8 @@ def estimar_rir_por_vl(vl_pct: Optional[float]) -> Optional[str]:
 
 
 def estimar_pct_1rm(v_primera_rep: Optional[float], perfil: PerfilEjercicio,
-                    nivel: str) -> Optional[float]:
+                    nivel: str,
+                    mvt_override: Optional[float] = None) -> Optional[float]:
     """
     %1RM aproximado desde la velocidad de la 1ª rep con un modelo lineal de dos
     puntos del perfil del ejercicio: (MVT → 100% 1RM) y (v_sup de la zona
@@ -236,24 +309,80 @@ def estimar_pct_1rm(v_primera_rep: Optional[float], perfil: PerfilEjercicio,
     """
     if not v_primera_rep or v_primera_rep <= 0:
         return None
-    mvt = perfil.mvt[_normalizar_nivel(nivel)]
+    mvt = mvt_override if mvt_override else perfil.mvt[_normalizar_nivel(nivel)]
     v80 = perfil.zona_fuerza_vel[0]
     pendiente = (v80 - mvt) / 20.0        # m/s por cada 1% de 1RM
     if pendiente <= 0:
         return None
     pct = 100.0 - (v_primera_rep - mvt) / pendiente
-    return float(round(min(max(pct, 30.0), 105.0), 1))
+    # Techo duro en 100: una rep COMPLETADA nunca es >100% del 1RM. El techo
+    # anterior de 105 producía absurdos tipo "los 200 kg fueron el 102%".
+    return float(round(min(max(pct, 30.0), 100.0), 1))
 
 
 def estimar_1rm_diario(carga_kg: Optional[float], v_primera_rep: Optional[float],
                        perfil: PerfilEjercicio, nivel: str) -> Optional[float]:
-    """e1RM del día = carga / (%1RM estimado). Requiere conocer la carga en kg."""
+    """e1RM del día = carga / (%1RM estimado). Requiere conocer la carga en kg.
+    Guarda dura: nunca por debajo de la carga levantada (una rep completada
+    prueba que e1RM ≥ carga). Para series, usar `estimar_e1rm_serie`."""
     if not carga_kg or carga_kg <= 0:
         return None
     pct = estimar_pct_1rm(v_primera_rep, perfil, nivel)
     if not pct:
         return None
-    return float(round(carga_kg / (pct / 100.0), 1))
+    return float(round(max(carga_kg / (pct / 100.0), carga_kg), 1))
+
+
+def estimar_e1rm_serie(carga_kg: Optional[float], v_primera: Optional[float],
+                       v_min_serie: Optional[float], n_reps: int,
+                       perfil: PerfilEjercicio, nivel: str) -> dict:
+    """
+    e1RM del día combinando DOS evidencias independientes, con sanity checks:
+
+    1. Perfil de velocidad (modelo lineal MVT↔v80), pero con **MVT efectivo**:
+       si la rep más lenta COMPLETADA fue más lenta que el MVT de tabla, la
+       tabla no describe a este atleta hoy (muele por debajo del estándar) y
+       se usa esa velocidad como MVT — es una cota superior demostrada de su
+       velocidad de fallo real.
+    2. **Piso por volumen (Epley)**: completar n reps con C kg garantiza
+       e1RM ≥ C·(1 + n/30). Con 3×200 el piso es 220 kg: es matemáticamente
+       imposible un 1RM de 196.
+
+    e1RM final = max(estimación por velocidad, piso por reps). Si gana el
+    piso, se reporta el origen para que los mensajes digan "mínimo
+    garantizado" en lugar de fingir precisión del perfil de velocidad.
+    """
+    mvt_tabla = perfil.mvt[_normalizar_nivel(nivel)]
+    mvt_ef = mvt_tabla
+    if v_min_serie and 0 < v_min_serie < mvt_tabla:
+        mvt_ef = float(v_min_serie)
+
+    pct_vel = estimar_pct_1rm(v_primera, perfil, nivel, mvt_override=mvt_ef)
+
+    e1rm_vel = None
+    if carga_kg and pct_vel:
+        e1rm_vel = carga_kg / (pct_vel / 100.0)
+
+    piso = None
+    if carga_kg and n_reps >= 1:
+        piso = carga_kg * (1.0 + n_reps / 30.0)
+
+    e1rm, origen = None, None
+    if e1rm_vel is not None or piso is not None:
+        if (piso or 0.0) > (e1rm_vel or 0.0):
+            e1rm, origen = piso, "piso_reps"
+        else:
+            e1rm, origen = e1rm_vel, "velocidad"
+        e1rm = max(e1rm, carga_kg or 0.0)          # jamás < carga levantada
+        e1rm = float(round(e1rm, 1))
+
+    pct_final = pct_vel
+    if carga_kg and e1rm:
+        pct_final = float(round(min(100.0 * carga_kg / e1rm, 100.0), 1))
+
+    return {"e1rm_kg": e1rm, "pct_1rm": pct_final, "origen": origen,
+            "mvt_efectivo": float(round(mvt_ef, 3)),
+            "mvt_tabla": float(mvt_tabla)}
 
 
 def estimar_reps_restantes(rir_velocidad: Optional[float],
@@ -297,20 +426,20 @@ def estimar_reps_restantes(rir_velocidad: Optional[float],
     return {"min": lo, "max": hi, "texto": texto}
 
 
-def estimar_zona_intensidad(v_primera_rep: float, perfil: PerfilEjercicio,
-                            nivel: str) -> str:
-    """Zona de %1RM estimada a partir de la velocidad de la primera repetición."""
-    if v_primera_rep is None or v_primera_rep <= 0:
+def estimar_zona_intensidad(pct_1rm: Optional[float]) -> str:
+    """Zona de carga a partir del %1RM final (ya reconciliado con el piso por
+    reps y el MVT efectivo). Antes se clasificaba por velocidad contra la
+    tabla, lo que etiquetaba de "intento máximo" series enteras de atletas
+    que muelen por debajo del MVT estándar."""
+    if pct_1rm is None:
         return "Indeterminada"
-    mvt = perfil.mvt[_normalizar_nivel(nivel)]
-    v_sup_fv, v_inf_fv = perfil.zona_fuerza_vel
-    if v_primera_rep > v_sup_fv:
-        return "<80% 1RM (zona de potencia / fuerza-velocidad ligera)"
-    if v_primera_rep >= v_inf_fv:
-        return "80-89% 1RM (fuerza-velocidad)"
-    if v_primera_rep > mvt:
+    if pct_1rm >= 90:
         return "90-100% 1RM (fuerza máxima)"
-    return "~100% 1RM (en o por debajo del MVT: intento máximo)"
+    if pct_1rm >= 80:
+        return "80-90% 1RM (fuerza)"
+    if pct_1rm >= 60:
+        return "60-80% 1RM (fuerza-velocidad)"
+    return "<60% 1RM (velocidad / potencia)"
 
 
 def calcular_velocity_loss(registro: list) -> Optional[float]:
@@ -398,6 +527,8 @@ class Repeticion:
     t_inicio_s: float = 0.0
     t_fin_s: float = 0.0
     vl_pct: float = 0.0             # pérdida vs la rep más rápida de la serie
+    sticking_s: float = 0.0         # tiempo total con la barra casi parada
+                                    # a media subida (grind real, no ruido)
     # --- v3: cinemática articular (solo si hay modelo de pose) ---
     angulo_rodilla_min: Optional[float] = None      # grados (profundidad)
     angulo_cadera_min: Optional[float] = None       # grados
@@ -428,10 +559,10 @@ class RastreadorDisco:
                 frame,
                 persist=True,
                 tracker="bytetrack.yaml",
-                half=True,          # FIX v3: "quantize" no es un arg válido de
-                                    # Ultralytics; en versiones estrictas hacía
-                                    # caer track() en silencio. half=True es el
-                                    # flag real de inferencia FP16.
+                # FIX v3.1: el flag FP16 se resuelve una vez según la versión
+                # instalada (`half` vs `quantize`); ver `_kwargs_fp16`. Antes
+                # `half=True` fijo inundaba la consola con avisos de deprecación.
+                **_kwargs_fp16(self.modelo.track),
                 agnostic_nms=True,
                 conf=self.cfg.conf_deteccion,
                 iou=self.cfg.iou_nms,
@@ -614,7 +745,8 @@ class EstimadorPose:
             return
         try:
             pred = self.modelo.predict(frame, conf=0.25, imgsz=640, device=0,
-                                       max_det=2, verbose=False)
+                                       max_det=2, verbose=False,
+                                       **_kwargs_fp16(self.modelo.predict))
         except Exception as e:
             logger.debug(f"Pose falló en este frame: {e}")
             return
@@ -946,11 +1078,20 @@ class MaquinaEstadosRep:
         ts = np.array([p[0] for p in self.vels_concentrica], dtype=float)
         vs = np.array([p[1] for p in self.vels_concentrica], dtype=float)
 
-        validas = vs[vs > self.cfg.umbral_ruido_prop]
-        if validas.size:
-            v_avg = float(np.mean(validas))
+        # FIX v3.2 (sticking point): v_avg = desplazamiento real / tiempo real.
+        # Antes se promediaban solo las muestras con v > umbral_ruido (0.08),
+        # lo que EXCLUÍA los frames del sticking point (0.02-0.08 m/s) e
+        # inflaba la velocidad media de los grinds (0.111 medido → 0.17
+        # reportado). ROM/tiempo es la definición canónica de la velocidad
+        # media concéntrica y es inmune a umbrales.
+        if rom_m > 0 and duracion > 0:
+            v_avg = float(rom_m / duracion)
         else:
-            v_avg = rom_m / duracion  # fallback cinemático puro
+            validas = vs[vs > self.cfg.umbral_ruido_prop]
+            v_avg = float(np.mean(validas)) if validas.size else 0.0
+
+        sticking_s = self._calcular_sticking(ts, vs, duracion,
+                                             t_fin_empuje)
 
         if vs.size >= 3:
             v_peak = float(np.max(np.convolve(vs, np.ones(3) / 3, mode="valid")))
@@ -975,12 +1116,47 @@ class MaquinaEstadosRep:
                                if self._t_amort_pend is not None else None),
             desv_horizontal_cm=desv_cm,
             eficiencia_barra_pct=eficiencia,
+            sticking_s=round(sticking_s, 2),
             t_inicio_s=round(float(self.t_inicio_rep), 3),
             t_fin_s=round(float(t_fin), 3),
         )
         self._t_exc_pend = 0.0
         self._t_amort_pend = None
         return rep
+
+    # --------------------------------------------------------------
+    def _calcular_sticking(self, ts: np.ndarray, vs: np.ndarray,
+                           duracion: float, t_fin_empuje: float) -> float:
+        """
+        Episodio más largo con la barra "clavada" durante la subida (grind).
+        Cuenta dos cosas como barra clavada:
+          * muestras registradas con v < vel_sticking, y
+          * HUECOS temporales entre muestras: en `vels_concentrica` solo entran
+            frames con v > 0, así que cuando la barra se detiene de verdad
+            (v ≈ 0 oscilando alrededor de cero) los frames desaparecen de la
+            lista y el estancamiento se manifiesta como un gap en `ts`.
+        Sin esto, un sticking point de 1.5 s sería invisible para el análisis.
+        """
+        # Acotar al empuje real: tras t_fin_empuje la barra ya está en
+        # lockout y esa quietud NO es sticking point.
+        m = ts <= (t_fin_empuje + 1e-6)
+        ts, vs = ts[m], vs[m]
+        if ts.size < 2:
+            return 0.0
+        dt_frame = 1.0 / max(self.fps, 1.0)
+        umbral = self.cfg.vel_sticking
+        mejor = 0.0
+        actual = 0.0
+        for i in range(1, ts.size):
+            gap = ts[i] - ts[i - 1]
+            lento = vs[i] < umbral
+            hueco = gap > 2.0 * dt_frame
+            if lento or hueco:
+                actual += gap if hueco else dt_frame
+                mejor = max(mejor, actual)
+            else:
+                actual = 0.0
+        return float(min(mejor, duracion))
 
     # --------------------------------------------------------------
     def _metricas_trayectoria(self, t_fin_conc: float) -> tuple:
@@ -1049,11 +1225,14 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
     vl = calcular_velocity_loss(registro)
     estimulo = _clasificar_estimulo(vl)
 
-    pct1rm = estimar_pct_1rm(v_first, perfil, nivel)
-    e1rm = estimar_1rm_diario(carga_kg, v_first, perfil, nivel)
-    zona = estimar_zona_intensidad(v_first, perfil, nivel)
+    v_min = float(min(v_avgs))
+    res_1rm = estimar_e1rm_serie(carga_kg, v_first, v_min, n, perfil, nivel)
+    pct1rm, e1rm = res_1rm["pct_1rm"], res_1rm["e1rm_kg"]
+    mvt_ef, e1rm_origen = res_1rm["mvt_efectivo"], res_1rm["origen"]
+    zona = estimar_zona_intensidad(pct1rm)
 
-    rir_vel = estimar_rir_por_velocidad(v_last, perfil, nivel)
+    rir_vel = estimar_rir_por_velocidad(v_last, perfil, nivel,
+                                        mvt_override=mvt_ef)
     rir_vl = estimar_rir_por_vl(vl)
     reps_rest = estimar_reps_restantes(rir_vel, rir_vl)
 
@@ -1069,6 +1248,11 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
     i_desv = int(np.argmax(desvs))
     desv_max = float(desvs[i_desv])
     efic_media = float(np.mean([r.eficiencia_barra_pct for r in registro]))
+
+    # ---- Sticking point (barra clavada a media subida) ----
+    stickings = [getattr(r, "sticking_s", 0.0) or 0.0 for r in registro]
+    i_stick = int(np.argmax(stickings))
+    sticking_max = float(stickings[i_stick])
 
     # ---- Tempo por fases ----
     t_exc = [r.t_excentrica_s for r in registro]
@@ -1122,8 +1306,30 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
     if pct1rm:
         txt += f" ≈ {pct1rm:.0f}% de tu 1RM"
     if e1rm and carga_kg:
-        txt += f" → con {carga_kg:g} kg en barra, tu 1RM de HOY ronda {e1rm:.1f} kg"
+        if e1rm_origen == "piso_reps":
+            txt += (f" → completar {n} rep{'s' if n > 1 else ''} con "
+                    f"{carga_kg:g} kg GARANTIZA un 1RM de al menos "
+                    f"{e1rm:.1f} kg (piso por volumen, Epley)")
+        else:
+            txt += (f" → con {carga_kg:g} kg en barra, tu 1RM de HOY "
+                    f"ronda {e1rm:.1f} kg")
     insights.append(txt + f". Zona: {zona}.")
+
+    # 1b) Perfil de velocidad fuera de tabla (atleta que muele)
+    if mvt_ef < res_1rm["mvt_tabla"] - 1e-6:
+        insights.append(
+            f"Completaste reps a {v_min:.2f} m/s, por debajo del MVT de tabla "
+            f"({res_1rm['mvt_tabla']:.2f}): tu velocidad de fallo real es más "
+            f"baja que el estándar de tu nivel. Los cálculos de hoy usan tu "
+            f"MVT efectivo ({mvt_ef:.2f} m/s).")
+
+    # 1c) Sticking point medido (el grind cuenta entero)
+    if sticking_max >= 0.5:
+        insights.append(
+            f"En la rep {registro[i_stick].rep} la barra quedó clavada "
+            f"{sticking_max:.1f} s a media subida (sticking point): la subida "
+            f"completa duró {registro[i_stick].tiempo_s:.1f} s y se contabiliza "
+            f"entera, sin recortar los frames lentos.")
 
     # 2) La rep más rápida no fue la 1ª
     if i_best != 0:
@@ -1194,7 +1400,8 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
 
     recomendacion = _construir_recomendacion(
         vl, reps_rest, carga_kg, v_first, perfil, nivel,
-        cortes, rom_cv, desv_max, amort_delta, rir_vel)
+        cortes, rom_cv, desv_max, amort_delta, rir_vel,
+        pct_1rm=pct1rm, e1rm=e1rm, sticking_max=sticking_max)
 
     return _json_safe({
         "reps": n,
@@ -1202,6 +1409,10 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
         "v_primera": round(v_first, 3), "v_ultima": round(v_last, 3),
         "vl_pct": vl, "estimulo": estimulo,
         "pct_1rm_estimado": pct1rm, "e1rm_kg": e1rm, "zona_intensidad": zona,
+        "e1rm_origen": e1rm_origen, "mvt_efectivo": mvt_ef,
+        "mvt_tabla": res_1rm["mvt_tabla"],
+        "sticking_max_s": round(sticking_max, 2),
+        "rep_sticking": (registro[i_stick].rep if sticking_max > 0 else None),
         "rir_velocidad": rir_vel, "rir_vl": rir_vl, "reps_restantes": reps_rest,
         "rom_medio_cm": round(rom_medio, 1),
         "rom_cv_pct": (round(rom_cv, 1) if rom_cv is not None else None),
@@ -1222,35 +1433,55 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
 # ------------------------------------------------------------------------------
 def _construir_recomendacion(vl, reps_rest, carga_kg, v_first, perfil, nivel,
                              cortes, rom_cv, desv_max, amort_delta,
-                             rir_vel) -> dict:
+                             rir_vel, pct_1rm=None, e1rm=None,
+                             sticking_max=0.0) -> dict:
     """Orden concreta para la siguiente serie + guía por objetivo."""
     mvt = perfil.mvt[_normalizar_nivel(nivel)]
     v80 = perfil.zona_fuerza_vel[0]
     pendiente = (v80 - mvt) / 20.0                    # m/s por 1% de 1RM
     v_target = float(np.mean(perfil.zona_fuerza_vel))  # centro de la zona fuerza
 
-    # Ajuste de carga sugerido para caer en la zona de fuerza-velocidad
+    # Ajuste de carga con GUARDRAILS DUROS, anclado al e1RM ya reconciliado
+    # (piso por reps incluido). ANTES se perseguía la velocidad-objetivo de la
+    # zona de fuerza de la tabla: con un atleta cuyo perfil rompe la tabla eso
+    # producía saltos absurdos ("baja 32.5 kg para fuerza pura" tras un triple
+    # al 90%+). Reglas: bajada máx 7.5%/sesión, subida máx 10%/sesión; entre
+    # 80 y 90% del 1RM no se sugiere cambio (ya es zona de fuerza); ≥90% la
+    # única bajada que se propone es explícitamente PARA VOLUMEN.
+    CAP_SUBIDA_PCT, CAP_BAJADA_PCT = 10.0, 7.5
     ajuste = None
     ajuste_datos = None
-    if pendiente > 0 and v_first and v_first > 0:
+    if carga_kg and e1rm and pct_1rm:
+        objetivo, motivo = None, None
+        if pct_1rm >= 90:
+            objetivo, motivo = e1rm * 0.875, "volumen"       # centro de 85-90%
+        elif pct_1rm < 80:
+            objetivo, motivo = e1rm * 0.85, "acercar_fuerza"
+        if objetivo is not None:
+            delta_pct = (objetivo - carga_kg) / carga_kg * 100.0
+            delta_pct = max(min(delta_pct, CAP_SUBIDA_PCT), -CAP_BAJADA_PCT)
+            kg = round(abs(carga_kg * delta_pct / 100.0) / 2.5) * 2.5
+            if kg >= 2.5:
+                nueva = carga_kg + kg if delta_pct > 0 else carga_kg - kg
+                ajuste_datos = {"delta_pct": float(round(delta_pct, 1)),
+                                "kg": float(kg), "carga_nueva": float(nueva),
+                                "motivo": motivo}
+                if motivo == "volumen":
+                    ajuste = (f"Hoy trabajaste al ~{pct_1rm:.0f}% de tu 1RM: "
+                              f"para acumular series de 3-5 con margen "
+                              f"(85-90%), baja a ~{nueva:g} kg (−{kg:g} kg).")
+                else:
+                    ajuste = (f"Estás al ~{pct_1rm:.0f}% del 1RM: para entrenar "
+                              f"fuerza (≥85%) sube a ~{nueva:g} kg (+{kg:g} kg).")
+    elif not carga_kg and pendiente > 0 and v_first and v_first > 0:
+        # Sin kg solo cabe una orientación en %, con los mismos topes.
         delta_pct = (v_first - v_target) / pendiente
+        delta_pct = max(min(delta_pct, CAP_SUBIDA_PCT), -CAP_BAJADA_PCT)
         if abs(delta_pct) >= 3:
             verbo = "Sube" if delta_pct > 0 else "Baja"
-            zona_txt = (f"{perfil.zona_fuerza_vel[1]:.2f}-"
-                        f"{perfil.zona_fuerza_vel[0]:.2f} m/s")
+            ajuste = (f"{verbo} ~{abs(delta_pct):.0f}% la carga para la zona de "
+                      f"fuerza. Mándame los kg y te lo doy en kilos exactos.")
             ajuste_datos = {"delta_pct": float(round(delta_pct, 1))}
-            if carga_kg:
-                kg = round(carga_kg * abs(delta_pct) / 100.0 / 2.5) * 2.5
-                if kg >= 2.5:
-                    nueva = carga_kg + kg if delta_pct > 0 else carga_kg - kg
-                    ajuste_datos.update({"kg": float(kg), "carga_nueva": float(nueva)})
-                    ajuste = (f"{verbo} ~{abs(delta_pct):.0f}% ({kg:g} kg → "
-                              f"{nueva:g} kg) para trabajar de lleno en la zona "
-                              f"de fuerza ({zona_txt}).")
-            else:
-                ajuste = (f"{verbo} ~{abs(delta_pct):.0f}% la carga para caer en "
-                          f"la zona de fuerza ({zona_txt}). Mándame los kg y te "
-                          f"lo doy en kilos exactos.")
 
     # Titular según fatiga real
     rest_txt = reps_rest["texto"] if reps_rest else "varias"
@@ -1289,6 +1520,10 @@ def _construir_recomendacion(vl, reps_rest, carga_kg, v_first, perfil, nivel,
     elif rom_cv is not None and rom_cv > CONFIG.rom_cv_alerta_pct:
         tecnica = (f"Prioridad técnica: iguala la profundidad en todas las reps "
                    f"(el ROM varió {rom_cv:.0f}%).")
+    elif sticking_max >= 0.8:
+        tecnica = (f"Prioridad técnica: la barra se te clava ~{sticking_max:.1f} s "
+                   f"a media subida; mete trabajo del punto de estancamiento "
+                   f"(pausas, pines o velocidad en ese rango).")
     elif amort_delta is not None and amort_delta >= CONFIG.amort_alerta_crec_pct:
         tecnica = ("Prioridad técnica: acorta la transición en el fondo, estás "
                    "perdiendo el rebote elástico.")
@@ -1324,6 +1559,8 @@ def _lineas_por_rep(registro: list) -> list:
     for r in registro:
         extra = (f" · trans {int(r.t_amortiguacion_s * 1000)}ms"
                  if r.t_amortiguacion_s is not None else "")
+        if getattr(r, "sticking_s", 0.0) >= 0.3:
+            extra += f" · clavada {r.sticking_s:.1f}s"
         lineas.append(
             f"R{r.rep}: {r.v_avg:.2f} m/s (pico {r.v_peak:.2f}) · "
             f"ROM {r.rom_cm:.0f}cm · sube {r.tiempo_s:.2f}s · "
@@ -1468,9 +1705,16 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
     # ---------- LO QUE DICE LA SERIE ----------
     frases = []
     if a.get("e1rm_kg") and carga_kg:
-        frases.append(f"\U0001F4AA Fuerza de hoy: tu máximo (1RM) ronda "
-                      f"*{a['e1rm_kg']:.0f} kg* — los {carga_kg:g} kg fueron "
-                      f"~{a['pct_1rm_estimado']:.0f}% de tu tope.")
+        if a.get("e1rm_origen") == "piso_reps":
+            frases.append(f"\U0001F4AA Fuerza de hoy: sacar {n} reps con "
+                          f"{carga_kg:g} kg garantiza que tu máximo (1RM) es "
+                          f"de *al menos {a['e1rm_kg']:.0f} kg* — hoy "
+                          f"trabajaste al ~{a['pct_1rm_estimado']:.0f}% "
+                          f"de tu tope.")
+        else:
+            frases.append(f"\U0001F4AA Fuerza de hoy: tu máximo (1RM) ronda "
+                          f"*{a['e1rm_kg']:.0f} kg* — los {carga_kg:g} kg "
+                          f"fueron ~{a['pct_1rm_estimado']:.0f}% de tu tope.")
     if rest:
         if rest.get("max", 9) <= 1:
             frases.append("\U0001F50B Terminaste al límite: te quedaba como "
@@ -1478,6 +1722,10 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
         else:
             frases.append(f"\U0001F50B Al terminar aún te quedaban "
                           f"*{rest['texto']} reps* en el tanque.")
+    if a.get("sticking_max_s", 0) >= 0.8 and a.get("rep_sticking"):
+        frases.append(f"\U0001F9F1 En la R{a['rep_sticking']} la barra se te "
+                      f"clavó *{a['sticking_max_s']:.1f} s* a media subida: "
+                      f"ese esfuerzo cuenta, y ya se mide entero.")
     caida = a.get("caida_mayor") or {}
     if str(caida.get("patron", "")).startswith("abrupta"):
         ra, rb = caida["entre"]
@@ -1534,10 +1782,15 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
         acciones.append("Te sobró gasolina: puedes añadir peso o un par de "
                         "reps sin problema.")
     ad = (a.get("recomendacion") or {}).get("ajuste_datos") or {}
-    if ad.get("carga_nueva") and (ad["delta_pct"] < 0 or vl is None or vl < 30):
-        signo = "+" if ad["delta_pct"] > 0 else "\u2212"
-        acciones.append(f"Si tu meta es fuerza pura, prueba "
-                        f"*{ad['carga_nueva']:g} kg* ({signo}{ad['kg']:g} kg).")
+    if ad.get("carga_nueva"):
+        if ad.get("motivo") == "volumen":
+            acciones.append(f"Hoy fue trabajo máximo: para tus próximas "
+                            f"series de 3-5 con margen, prueba "
+                            f"*{ad['carga_nueva']:g} kg* (\u2212{ad['kg']:g} kg).")
+        elif vl is None or vl < 30:
+            acciones.append(f"Para entrenar fuerza de verdad te falta peso: "
+                            f"prueba *{ad['carga_nueva']:g} kg* "
+                            f"(+{ad['kg']:g} kg).")
     if n > 1:
         p10 = f" (hoy: rep {c10})" if c10 else ""
         p20 = f" (rep {c20})" if c20 else ""
@@ -1658,7 +1911,8 @@ def _generar_contexto_llm(reps_completadas: int, velocidades_globales: list,
 Estos hallazgos YA fueron calculados con los datos. Tu trabajo es narrarlos y traducirlos, NO recalcularlos ni contradecirlos:
 {hallazgos}
 - Reps en reserva estimadas: {reps_rest_txt} | RIR/RPE: {rir_txt}
-- 1RM estimado de hoy: {e1rm_txt} | Zona de carga: {a.get('zona_intensidad', 'N/D')}
+- 1RM estimado de hoy: {e1rm_txt} | Zona de carga: {a.get('zona_intensidad', 'N/D')} | Origen del e1RM: {a.get('e1rm_origen') or 'N/D'} (piso_reps = mínimo garantizado por completar las reps; NUNCA digas que la carga superó el 100%)
+- MVT efectivo usado hoy: {a.get('mvt_efectivo', 'N/D')} m/s (tabla del nivel: {a.get('mvt_tabla', 'N/D')}) | Barra clavada máx: {a.get('sticking_max_s', 0)} s (rep {a.get('rep_sticking') or '—'})
 - Tempo medio: excéntrica {t.get('excentrica_media_s', 'N/A')}s · transición {amort_txt} · concéntrica {t.get('concentrica_media_s', 'N/A')}s
 - Recomendación del motor para la siguiente serie: {rec_txt}
 - Guía por objetivo -> Fuerza: {obj.get('fuerza', 'N/D')} | Hipertrofia: {obj.get('hipertrofia', 'N/D')} | Potencia: {obj.get('potencia', 'N/D')}
@@ -2190,6 +2444,7 @@ def procesar_levantamiento_vbt(
         nombre_ejercicio = "Movimiento Libre"
 
     logger.info(f"Iniciando Motor VBT v3 para: {nombre_ejercicio}...")
+    _silenciar_avisos_ultralytics()
 
     perfil = obtener_perfil_ejercicio(nombre_ejercicio)
     nivel = _normalizar_nivel(nivel_atleta)
