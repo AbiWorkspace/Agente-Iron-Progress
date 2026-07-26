@@ -10,39 +10,20 @@ Tres frentes de UX proactiva:
   3. AUDIO: extracción robusta de la tríada [ejercicio, peso, reps @ RPE]
      desde transcripts caóticos de Whisper, con eco de confirmación.
 
-Credenciales: se leen de core.config.settings (WHATSAPP_ACCESS_TOKEN y
-PHONE_NUMBER_ID del .env). NO leer os.environ aquí directamente: este módulo
-puede importarse antes de load_dotenv() y las credenciales quedarían vacías.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import unicodedata
 from datetime import date, datetime
 
 import matplotlib
 matplotlib.use("Agg")                     # sin display: solo PNG a disco
-# API orientada a objetos en vez de pyplot: `generar_grafica_e1rm` corre dentro
-# de `asyncio.to_thread`, y el gestor global de figuras de pyplot NO es seguro
-# entre hilos (dos gráficas simultáneas se pisaban la figura "actual").
-from matplotlib.figure import Figure
-from core.config import  settings
 
 
-from services import motor_predictivo as mp
-
-GRAPH_URL   = settings.GRAPH_URL
-TOKEN       = settings.ACCESS_TOKEN or ""
-PHONE_ID    = settings.PHONE_NUMBER_ID or ""
 CARPETA_TMP = os.environ.get("IRON_TMP", "/tmp/iron_graficas")
 os.makedirs(CARPETA_TMP, exist_ok=True)
-
-if not TOKEN or not PHONE_ID:
-    print("[PROACTIVIDAD] ADVERTENCIA: faltan WHATSAPP_ACCESS_TOKEN o "
-          "PHONE_NUMBER_ID en el .env. El readiness matutino y las gráficas "
-          "fallarán con 401.")
 
 
 # ==============================================================================
@@ -67,57 +48,13 @@ PLANTILLA_READINESS = {
     ],
 }
 
-# Textos de botón CON emoji tal como los queremos mostrar. OJO: la plantilla ya
-# registrada en Meta los tiene SIN emoji ("Al 100", "Normal", "Molido"), así que
-# el webhook recibe el texto pelón. Por eso nada compara contra estas cadenas
-# directamente: todo pasa por _norm_boton(), que quita emojis y puntuación.
-BOTONES_READINESS = ("Al 100 💪", "Normal 😐", "Molido 😮‍💨")
-
-
-def _norm_boton(texto: str) -> str:
-    """'Al 100 💪' y 'Al 100' colapsan a 'al 100'. Sobrevive a que Meta guarde
-    la plantilla con o sin emoji, y a los selectores de variación / ZWJ que
-    trae '😮‍💨' (que además rompen las comparaciones ingenuas por igualdad)."""
-    t = unicodedata.normalize("NFKC", str(texto or "")).lower()
-    t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)   # los emojis no son \w
-    return re.sub(r"\s+", " ", t).strip()
-
-
 # payload del botón (llega en el webhook como button.text / button.payload)
-_SCORE_BOTON = {"al 100": 1.0, "normal": 0.75, "molido": 0.45}
-
-
-def es_boton_readiness(texto: str) -> bool:
-    """¿Este texto corresponde a uno de los tres botones del readiness?"""
-    return _norm_boton(texto) in _SCORE_BOTON
-
-
-async def _cliente_graph():
-    """Cliente HTTP compartido con el webhook (keep-alive contra Meta).
-
-    Import perezoso para no crear un ciclo: api.rutas_whatsapp importa este
-    módulo al arrancar. Si el webhook aún no está montado (uso desde un script
-    suelto), se crea un cliente propio de un solo uso.
-    """
-    try:
-        from api.rutas_whatsapp import cliente_http
-        return await cliente_http(), False
-    except Exception:
-        import httpx
-        return httpx.AsyncClient(timeout=60), True
 
 
 async def _post_graph(ruta: str, **kwargs) -> dict:
-    cli, propio = await _cliente_graph()
-    try:
         r = await cli.post(f"{GRAPH_URL}/{PHONE_ID}/{ruta}",
-                           headers={"Authorization": f"Bearer {TOKEN}"},
-                           timeout=30, **kwargs)
         r.raise_for_status()
         return r.json()
-    finally:
-        if propio:
-            await cli.aclose()
 
 
 async def enviar_readiness(numero: str, nombre: str = "campeón") -> dict:
@@ -179,7 +116,6 @@ def procesar_respuesta_readiness(numero: str, texto_boton_o_libre: str) -> dict:
     persiste. Devuelve el dict para inyectarlo a la telemetría del turno y que
     el coach ajuste el plan del día con motivo explícito."""
     t = str(texto_boton_o_libre or "").strip().lower()
-    score = _SCORE_BOTON.get(_norm_boton(t))
     fuente = "botones"
     sueno = None
     if score is None:                                 # texto libre: heurística
@@ -210,31 +146,6 @@ def procesar_respuesta_readiness(numero: str, texto_boton_o_libre: str) -> dict:
                                "rojo: recortar volumen o descargar hoy")}
 
 
-def redactar_respuesta_readiness(veredicto: dict) -> str:
-    """El veredicto es un dict (telemetría para el coach); esto lo convierte en
-    el texto que ve el atleta. Sin esto el webhook mandaba el dict crudo a Meta
-    y la Cloud API respondía 400."""
-    score = float(veredicto.get("score") or 0.0)
-    if score >= 0.8:
-        base = ("Excelente, vas en verde 🟢\nHoy le entramos a la sesión completa. "
-                "Avísame cuando arranques y mándame el video de tu serie top.")
-    elif score >= 0.6:
-        base = ("Anotado, estás en ámbar 🟡\nSesión normal, pero vigilamos el RPE: "
-                "si una serie se siente más pesada de lo previsto, la recortamos.")
-    else:
-        base = ("Entendido, hoy vienes en rojo 🔴\nBajamos volumen y nos quedamos "
-                "lejos del fallo. Más vale acumular que romperse.")
-
-    extras = []
-    if veredicto.get("sueno_horas") is not None:
-        extras.append(f"Dormiste {veredicto['sueno_horas']:g} h.")
-    if veredicto.get("dolor"):
-        extras.append(f"Ojo con {veredicto['dolor']}: lo tomo en cuenta al armar la sesión.")
-    if extras:
-        base += "\n\n" + " ".join(extras)
-    return base
-
-
 # ==============================================================================
 # 2) GRÁFICAS DE PROGRESO (e1RM) → WHATSAPP
 # ==============================================================================
@@ -253,8 +164,6 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
         ewma.append(acc)
     prs = [i for i, v in enumerate(e1s) if v > max(e1s[:i], default=0)]
 
-    fig = Figure(figsize=(7, 4), dpi=150)
-    ax = fig.subplots()
     ax.plot(fechas, e1s, "o", ms=5, color="#4C78A8", alpha=0.75, label="e1RM sesión")
     ax.plot(fechas, ewma, "-", lw=2.2, color="#F58518", label="tendencia (EWMA)")
     if prs:
@@ -265,14 +174,7 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
     ax.grid(alpha=0.25)
     ax.legend(fontsize=8, loc="lower right")
     fig.autofmt_xdate(rotation=30)
-    # El patrón se calcula FUERA de la f-string: r'\\W+' (como estaba) busca una
-    # barra invertida literal, así que "press banca" conservaba el espacio en el
-    # nombre del archivo en vez de sanearse a "press_banca".
-    slug = re.sub(r"\W+", "_", ejercicio).strip("_") or "ejercicio"
-    ruta = os.path.join(CARPETA_TMP, f"e1rm_{numero}_{slug}.png")
     fig.savefig(ruta, bbox_inches="tight")
-    # Con la API orientada a objetos no hace falta `plt.close`: la figura no
-    # queda registrada en ningún gestor global y el recolector se la lleva.
 
     resumen = {"e1rm_actual_kg": round(ewma[-1], 1),
                "e1rm_inicio_kg": round(ewma[0], 1),
@@ -283,20 +185,13 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
 
 
 async def _subir_media(ruta_png: str) -> str:
-    cli, propio = await _cliente_graph()
-    try:
         with open(ruta_png, "rb") as f:
             r = await cli.post(
                 f"{GRAPH_URL}/{PHONE_ID}/media",
                 headers={"Authorization": f"Bearer {TOKEN}"},
                 data={"messaging_product": "whatsapp"},
-                files={"file": (os.path.basename(ruta_png), f, "image/png")},
-                timeout=60)
         r.raise_for_status()
         return r.json()["id"]
-    finally:
-        if propio:
-            await cli.aclose()
 
 
 async def enviar_imagen(numero: str, media_id: str, caption: str = "") -> dict:
