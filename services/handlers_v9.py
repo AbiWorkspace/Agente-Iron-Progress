@@ -129,6 +129,7 @@ async def tool_enviar_grafica_progreso(numero: str, args: dict) -> dict:
     """Genera la gráfica de e1RM y la envía por WhatsApp (upload → media_id →
     message). Import perezoso para que este módulo no exija credenciales de
     Meta al arrancar en desarrollo."""
+    from services import proactividad
     ejercicio = str(args.get("ejercicio") or "").strip()
     dias = int(_f(args.get("periodo_dias"), 90))
     if not ejercicio:

@@ -22,6 +22,7 @@ import math
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 import numpy as np
@@ -29,11 +30,18 @@ import numpy as np
 # ==============================================================================
 # AJUSTA AQUÍ — único punto de acople con tu esquema real (ver migracion_v9.py)
 # ==============================================================================
+# OJO: la telemetría vive en iron_progress_telemetria.db (tabla series_log),
+# NO en iron_progress.db (esa es la de perfiles/RMs de repositorio_atleta).
+# Estos valores deben coincidir con scripts/migracion_v9.py, que es quien crea
+# las tablas readiness y eventos_autorregulacion.
 RUTA_DB = os.environ.get(
     "IRON_DB",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "data", "iron_progress_telemetria.db"))
+TABLA_SERIES = "series_log"
 C = dict(usuario="numero_usuario", ejercicio="ejercicio", peso="peso_kg",
          reps="repeticiones", rpe="rpe_reportado", dolor="dolor_articular",
+         fecha="fecha_hora")
 
 # ---- constantes fisiológicas (todas discutibles y por eso configurables) ----
 K_RPE          = 0.03    # ~3 % de carga por punto de RPE (rango típico RTS 2-4 %)
@@ -47,7 +55,48 @@ CLAMP_BAJO, CLAMP_ALTO = 0.93, 1.05   # salto máx. vs última carga top del eje
 # ==============================================================================
 # ACCESO A DATOS
 # ==============================================================================
+_esquema_verificado = False
+
+
+def _asegurar_esquema() -> None:
+    """Garantiza que series_log / readiness / eventos_autorregulacion existan.
+
+    Este módulo se puede importar solo (proactividad, scripts de análisis) sin
+    que el orquestador haya arrancado. Sin esto, la primera pulsación del
+    readiness moría con 'no such table: readiness'. Tras la primera llamada es
+    una comparación booleana: coste cero en el camino caliente.
+    """
+    global _esquema_verificado
+    if _esquema_verificado:
+        return
+    try:
+        from services.db_service import inicializar_db
+        inicializar_db()
+    except Exception as e:            # nunca tumbar la lectura por el esquema
+        print(f"[MOTOR] no se pudo verificar el esquema: {e}")
+    _esquema_verificado = True
+
+
+@contextmanager
+def _con():
+    """Conexión de vida corta con cierre GARANTIZADO.
+
+    Antes era `with sqlite3.connect(...) as con:`, que hace commit/rollback pero
+    NO cierra: cada lectura de series dejaba un descriptor abierto hasta que
+    pasara el recolector. En un proceso de servidor eso acaba en fuga de
+    descriptores y en 'database is locked' intermitentes.
+    """
+    _asegurar_esquema()
+    con = sqlite3.connect(RUTA_DB, timeout=15)
     con.row_factory = sqlite3.Row
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
 
 
 def _fecha(v) -> date:
@@ -158,6 +207,37 @@ def pct_prescripcion(reps_obj: int, rpe_obj: float) -> float:
     return 1.0 / (1.0 + reps_ef / 30.0)
 
 
+def redondear_carga(kg: float, incremento: float = 2.5) -> float:
+    """Redondea al salto que el atleta puede MONTAR. Por defecto 2.5 (discos de
+    1.25 por lado); con solo discos de 2.5 el incremento real es 5."""
+    if not incremento or incremento <= 0:
+        incremento = 2.5
+    return round(round(float(kg) / incremento) * incremento, 1)
+
+
+# El incremento vive en el perfil (iron_progress.db, repositorio_atleta). Se lee
+# de forma tolerante para no romper el principio de este módulo: sin el
+# orquestador delante, sigue funcionando con el valor por defecto.
+RUTA_DB_ATLETAS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "iron_progress.db")
+
+
+def incremento_barra(numero: str) -> float:
+    """Salto mínimo montable por este atleta, o 2.5 si no lo ha declarado."""
+    try:
+        con = sqlite3.connect(RUTA_DB_ATLETAS, timeout=5)
+        try:
+            fila = con.execute(
+                "SELECT incremento_kg FROM atletas WHERE numero_usuario = ?",
+                (str(numero),)).fetchone()
+        finally:
+            con.close()
+        if fila and fila[0] and float(fila[0]) > 0:
+            return float(fila[0])
+    except Exception:
+        pass          # BD ausente o sin la columna: el default es correcto
+    return 2.5
 
 
 def _ewma(valores: list[float], halflife: float) -> float | None:
@@ -313,6 +393,8 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
     ultima_top = ses[-1]["carga_top"]
     carga = max(ultima_top * CLAMP_BAJO, min(carga, ultima_top * CLAMP_ALTO))
     carga = min(carga, e1_hat)                      # nadie prescribe > e1RM
+    inc = incremento_barra(numero)                  # discos reales del atleta
+    carga = max(20.0, redondear_carga(carga, inc))  # barra vacía como piso
 
     pend_sem = 0.0
     if len(ses) >= 3:
@@ -326,6 +408,8 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
         "ejercicio": ejercicio,
         "carga_recomendada_kg": carga,
         "objetivo": f"{reps} reps @ RPE {rpe_obj:g}",
+        "rango_kg": ([redondear_carga(carga - 1.96 * sigma * pct_prescripcion(reps, rpe_obj), inc),
+                      redondear_carga(carga + 1.96 * sigma * pct_prescripcion(reps, rpe_obj), inc)]
                      if sigma else None),
         "fuente": fuente,
         "senales": {
@@ -461,9 +545,11 @@ def autorregular_dia(numero: str, ejercicio: str, rpe_reportado: float,
     restantes = max(0, int(series_restantes))
     carga = float(carga_actual_kg)
     overshoot = round(rpe_rep - rpe_obj, 1)
+    inc = incremento_barra(numero)          # todo ajuste debe ser montable
 
     if overshoot <= 0.5:
         return {"ok": True, "accion": "mantener", "overshoot": overshoot,
+                "carga_kg": redondear_carga(carga, inc), "series_restantes": restantes,
                 "mensaje_coach": "Dentro de lo esperado: mismo peso, misma chamba."}
 
     alarmas_previas = _eventos_hoy(numero, "dup_", None)
@@ -472,6 +558,7 @@ def autorregular_dia(numero: str, ejercicio: str, rpe_reportado: float,
                    "alarmas_previas_hoy": alarmas_previas}
         registrar_evento(numero, "dup_descarga", ejercicio, detalle)
         return {"ok": True, "accion": "descarga_del_dia", "overshoot": overshoot,
+                "carga_kg": max(20.0, redondear_carga(carga * 0.60, inc)),
                 "series_restantes": max(1, restantes // 2), "rpe_tope": 7.0,
                 "razones": ["segunda alarma de RPE ≥9.5 en el mismo día",
                             "el SNC no está para sobrecarga hoy"],
@@ -483,6 +570,7 @@ def autorregular_dia(numero: str, ejercicio: str, rpe_reportado: float,
     ajuste = min(0.10, K_RPE * overshoot)
     recorte = 2 if overshoot >= 2.0 else 1
     nuevas_series = max(2, restantes - recorte) if restantes > 2 else restantes
+    carga_nueva = max(20.0, redondear_carga(carga * (1.0 - ajuste), inc))
     detalle = {"overshoot": overshoot, "ajuste_pct": round(ajuste * 100, 1),
                "carga_original": carga, "carga_nueva": carga_nueva,
                "series": [restantes, nuevas_series]}
