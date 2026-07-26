@@ -23,11 +23,13 @@ Uso desde llm_service:
     repositorio.dataset_progresion(numero)      -> list[dict]  (para el modelo)
 """
 
+import glob
 import json
 import os
 import re
 import sqlite3
-import glob
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -58,18 +60,46 @@ class RepositorioAtleta:
     def __init__(self, ruta_db: str | Path = RUTA_DB_ATLETAS):
         self.ruta_db = str(ruta_db)
         os.makedirs(os.path.dirname(self.ruta_db), exist_ok=True)
+        # Caché de lectura en memoria. El orquestador pide el perfil y los RMs
+        # una decena de veces por turno (whitelist de kg, incremento de barra,
+        # resumen humano, faltantes del onboarding...). Como este proceso es el
+        # ÚNICO que escribe, invalidar en cada escritura basta y ahorra abrir
+        # otras tantas conexiones SQLite por mensaje.
+        self._lock = threading.Lock()
+        self._cache_perfil: dict[str, dict] = {}
+        self._cache_rms: dict[str, dict] = {}
         self._crear_tablas()
         self._migrar_json_legado()
 
     # ------------------------------------------------------------------ infra
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self):
+        """Conexión de vida corta con cierre GARANTIZADO.
+
+        `with sqlite3.connect(...) as con:` hace commit/rollback pero NO cierra:
+        cada llamada dejaba un descriptor colgando hasta el recolector. Con el
+        volumen de lecturas por turno eso terminaba en fuga de descriptores.
+        """
         con = sqlite3.connect(self.ruta_db, timeout=15)
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
-        return con
+        try:
+            yield con
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    def _invalidar(self, numero_usuario: str) -> None:
+        with self._lock:
+            self._cache_perfil.pop(str(numero_usuario), None)
+            self._cache_rms.pop(str(numero_usuario), None)
 
     def _crear_tablas(self):
         with self._conn() as con:
+            # WAL es persistente en el archivo: se fija una vez, no por conexión.
+            con.execute("PRAGMA journal_mode=WAL")
             con.executescript("""
             CREATE TABLE IF NOT EXISTS atletas (
                 numero_usuario   TEXT PRIMARY KEY,
@@ -158,17 +188,23 @@ class RepositorioAtleta:
     # ------------------------------------------------------------------ perfil
     def obtener_perfil(self, numero_usuario: str) -> dict:
         """Misma forma que el antiguo cargar_perfil(): dict solo con lo conocido."""
+        clave = str(numero_usuario)
+        cacheado = self._cache_perfil.get(clave)
+        if cacheado is not None:
+            return dict(cacheado)          # copia: quien la reciba no toca la caché
+
         with self._conn() as con:
             fila = con.execute("SELECT * FROM atletas WHERE numero_usuario = ?",
-                               (str(numero_usuario),)).fetchone()
-        if not fila:
-            return {}
+                               (clave,)).fetchone()
         perfil = {}
-        for campo in CAMPOS_PERFIL:
-            valor = fila[campo]
-            if valor is not None and valor != "":
-                perfil[campo] = valor
-        return perfil
+        if fila:
+            for campo in CAMPOS_PERFIL:
+                valor = fila[campo]
+                if valor is not None and valor != "":
+                    perfil[campo] = valor
+        with self._lock:
+            self._cache_perfil[clave] = perfil
+        return dict(perfil)
 
     def actualizar_perfil(self, numero_usuario: str, _migracion: bool = False, **campos):
         """Upsert de campos no-None + registro fechado de cada cambio real."""
@@ -201,6 +237,7 @@ class RepositorioAtleta:
                         "INSERT INTO historial_perfil (numero_usuario, campo, valor, fecha) "
                         "VALUES (?, ?, ?, ?)",
                         (numero_usuario, k, str(v), ahora))
+        self._invalidar(numero_usuario)
 
     def historial_perfil(self, numero_usuario: str, campo: str | None = None) -> list[dict]:
         q = "SELECT campo, valor, fecha FROM historial_perfil WHERE numero_usuario = ?"
@@ -224,9 +261,15 @@ class RepositorioAtleta:
                  float(peso_origen) if peso_origen is not None else None,
                  int(reps_origen) if reps_origen is not None else None,
                  fuente, _ahora()))
+        self._invalidar(numero_usuario)
 
     def obtener_rms(self, numero_usuario: str) -> dict:
         """Misma forma que el antiguo cargar_rms(): {ejercicio: rm_actual}."""
+        clave = str(numero_usuario)
+        cacheado = self._cache_rms.get(clave)
+        if cacheado is not None:
+            return dict(cacheado)
+
         q = """
             SELECT m.ejercicio, m.rm_estimado
             FROM marcas_rm m
@@ -236,8 +279,11 @@ class RepositorioAtleta:
               ON m.ejercicio = ult.ejercicio AND m.id = ult.max_id
         """
         with self._conn() as con:
-            filas = con.execute(q, (str(numero_usuario),)).fetchall()
-        return {f["ejercicio"]: f["rm_estimado"] for f in filas}
+            filas = con.execute(q, (clave,)).fetchall()
+        rms = {f["ejercicio"]: f["rm_estimado"] for f in filas}
+        with self._lock:
+            self._cache_rms[clave] = rms
+        return dict(rms)
 
     def historial_rms(self, numero_usuario: str, ejercicio: str | None = None) -> list[dict]:
         q = ("SELECT ejercicio, rm_estimado, peso_origen, reps_origen, fuente, fecha "

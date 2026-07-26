@@ -22,6 +22,7 @@ import math
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 import numpy as np
@@ -54,10 +55,48 @@ CLAMP_BAJO, CLAMP_ALTO = 0.93, 1.05   # salto máx. vs última carga top del eje
 # ==============================================================================
 # ACCESO A DATOS
 # ==============================================================================
-def _con() -> sqlite3.Connection:
-    con = sqlite3.connect(RUTA_DB)
+_esquema_verificado = False
+
+
+def _asegurar_esquema() -> None:
+    """Garantiza que series_log / readiness / eventos_autorregulacion existan.
+
+    Este módulo se puede importar solo (proactividad, scripts de análisis) sin
+    que el orquestador haya arrancado. Sin esto, la primera pulsación del
+    readiness moría con 'no such table: readiness'. Tras la primera llamada es
+    una comparación booleana: coste cero en el camino caliente.
+    """
+    global _esquema_verificado
+    if _esquema_verificado:
+        return
+    try:
+        from services.db_service import inicializar_db
+        inicializar_db()
+    except Exception as e:            # nunca tumbar la lectura por el esquema
+        print(f"[MOTOR] no se pudo verificar el esquema: {e}")
+    _esquema_verificado = True
+
+
+@contextmanager
+def _con():
+    """Conexión de vida corta con cierre GARANTIZADO.
+
+    Antes era `with sqlite3.connect(...) as con:`, que hace commit/rollback pero
+    NO cierra: cada lectura de series dejaba un descriptor abierto hasta que
+    pasara el recolector. En un proceso de servidor eso acaba en fuga de
+    descriptores y en 'database is locked' intermitentes.
+    """
+    _asegurar_esquema()
+    con = sqlite3.connect(RUTA_DB, timeout=15)
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
 
 
 def _fecha(v) -> date:

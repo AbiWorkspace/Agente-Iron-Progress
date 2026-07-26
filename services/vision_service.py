@@ -9,10 +9,19 @@ import joblib
 import mediapipe as mp
 import os
 import math
+import threading
 
 # 1. Inicializar MediaPipe Pose
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
+
+# El objeto Pose de MediaPipe NO es reentrante: mantiene estado interno de
+# tracking entre frames. `predecir_ejercicio` se invoca desde `asyncio.to_thread`,
+# así que dos atletas mandando video a la vez lo usaban en paralelo y el grafo
+# se corrompía (predicciones absurdas en el mejor caso, segfault en el peor).
+# El candado serializa la inferencia, que además es CPU-bound: no se pierde
+# rendimiento real, solo se evita el pisotón.
+_candado_pose = threading.Lock()
 
 # 2. Rutas dinámicas
 RUTA_BASE_PROYECTO = os.path.dirname(os.path.dirname(__file__))
@@ -60,8 +69,6 @@ def predecir_ejercicio(ruta_video: str) -> str:
     if modelo_clasificador is None:
         return "Ejercicio_Desconocido"
 
-    cap = cv2.VideoCapture(ruta_video)
-
     # Listas para almacenar la biometría frame a frame
     distancias_muneca_cadera = []
     angulos_rodilla = []
@@ -69,46 +76,57 @@ def predecir_ejercicio(ruta_video: str) -> str:
     angulos_codo = []
     angulos_hombro = []
 
-    frame_count = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    cap = cv2.VideoCapture(ruta_video)
+    if not cap.isOpened():
+        print(f"[VISION SERVICE]: OpenCV no pudo abrir el video {ruta_video}")
+        return "Ejercicio_Desconocido"
 
-        frame_count += 1
-        if frame_count % 3 != 0:  # Saltamos frames para velocidad
-            continue
+    try:
+        with _candado_pose:
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-        frame = cv2.resize(frame, (640, 480))
-        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = pose.process(image_rgb)
+                frame_count += 1
+                if frame_count % 3 != 0:  # Saltamos frames para velocidad
+                    continue
 
-        if results.pose_landmarks:
-            landmarks = results.pose_landmarks.landmark
+                frame = cv2.resize(frame, (640, 480))
+                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = pose.process(image_rgb)
 
-            # Coordenadas (Lado derecho)
-            cadera = [landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].x,
-                      landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
-            rodilla = [landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].x,
-                       landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
-            tobillo = [landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x,
-                       landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
-            hombro = [landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x,
-                      landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
-            codo = [landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].x,
-                    landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].y]
-            muneca = [landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].x,
-                      landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].y]
+                if not results.pose_landmarks:
+                    continue
 
-            # 1. Distancia
-            distancias_muneca_cadera.append(calcular_distancia(muneca, cadera))
-            # 2. Ángulos
-            angulos_rodilla.append(calcular_angulo(cadera, rodilla, tobillo))
-            angulos_cadera.append(calcular_angulo(hombro, cadera, rodilla))
-            angulos_codo.append(calcular_angulo(hombro, codo, muneca))
-            angulos_hombro.append(calcular_angulo(cadera, hombro, codo))  # Ángulo del hombro
+                landmarks = results.pose_landmarks.landmark
 
-    cap.release()
+                # Coordenadas (Lado derecho)
+                cadera = [landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].x,
+                          landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+                rodilla = [landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].x,
+                           landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
+                tobillo = [landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x,
+                           landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
+                hombro = [landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x,
+                          landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
+                codo = [landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].x,
+                        landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].y]
+                muneca = [landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].x,
+                          landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].y]
+
+                # 1. Distancia
+                distancias_muneca_cadera.append(calcular_distancia(muneca, cadera))
+                # 2. Ángulos
+                angulos_rodilla.append(calcular_angulo(cadera, rodilla, tobillo))
+                angulos_cadera.append(calcular_angulo(hombro, cadera, rodilla))
+                angulos_codo.append(calcular_angulo(hombro, codo, muneca))
+                angulos_hombro.append(calcular_angulo(cadera, hombro, codo))  # Ángulo del hombro
+    finally:
+        # `cap.release()` estaba después del bucle: cualquier excepción a mitad
+        # del video dejaba el descriptor del archivo abierto para siempre.
+        cap.release()
 
     if len(angulos_rodilla) < 5:
         return "Ejercicio_Desconocido"

@@ -29,6 +29,9 @@ cr = types.ModuleType("services.calculadora_rm")
 cr.calcular_1rm = MagicMock(return_value=100.0); cr.TipoEjercicio = MagicMock()
 ma = types.ModuleType("services.metricas_atleta"); ma.evaluar_perfil_completo = MagicMock()
 ra = types.ModuleType("services.repositorio_atleta"); ra.repositorio = MagicMock()
+# v9: llm_service pasó a importar el dispatcher de tools. Sin este stub, el smoke
+# moría en el import con "'services' is not a package" y no llegaba a probar nada.
+h9 = types.ModuleType("services.handlers_v9"); h9.DISPATCHER_V9 = {}
 
 sys.modules.update({
     "ollama": ollama_stub, "aiofiles": aiofiles_stub,
@@ -36,7 +39,7 @@ sys.modules.update({
     "services": services, "services.db_service": db,
     "services.conexion_entrenamiento_llm_orquestacion": cx,
     "services.calculadora_rm": cr, "services.metricas_atleta": ma,
-    "services.repositorio_atleta": ra,
+    "services.repositorio_atleta": ra, "services.handlers_v9": h9,
 })
 
 # ---------- 2) IMPORTAR el módulo real ----------

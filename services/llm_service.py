@@ -4,6 +4,7 @@ import math
 import os
 import asyncio
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -36,6 +37,9 @@ def log(usuario: str, etapa: str, detalle="") -> None:
 # VARIABLES GLOBALES & REGEX
 # ==============================================================================
 historial_memoria = {}
+# Firma en disco del historial de cada atleta cuando se cargó a memoria: permite
+# detectar ediciones o borrados externos sin releer el JSON en cada turno.
+_firmas_historial: dict[str, tuple | None] = {}
 cliente_ollama    = ollama.AsyncClient()
 ORDEN_DIAS        = ["dia_1_fuerza", "dia_2_hipertrofia", "dia_3_potencia"]
 
@@ -443,10 +447,8 @@ def _detectar_partes_cuerpo(texto: str) -> list[str]:
 
 # --- F4: integridad de estado del plan ---------------------------------------
 def _plan_files_existen(numero_usuario: str) -> bool:
-    ruta_base = (Path(__file__).resolve().parent.parent / "resources"
-                 / "rutinas_generadas" / str(numero_usuario).strip())
-    return any((ruta_base / a).exists()
-               for a in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"])
+    ruta_base = _carpeta_plan(numero_usuario)
+    return any((ruta_base / a).exists() for a in _ARCHIVOS_PLAN)
 
 
 
@@ -487,6 +489,144 @@ os.makedirs(carpeta_resources, exist_ok=True)
 ruta_prompt_maestro = os.path.join(carpeta_core, "prompt.json")
 ruta_estado         = os.path.join(carpeta_data, "estado_usuarios.json")
 ruta_tools          = os.path.join(carpeta_core, "tools.json")
+
+# ==============================================================================
+# CACHÉS DE DISCO (v9.1) — el turno leía los mismos archivos una y otra vez
+# ==============================================================================
+# Medido sobre un turno normal: estado_usuarios.json se abría 4-8 veces, los
+# JSON del plan hasta 40 (el peor caso es `_avanzar_cursor`, que llama a
+# `_contar_sesiones_semana` dos veces por salto y admite 21 saltos) y
+# overrides_{numero}.json una vez por lectura de rutina. Todo eso es json.load
+# repetido sobre archivos que no cambiaron entre llamada y llamada.
+#
+# La clave de invalidación es la FIRMA del archivo (mtime_ns + tamaño): si algo
+# externo lo modifica, la caché se descarta sola. `os.stat` cuesta microsegundos
+# frente a los milisegundos de abrir y parsear.
+_ARCHIVOS_PLAN = ("1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json")
+
+_cache_json: dict[str, tuple] = {}          # ruta -> (firma, datos)
+_lock_cache_json = threading.Lock()
+
+
+def _firma_archivo(ruta) -> tuple | None:
+    """(mtime_ns, tamaño) del archivo, o None si no existe."""
+    try:
+        st = os.stat(ruta)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+def _leer_json_cacheado(ruta, defecto):
+    """json.load con caché invalidada por firma de archivo."""
+    clave = str(ruta)
+    firma = _firma_archivo(ruta)
+    if firma is None:
+        with _lock_cache_json:
+            _cache_json.pop(clave, None)
+        return defecto
+
+    entrada = _cache_json.get(clave)
+    if entrada is not None and entrada[0] == firma:
+        return entrada[1]
+
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[CACHE-JSON] no se pudo leer {clave}: {e}")
+        return defecto
+
+    with _lock_cache_json:
+        _cache_json[clave] = (firma, datos)
+    return datos
+
+
+def _invalidar_json(ruta) -> None:
+    """Fuerza la relectura de un archivo que ACABAMOS de escribir nosotros."""
+    with _lock_cache_json:
+        _cache_json.pop(str(ruta), None)
+
+
+def _carpeta_plan(numero_usuario: str) -> Path:
+    return (Path(ruta_raiz_proyecto) / "resources" / "rutinas_generadas"
+            / str(numero_usuario).strip())
+
+
+def _archivos_plan_cargados(numero_usuario: str) -> list[list]:
+    """Contenido de los 3 mesociclos, EN ORDEN, saltando los que no existen.
+
+    Devuelve listas de sesiones ya parseadas (o vacías). Todo el resto del
+    módulo consulta el plan a través de aquí: una sola lectura por cambio real
+    del archivo, en vez de una por pregunta.
+    """
+    base = _carpeta_plan(numero_usuario)
+    salida = []
+    for archivo in _ARCHIVOS_PLAN:
+        datos = _leer_json_cacheado(base / archivo, None)
+        salida.append(datos if isinstance(datos, list) else [])
+    return salida
+
+
+def _sesiones_semana_cache(numero_usuario: str, semana: int) -> list[dict]:
+    """Sesiones de una semana concreta, con la MISMA regla de siempre: gana el
+    primer mesociclo que tenga sesiones para esa semana."""
+    try:
+        objetivo = int(semana)
+    except (TypeError, ValueError):
+        return []
+    for sesiones in _archivos_plan_cargados(numero_usuario):
+        encontradas = []
+        for s in sesiones:
+            try:
+                if int(s.get("Semana_Abs", 0)) == objetivo:
+                    encontradas.append(s)
+            except (TypeError, ValueError):
+                continue
+        if encontradas:
+            return encontradas
+    return []
+
+
+# ------------------------------------------------------------------ estado
+# estado_usuarios.json es diminuto pero se abre y se reescribe varias veces por
+# turno. Se mantiene en memoria y se sincroniza al escribir; la firma del
+# archivo detecta cualquier edición externa (scripts/reset_usuario.py, etc.).
+_estados_cache: dict | None = None
+_estados_firma: tuple | None = None
+_lock_estados = threading.Lock()
+
+
+def _leer_estados() -> dict:
+    """Todos los estados de usuario, cacheados por firma del archivo."""
+    global _estados_cache, _estados_firma
+    firma = _firma_archivo(ruta_estado)
+    if _estados_cache is not None and _estados_firma == firma:
+        return _estados_cache
+    try:
+        with open(ruta_estado, "r", encoding="utf-8") as f:
+            datos = json.load(f)
+        if not isinstance(datos, dict):
+            datos = {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        datos = {}
+    with _lock_estados:
+        _estados_cache, _estados_firma = datos, firma
+    return datos
+
+
+def _escribir_estados(estados: dict) -> None:
+    """Persiste y deja la caché coherente con lo que acaba de quedar en disco."""
+    global _estados_cache, _estados_firma
+    try:
+        with open(ruta_estado, "w", encoding="utf-8") as f:
+            json.dump(estados, f, indent=4, ensure_ascii=False)
+    except OSError as e:
+        print(f"[ESTADO] no se pudo guardar: {e}")
+        return
+    with _lock_estados:
+        _estados_cache = estados
+        _estados_firma = _firma_archivo(ruta_estado)
 
 # ==============================================================================
 # CONSTANTES DE MEMORIA INTELIGENTE
@@ -565,6 +705,37 @@ def _campo_resp(resp, campo, defecto=None):
     except Exception:
         return defecto
 
+def _desglose_tiempos(resp) -> str:
+    """Reparto REAL del tiempo del modelo: prefill (procesar el prompt) vs
+    decode (generar la respuesta), con tokens/s de cada fase.
+
+    Sin esto, un turno de 84 s es una caja negra y es imposible saber si el
+    cuello de botella es el contexto que se le manda o los tokens que escribe.
+    Ollama devuelve las duraciones en NANOsegundos.
+    """
+    try:
+        p_tok = int(_campo_resp(resp, "prompt_eval_count", 0) or 0)
+        p_ns = int(_campo_resp(resp, "prompt_eval_duration", 0) or 0)
+        e_tok = int(_campo_resp(resp, "eval_count", 0) or 0)
+        e_ns = int(_campo_resp(resp, "eval_duration", 0) or 0)
+        total_ns = int(_campo_resp(resp, "total_duration", 0) or 0)
+        carga_ns = int(_campo_resp(resp, "load_duration", 0) or 0)
+        if not (p_ns or e_ns):
+            return "sin métricas de Ollama"
+        p_s, e_s = p_ns / 1e9, e_ns / 1e9
+        partes = [
+            f"prefill {p_tok} tok en {p_s:.1f}s ({p_tok / p_s:.0f} tok/s)" if p_ns else "",
+            f"decode {e_tok} tok en {e_s:.1f}s ({e_tok / e_s:.1f} tok/s)" if e_ns else "",
+        ]
+        if carga_ns > 1e8:      # >0.1 s: el modelo tuvo que (re)cargarse
+            partes.append(f"CARGA DE MODELO {carga_ns / 1e9:.1f}s")
+        if total_ns:
+            partes.append(f"total {total_ns / 1e9:.1f}s")
+        return " | ".join(p for p in partes if p)
+    except Exception:
+        return "sin métricas de Ollama"
+
+
 async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False,
                    timeout=None):
     """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional.
@@ -597,6 +768,7 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
         print(f"[LLM] '{quien}' respondió en {time.monotonic()-t0:.1f}s "
               f"({len(mensajes)} msgs, done_reason={done_reason or '?'}, "
               f"thinking={'sí, ' + str(len(razonamiento)) + ' chars' if razonamiento else 'no'})")
+        print(f"[LLM-PERF] '{quien}' {_desglose_tiempos(resp)}")
         if razonamiento:
             # Oro para depurar el criterio: SE VE por qué eligió (o no) una herramienta.
             print(f"[LLM-THINK] '{quien}': {_trunc(razonamiento, 300)}")
@@ -829,16 +1001,18 @@ def _resumen_progreso_peso(numero_usuario: str) -> str:
     return f"- Peso corporal: de {p_i:g} a {p_f:g} kg ({s}{delta:g} kg) entre {hist[0]['fecha']} y {hist[-1]['fecha']}."
 
 def _ejecutar_borrado_plan(numero_usuario: str) -> int:
-    ruta_base = (Path(__file__).resolve().parent.parent / "resources"
-                 / "rutinas_generadas" / str(numero_usuario).strip())
+    ruta_base = _carpeta_plan(numero_usuario)
     borrados = 0
-    for a in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
+    for a in _ARCHIVOS_PLAN:
         f = ruta_base / a
         if f.exists():
             try:
                 f.unlink(); borrados += 1
             except OSError as e:
                 print(f"[BORRAR] no se pudo borrar {a}: {e}")
+        # El archivo ya no existe: la caché de plan se invalida sola por firma,
+        # pero se descarta aquí para que la MISMA petición no vea datos zombis.
+        _invalidar_json(f)
     try: os.remove(_ruta_overrides(numero_usuario))
     except OSError: pass
     _actualizar_estado_json(numero_usuario, semana=1, dia=1, estado_generacion="",
@@ -870,20 +1044,15 @@ def actualizar_perfil(u, **campos):
         print(f"[REPO-ERROR] actualizar_perfil: {e}")
 
 def _actualizar_estado_json(numero_usuario: str, **campos):
-    try:
-        with open(ruta_estado, "r", encoding="utf-8") as f:
-            estados = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        estados = {}
-    est = estados.get(numero_usuario) or {
+    estados = dict(_leer_estados())
+    est = dict(estados.get(numero_usuario) or {
         "semana": 1, "dia": 1,
         "fecha_programada": datetime.now().strftime("%Y-%m-%d"),
         "ultima_fecha_completada": ""
-    }
+    })
     est.update(campos)
     estados[numero_usuario] = est
-    with open(ruta_estado, "w", encoding="utf-8") as f:
-        json.dump(estados, f, indent=4, ensure_ascii=False)
+    _escribir_estados(estados)
 
 # ==============================================================================
 # v2: MÁQUINA DE ESTADOS DE ONBOARDING (determinista, el LLM solo redacta)
@@ -1258,17 +1427,35 @@ async def _disparar_pipeline_generacion(numero_usuario: str) -> str:
 # ==============================================================================
 # GENERADOR BACKGROUND
 # ==============================================================================
+# asyncio solo guarda referencias DÉBILES a las tareas: sin este set, el recolector
+# de basura puede llevarse la generación a medio camino y el atleta se queda con el
+# estado en 'generando' hasta que salte el self-heal de 15 minutos.
+_tareas_generacion: set[asyncio.Task] = set()
+
+
 async def _generar_rutina_background(datos: dict, numero_usuario: str):
     t0 = time.monotonic()
     log(numero_usuario, "GEN-BG", f"inicio con datos={datos}")
     try:
-        await asyncio.to_thread(recibir_peticion, datos, numero_usuario)
+        # El generador dispara 4 inferencias a Ollama desde su propio hilo. Sin este
+        # semáforo se solapaban con las del chat, y dos contextos simultáneos del
+        # modelo de 17 GB son exactamente el thrashing de VRAM que congelaba el
+        # equipo (ver la nota de SEM_LLM arriba). El precio es que los chats esperan
+        # mientras dura la generación, que es justo lo que el atleta ya está esperando.
+        async with SEM_LLM:
+            await asyncio.to_thread(recibir_peticion, datos, numero_usuario)
 
-        carpeta = Path(ruta_raiz_proyecto) / "resources" / "rutinas_generadas" / str(numero_usuario)
+        carpeta = _carpeta_plan(numero_usuario)
         archivos = list(carpeta.glob("*.json")) if carpeta.exists() else []
         log(numero_usuario, "GEN-BG", f"terminó en {time.monotonic()-t0:.1f}s, archivos={[a.name for a in archivos]}")
         if not archivos:
             raise RuntimeError("El generador no produjo archivos")
+
+        # El plan ACABA de cambiar en disco: se descarta la caché para que el
+        # primer mensaje tras la generación lea el plan nuevo aunque el mtime
+        # caiga dentro de la misma marca de tiempo que la lectura anterior.
+        for a in _ARCHIVOS_PLAN:
+            _invalidar_json(carpeta / a)
 
         _actualizar_estado_json(
             numero_usuario,
@@ -1295,7 +1482,10 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
             print(f"[GENERACIÓN BG] Plan listo pero no pude notificar: {e}")
 
 
-    except Exception as e:
+    # SystemExit NO hereda de Exception: Distribucion_Torso_Pierna lo lanza cuando
+    # falta o está corrupta base_de_datos_ejercicios.json, y sin capturarlo el estado
+    # se quedaba en 'generando' bloqueando cualquier plan nuevo hasta el self-heal.
+    except (Exception, SystemExit) as e:
 
         import traceback
 
@@ -1494,12 +1684,41 @@ async def comprimir_historial_si_necesario(historial: list) -> list:
 # ==============================================================================
 UMBRAL_RAG = 1.2
 
-def consultar_literatura_cientifica(pregunta: str) -> str:
+
+def _buscar(coleccion, texto: str, k: int, filtro=None, vector=None):
+    """Búsqueda vectorial reutilizando un embedding ya calculado.
+
+    `similarity_search_with_score(texto, ...)` embebe el texto POR DENTRO: las
+    tres consultas del contexto enriquecido (expediente, historial, ciencia)
+    pedían a Ollama el embedding del MISMO mensaje tres veces por turno. Con el
+    vector precalculado se hace una sola vez. Si el vector no está disponible
+    (o la versión de langchain-chroma no expone la búsqueda por vector), se cae
+    al camino de siempre: mismo resultado, solo que más lento.
+    """
+    if vector is not None:
+        try:
+            return coleccion.similarity_search_by_vector_with_relevance_scores(
+                embedding=vector, k=k, filter=filtro)
+        except (AttributeError, TypeError) as e:
+            print(f"[RAG] búsqueda por vector no disponible ({e}); uso la clásica")
+    return coleccion.similarity_search_with_score(texto, k=k, filter=filtro)
+
+
+def _embebe(texto: str):
+    """Embedding del turno, o None si Ollama no responde (fallback silencioso)."""
+    try:
+        return motor_embeddings.embed_query(texto)
+    except Exception as e:
+        print(f"[RAG] no se pudo calcular el embedding ({e}); cada colección lo hará por su cuenta")
+        return None
+
+
+def consultar_literatura_cientifica(pregunta: str, vector=None) -> str:
     if not db_cientifica: return "Error: Base de datos científica no disponible."
     try:
         # v4: k=3 con deduplicación — un solo fragmento de 400 chars era muy poco
         # para sustentar una recomendación; ahora se citan hasta 3 pasajes y el libro.
-        resultados = db_cientifica.similarity_search_with_score(pregunta, k=3)
+        resultados = _buscar(db_cientifica, pregunta, 3, None, vector)
         vistos, textos = set(), []
         for doc, score in resultados:
             if score >= UMBRAL_RAG:
@@ -1517,11 +1736,11 @@ def consultar_literatura_cientifica(pregunta: str) -> str:
     except Exception as e:
         return f"Error al leer la base de datos: {e}"
 
-def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str) -> str:
+def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str, vector=None) -> str:
     if not db_memoria_atleta: return "Error: Base de datos histórica no disponible."
     try:
-        resultados = db_memoria_atleta.similarity_search_with_score(
-            pregunta, k=3, filter={"numero_usuario": str(numero_usuario)})
+        resultados = _buscar(db_memoria_atleta, pregunta, 3,
+                             {"numero_usuario": str(numero_usuario)}, vector)
         vistos, textos = set(), []
         for doc, score in resultados:
             if score >= UMBRAL_RAG or doc.page_content in vistos:
@@ -1532,11 +1751,11 @@ def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str) -> st
     except Exception as e:
         return f"Error al leer el historial: {e}"
 
-def consultar_expediente_atleta(numero_usuario: str, concepto: str) -> str:
+def consultar_expediente_atleta(numero_usuario: str, concepto: str, vector=None) -> str:
     if not db_perfil_atleta: return "Error: base de datos no disponible."
     try:
-        resultados = db_perfil_atleta.similarity_search_with_score(
-            concepto, k=3, filter={"numero_usuario": {"$eq": str(numero_usuario)}})
+        resultados = _buscar(db_perfil_atleta, concepto, 3,
+                             {"numero_usuario": {"$eq": str(numero_usuario)}}, vector)
         vistos, textos = set(), []
         for doc, score in resultados:
             if score >= UMBRAL_RAG or doc.page_content in vistos:
@@ -1571,11 +1790,14 @@ def guardar_dato_en_expediente(numero_usuario: str, texto_dato: str):
         print(f"[ERROR RAG PERFIL]: {e}")
 
 async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> str:
-    loop = asyncio.get_event_loop()
+    if not (db_perfil_atleta or db_memoria_atleta or db_cientifica):
+        return ""
+    # UN solo embedding para las tres colecciones (antes: tres idénticos).
+    vector = await asyncio.to_thread(_embebe, mensaje)
     expediente, historial, ciencia = await asyncio.gather(
-        loop.run_in_executor(None, consultar_expediente_atleta, numero_usuario, mensaje),
-        loop.run_in_executor(None, consultar_memoria_historica_atleta, numero_usuario, mensaje),
-        loop.run_in_executor(None, consultar_literatura_cientifica, mensaje)
+        asyncio.to_thread(consultar_expediente_atleta, numero_usuario, mensaje, vector),
+        asyncio.to_thread(consultar_memoria_historica_atleta, numero_usuario, mensaje, vector),
+        asyncio.to_thread(consultar_literatura_cientifica, mensaje, vector),
     )
     bloques = []
     if "Sin datos" not in expediente and "Error" not in expediente:
@@ -1680,19 +1902,37 @@ def cargar_herramientas() -> list:
 def historial_usuario(numero_usuario: str) -> str:
     return os.path.join(carpeta_data, f"historial_{numero_usuario}.json")
 
+# Patrones de limpieza precompilados. Antes se compilaban 14 regex en CADA
+# llamada, y la función se llama hasta 4 veces por turno (borrador, reescritura
+# honesta, anti-rutina-fantasma, validador de kilajes).
+_LIMPIEZA_PATRONES = (
+    re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE),
+    re.compile(r"\[INFO DE SISTEMA[^\n\]]*\]\s*", re.IGNORECASE),
+    re.compile(r"<tool_call>.*?</tool_call>\s*", re.DOTALL | re.IGNORECASE),
+    re.compile(r'```(?:json)?\s*\{[^`]*"(?:name|arguments)"[^`]*\}[^`]*```', re.DOTALL | re.IGNORECASE),
+    re.compile(r'\{\s*"name"\s*:.*?"arguments"\s*:\s*\{.*?\}\s*\}', re.DOTALL),
+)
+_SALTOS_EXTRA_RE = re.compile(r"\n{3,}")
+_NOMBRES_TOOLS_RE = re.compile(
+    r"[`'\"]?(?:evaluar_perfil_fisico|generar_rutina|registrar_serie_completada|"
+    r"calcular_rm_exacto|consultar_libro_cientifico|avanzar_dia|"
+    r"consultar_expediente_personal|consultar_historial_narrativo|"
+    r"guardar_en_expediente_personal|predecir_carga_optima|analizar_mrv|"
+    r"autorregular_dia|enviar_grafica_progreso|consultar_rutina_futura|"
+    r"sustituir_ejercicio|aplicar_descarga|consultar_progreso|"
+    r"explicar_tecnica_ejercicio|registrar_peso_corporal|pausar_plan|"
+    r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm)[`'\"]?",
+    re.IGNORECASE)
+
+
 def limpiar_texto_para_whatsapp(texto: str) -> str:
-    texto = re.sub(r"<think>.*?</think>\s*", "", texto, flags=re.DOTALL | re.IGNORECASE)
-    texto = re.sub(r"\[INFO DE SISTEMA[^\n\]]*\]\s*", "", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"<tool_call>.*?</tool_call>\s*", "", texto, flags=re.DOTALL | re.IGNORECASE)
-    texto = re.sub(r'```(?:json)?\s*\{[^`]*"(?:name|arguments)"[^`]*\}[^`]*```', '', texto, flags=re.DOTALL | re.IGNORECASE)
-    texto = re.sub(r'\{\s*"name"\s*:.*?"arguments"\s*:\s*\{.*?\}\s*\}', '', texto, flags=re.DOTALL)
+    if not texto:
+        return ""
+    for patron in _LIMPIEZA_PATRONES:
+        texto = patron.sub("", texto)
     texto = texto.replace("**", "*").replace("#", "")
-    texto = re.sub(r'\n{3,}', '\n\n', texto)
-    for tool in ["evaluar_perfil_fisico", "generar_rutina", "registrar_serie_completada",
-                 "calcular_rm_exacto", "consultar_libro_cientifico", "avanzar_dia",
-                 "consultar_expediente_personal", "consultar_historial_narrativo",
-                 "guardar_en_expediente_personal"]:
-        texto = re.sub(rf"[`'\"]?{tool}[`'\"]?", "mis métodos de coach", texto, flags=re.IGNORECASE)
+    texto = _SALTOS_EXTRA_RE.sub("\n\n", texto)
+    texto = _NOMBRES_TOOLS_RE.sub("mis métodos de coach", texto)
     return texto.strip()
 
 def _detectar_enfoque(msg: str) -> str | None:
@@ -1706,19 +1946,7 @@ def _detectar_enfoque(msg: str) -> str | None:
 
 def _sesiones_de_semana(numero_usuario: str, semana: int) -> list[dict]:
     """Sesiones reales de una semana (para conocer enfoques y totales sin adivinar)."""
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
-    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
-        ruta_f = ruta_base / archivo
-        if not ruta_f.exists():
-            continue
-        try:
-            with open(ruta_f, "r", encoding="utf-8") as f:
-                ses = [s for s in json.load(f) if int(s.get("Semana_Abs", 0)) == int(semana)]
-                if ses:
-                    return ses
-        except Exception:
-            pass
-    return []
+    return _sesiones_semana_cache(numero_usuario, semana)
 
 
 def _avanzar_cursor(numero_usuario: str, semana: int, dia: int,
@@ -1748,21 +1976,71 @@ def _avanzar_cursor(numero_usuario: str, semana: int, dia: int,
     return None
 
 
+_CR_SEMANA_N_RE = re.compile(r'\b(?:ver|mostrar\w*|pasar\s+a|semana)\s+(\d+)')
+_CR_DIA_PALABRA_RE = re.compile(r'\bd[ií]a\b')
+_CR_DIA_N_RE = re.compile(r'\bd[ií]a\s*(\d+)\b')
+_CR_GUARD_DIA_RE = re.compile(r'rutina|plan|entren|toca|ver|dime|mu[eé]str|mostrar|dame|'
+                              r'ense[ñn]|ejercicio|semana|saber|c[oó]mo')
+_CR_DIA_SIGUIENTE_RE = re.compile(
+    r'(siguiente|pr[óo]xim[oa])\s+(d[ií]a|entrenamiento|sesi[oó]n)|'
+    r'd[ií]a\s+(siguiente|que\s+sigue)|\bqu[eé]\s+sigue\b|'
+    r'\b(?:y\s+)?(?:el|la)\s+(?:que\s+)?sigue\b|\bel\s+siguiente\b')
+_CR_SEMANA_COMPLETA_RE = re.compile(
+    r'(tod[ao]|completa|entera)\s+(?:l?a\s+|esta\s+)?semana|'
+    r'semana\s+(completa|entera)|'
+    r'c[oó]mo\s+(?:vamos|voy)\s+a\s+entrenar|'
+    r'entrenar\s+(?:toda\s+)?(?:esta|la)\s+semana|'
+    r'todos\s+los\s+d[ií]as')
+
+# Precompilados: esta función corre 2-3 veces por turno y compilaba ~20 patrones
+# en cada pasada.
+_CR_SEMANA_SIGUIENTE = tuple(re.compile(p) for p in [
+    r'semana\s+(?:siguiente|próxima|prox|que\s+viene|futura)',
+    r'(?:siguiente|próxima|prox)\s+semana',
+    r'pasemos?\s+(?:a\s+)?(?:la\s+)?(?:siguiente|próxima|prox)?\s*semana',
+    r'(?:avanzar?|ir|pasar)\s+(?:a\s+)?(?:la\s+)?(?:siguiente|próxima)\s+semana',
+    r'(?:dame|muéstrame|ver|dime)\s+(?:la\s+)?(?:siguiente|próxima)\s+semana',
+    r'(?:semana|plan|rutina)\s+\d+',
+])
+
+_CR_VER_RUTINA = tuple(re.compile(p) for p in [
+    r'(?:dame|mu[eé]strame|mostrarme|mostrar|dime|ver|ense[ñn]a\w*|muestra)\s+'
+    r'(?:me\s+)?(?:mi\s+|la\s+|el\s+)?(?:rutina|plan|entrenamiento)',
+    # v5.1 — Timeline 01:46: "que entrenamiento??" no matcheaba nada
+    r'\b(?:qu[eé]|cu[aá]l)\s+entrenamiento\b',
+    r'^\s*(?:y\s+)?mi\s+(?:rutina|plan|entrenamiento)\s*\??\s*$',
+    r'(?:qué|que)\s+(?:me\s+toca|hago|entreno)\b\s*(hoy|mañana)?\b',
+    r'ya\s+(?:está|estuvo)\s+(?:list[ao]\s+)?(?:mi\s+)?(?:rutina|plan)',
+    r'(?:mi\s+)?rutina\s+(?:completa|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
+    r'plan\s+(?:completo|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
+    r'(?:qué|que)\s+(?:ejercicios|entrenamiento)\s+(?:me\s+toca|tengo|hay)\b',
+    r'\b(?:cual|cuál)\s+es\s+mi\s+(?:rutina|plan)\b',
+    # v8 (Mandato 5) — "¿qué peso uso para cumplir mi rutina?" es una CONSULTA
+    # de la rutina existente (los kg ya vienen calculados en el plan). Antes no
+    # matcheaba nada aquí, caía como señal débil de creación y disparaba el
+    # REGEN jail (bug 3.3).
+    r'(?:qu[eé]|cu[aá]nt[oa])s?\s+pesos?\s+(?:le\s+|me\s+)?'
+    r'(?:uso|us[ao]r?|pongo|poner|meto|cargo|carg[ao]r?|debo|deber[ií]a|'
+    r'me\s+toca|corresponde|manejo|levanto)\b',
+    r'(?:c[oó]mo|con\s+qu[eé]\s+peso)\s+(?:cumplo|cumplir|hago|realizo)\s+'
+    r'(?:mi\s+|la\s+)?(?:rutina|plan|sesi[oó]n)\b',
+])
+
+
 def detectar_consulta_rutina(mensaje: str) -> dict | None:
     msg = mensaje.lower()
 
     # Semana N explícita ("ver semana 2", "semana 3")
-    match_semana = re.search(r'\b(?:ver|mostrar\w*|pasar\s+a|semana)\s+(\d+)', msg)
-    if match_semana and not re.search(r'\bd[ií]a\b', msg):
+    match_semana = _CR_SEMANA_N_RE.search(msg)
+    if match_semana and not _CR_DIA_PALABRA_RE.search(msg):
         return {"tipo": "semana_futura", "semana_objetivo": int(match_semana.group(1))}
 
     # v4.2 — DÍA específico ("dime el día 3", "no pero el día 3"). Era el agujero
     # que hacía al coach repetir "hoy toca Día 1" en bucle: sin detección, la
     # telemetría solo traía el día actual y el modelo confabulaba un bloqueo.
-    m_dia = re.search(r'\bd[ií]a\s*(\d+)\b', msg)
+    m_dia = _CR_DIA_N_RE.search(msg)
     if m_dia:
-        guard = re.search(r'rutina|plan|entren|toca|ver|dime|mu[eé]str|mostrar|dame|'
-                          r'ense[ñn]|ejercicio|semana|saber|c[oó]mo', msg)
+        guard = _CR_GUARD_DIA_RE.search(msg)
         if guard or len(msg.strip()) <= 45:
             return {"tipo": "dia_especifico", "dia_objetivo": int(m_dia.group(1)),
                     "enfoque": _detectar_enfoque(msg)}
@@ -1770,70 +2048,22 @@ def detectar_consulta_rutina(mensaje: str) -> dict | None:
     # v5.3 — día siguiente. El regex ya NO destruye los constraints del usuario:
     # "el siguiente día DE PIERNA" conserva el enfoque para que el cursor avance
     # hasta la próxima sesión que lo cumpla, en vez de entregar el día N+1 a ciegas.
-    if re.search(r'(siguiente|pr[óo]xim[oa])\s+(d[ií]a|entrenamiento|sesi[oó]n)|'
-                 r'd[ií]a\s+(siguiente|que\s+sigue)|\bqu[eé]\s+sigue\b|'
-                 r'\b(?:y\s+)?(?:el|la)\s+(?:que\s+)?sigue\b|\bel\s+siguiente\b', msg):
+    if _CR_DIA_SIGUIENTE_RE.search(msg):
         return {"tipo": "dia_siguiente", "enfoque": _detectar_enfoque(msg)}
 
     # v4.2 — semana completa ("toda esta semana", "cómo vamos a entrenar la semana")
-    if re.search(r'(tod[ao]|completa|entera)\s+(?:l?a\s+|esta\s+)?semana|'
-                 r'semana\s+(completa|entera)|'
-                 r'c[oó]mo\s+(?:vamos|voy)\s+a\s+entrenar|'
-                 r'entrenar\s+(?:toda\s+)?(?:esta|la)\s+semana|'
-                 r'todos\s+los\s+d[ií]as', msg):
+    if _CR_SEMANA_COMPLETA_RE.search(msg):
         return {"tipo": "semana_completa"}
 
-    patrones_semana_siguiente = [
-        r'semana\s+(?:siguiente|próxima|prox|que\s+viene|futura)',
-        r'(?:siguiente|próxima|prox)\s+semana',
-        r'pasemos?\s+(?:a\s+)?(?:la\s+)?(?:siguiente|próxima|prox)?\s*semana',
-        r'(?:avanzar?|ir|pasar)\s+(?:a\s+)?(?:la\s+)?(?:siguiente|próxima)\s+semana',
-        r'(?:dame|muéstrame|ver|dime)\s+(?:la\s+)?(?:siguiente|próxima)\s+semana',
-        r'(?:semana|plan|rutina)\s+\d+',
-    ]
-    patrones_ver_rutina = [
-        r'(?:dame|mu[eé]strame|mostrarme|mostrar|dime|ver|ense[ñn]a\w*|muestra)\s+'
-        r'(?:me\s+)?(?:mi\s+|la\s+|el\s+)?(?:rutina|plan|entrenamiento)',
-        # v5.1 — Timeline 01:46: "que entrenamiento??" no matcheaba nada
-        r'\b(?:qu[eé]|cu[aá]l)\s+entrenamiento\b',
-        r'^\s*(?:y\s+)?mi\s+(?:rutina|plan|entrenamiento)\s*\??\s*$',
-        r'(?:qué|que)\s+(?:me\s+toca|hago|entreno)\b\s*(hoy|mañana)?\b',
-        r'ya\s+(?:está|estuvo)\s+(?:list[ao]\s+)?(?:mi\s+)?(?:rutina|plan)',
-        r'(?:mi\s+)?rutina\s+(?:completa|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
-        r'plan\s+(?:completo|de\s+(?:hoy|mañana|esta\s+semana|los\s+\d+\s+días))',
-        r'(?:qué|que)\s+(?:ejercicios|entrenamiento)\s+(?:me\s+toca|tengo|hay)\b',
-        r'\b(?:cual|cuál)\s+es\s+mi\s+(?:rutina|plan)\b',
-        # v8 (Mandato 5) — "¿qué peso uso para cumplir mi rutina?" es una CONSULTA
-        # de la rutina existente (los kg ya vienen calculados en el plan). Antes no
-        # matcheaba nada aquí, caía como señal débil de creación y disparaba el
-        # REGEN jail (bug 3.3).
-        r'(?:qu[eé]|cu[aá]nt[oa])s?\s+pesos?\s+(?:le\s+|me\s+)?'
-        r'(?:uso|us[ao]r?|pongo|poner|meto|cargo|carg[ao]r?|debo|deber[ií]a|'
-        r'me\s+toca|corresponde|manejo|levanto)\b',
-        r'(?:c[oó]mo|con\s+qu[eé]\s+peso)\s+(?:cumplo|cumplir|hago|realizo)\s+'
-        r'(?:mi\s+|la\s+)?(?:rutina|plan|sesi[oó]n)\b',
-    ]
-    for patron in patrones_semana_siguiente:
-        if re.search(patron, msg): return {"tipo": "semana_futura"}
-    for patron in patrones_ver_rutina:
-        if re.search(patron, msg): return {"tipo": "ver_rutina"}
+    for patron in _CR_SEMANA_SIGUIENTE:
+        if patron.search(msg): return {"tipo": "semana_futura"}
+    for patron in _CR_VER_RUTINA:
+        if patron.search(msg): return {"tipo": "ver_rutina"}
     return None
 
 def _contar_sesiones_semana(numero_usuario: str, semana: int) -> int:
     """v4.2: cuántos días reales tiene una semana del plan (para respuestas exactas)."""
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
-    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
-        ruta_f = ruta_base / archivo
-        if not ruta_f.exists():
-            continue
-        try:
-            with open(ruta_f, "r", encoding="utf-8") as f:
-                ses = [s for s in json.load(f) if int(s.get("Semana_Abs", 0)) == int(semana)]
-                if ses:
-                    return len(ses)
-        except Exception:
-            pass
-    return 0
+    return len(_sesiones_semana_cache(numero_usuario, semana))
 
 def extraer_tool_call_escapado(texto: str):
     limpio = re.sub(r'```(?:json)?\s*', '', texto).replace('```', '').strip()
@@ -1963,18 +2193,13 @@ def _resumen_perfil_humano(numero_usuario: str) -> str:
 def _semanas_disponibles(numero_usuario: str) -> list[int]:
     """Fallo 2 (alucinación de estado): en vez de dejar que el modelo invente
     reglas de bloqueo, el sistema sabe EXACTAMENTE qué semanas existen."""
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / str(numero_usuario).strip()
     semanas = set()
-    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
-        ruta_f = ruta_base / archivo
-        if not ruta_f.exists():
-            continue
-        try:
-            with open(ruta_f, "r", encoding="utf-8") as f:
-                for s in json.load(f):
-                    semanas.add(int(s.get("Semana_Abs", 0)))
-        except Exception:
-            pass
+    for sesiones in _archivos_plan_cargados(numero_usuario):
+        for s in sesiones:
+            try:
+                semanas.add(int(s.get("Semana_Abs", 0)))
+            except (TypeError, ValueError):
+                continue
     semanas.discard(0)
     return sorted(semanas)
 
@@ -2071,20 +2296,22 @@ def _construir_whitelist_kgs(numero_usuario: str, fuentes_turno: str,
                        if isinstance(v, (int, float))}
     except Exception:
         pass
+    # Ambos historiales se leen con caché por firma de archivo: son dos json.load
+    # por turno sobre archivos que solo cambian cuando se registra una marca.
     try:
-        with open(_ruta_historial_rm(numero_usuario), "r", encoding="utf-8") as f:
-            for h in json.load(f):
-                for k in ("rm", "peso_origen"):
-                    if isinstance(h, dict) and isinstance(h.get(k), (int, float)):
-                        permitidos.add(round(float(h[k]), 1))
-    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        for h in _leer_json_cacheado(_ruta_historial_rm(numero_usuario), []) or []:
+            if not isinstance(h, dict):
+                continue
+            for k in ("rm", "peso_origen"):
+                if isinstance(h.get(k), (int, float)):
+                    permitidos.add(round(float(h[k]), 1))
+    except (TypeError, ValueError):
         pass
     try:
-        with open(_ruta_peso(numero_usuario), "r", encoding="utf-8") as f:
-            for h in json.load(f):
-                if isinstance(h, dict) and isinstance(h.get("peso"), (int, float)):
-                    permitidos.add(round(float(h["peso"]), 1))
-    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        for h in _leer_json_cacheado(_ruta_peso(numero_usuario), []) or []:
+            if isinstance(h, dict) and isinstance(h.get("peso"), (int, float)):
+                permitidos.add(round(float(h["peso"]), 1))
+    except (TypeError, ValueError):
         pass
 
     # 6) ADAPTACIÓN AL EQUIPAMIENTO. El plan calcula en múltiplos de 2.5, pero si
@@ -2135,7 +2362,20 @@ async def generar_respuesta_coach(numero_usuario: str, mensaje_usuario: str):
         log(numero_usuario, "LOCK", "mensaje rechazado: hay otro en proceso")
         return "Dame unos segundos bro, sigo con tu mensaje anterior 🙏"
     async with lock:
-        return await _generar_respuesta_coach_interno(numero_usuario, mensaje_usuario)
+        try:
+            return await _generar_respuesta_coach_interno(numero_usuario, mensaje_usuario)
+        except Exception as e:
+            # Toda la fase previa a la llamada al modelo (onboarding, calendario,
+            # interceptores) vivía FUERA del try interno: un estado corrupto en
+            # disco reventaba aquí y el atleta se quedaba sin ninguna respuesta.
+            # Ahora siempre sale algo, y la memoria se recarga del disco en el
+            # siguiente turno para no arrastrar un historial a medio escribir.
+            import traceback
+            traceback.print_exc()
+            log(numero_usuario, "ERROR-ORQUESTADOR", f"{type(e).__name__}: {e}")
+            historial_memoria.pop(numero_usuario, None)
+            _firmas_historial.pop(numero_usuario, None)
+            return "Se me cruzaron los cables un segundo bro 🙏 Repíteme eso porfa."
 
 
 async def _forzar_respuesta_texto(mensajes: list, instruccion: str) -> str:
@@ -2184,16 +2424,32 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     hora_actual  = ahora.strftime("%H:%M:%S")
     ruta_historial = historial_usuario(numero_usuario)
 
-    if os.path.exists(ruta_historial):
-        try:
-            async with aiofiles.open(ruta_historial, mode="r", encoding="utf-8") as f:
-                contenido = await f.read()
-                historial_memoria[numero_usuario] = json.loads(contenido)
-        except (json.JSONDecodeError, Exception) as e:
-            log(numero_usuario, "HIST-ERROR", f"historial corrupto, se reinicia: {e}")
-            historial_memoria[numero_usuario] = []
-    else:
+    # HISTORIAL: memoria primero, disco solo cuando hace falta de verdad.
+    # Antes se releía y se parseaba el JSON completo (decenas de KB) en CADA
+    # mensaje, aunque este proceso sea el único que lo escribe. Ahora el disco
+    # es respaldo: al final del turno la memoria queda EXACTAMENTE igual que lo
+    # persistido (misma poda de telemetría), así que el modelo ve literalmente
+    # el mismo contexto que antes.
+    #
+    # El `os.stat` sigue haciéndose cada turno (microsegundos) para que un
+    # borrado externo —scripts/reset_usuario.py con el servidor encendido— se
+    # detecte igual que antes y la memoria no se quede con datos zombis.
+    firma_hist = _firma_archivo(ruta_historial)
+    if (numero_usuario not in historial_memoria
+            or _firmas_historial.get(numero_usuario) != firma_hist):
         historial_memoria[numero_usuario] = []
+        if firma_hist is not None:
+            try:
+                async with aiofiles.open(ruta_historial, mode="r", encoding="utf-8") as f:
+                    contenido = await f.read()
+                cargado = json.loads(contenido)
+                historial_memoria[numero_usuario] = cargado if isinstance(cargado, list) else []
+            except Exception as e:
+                log(numero_usuario, "HIST-ERROR", f"historial corrupto, se reinicia: {e}")
+                historial_memoria[numero_usuario] = []
+        else:
+            log(numero_usuario, "HIST", "sin historial en disco; se arranca de cero")
+        _firmas_historial[numero_usuario] = firma_hist
 
     estado_hoy           = obtener_estado_usuario(numero_usuario)
     fecha_programada_str = estado_hoy.get("fecha_programada", fecha_actual)
@@ -2234,7 +2490,18 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         f"campo_pendiente='{estado_hoy.get('campo_pendiente', '')}' "
         f"historial={len(historial_memoria[numero_usuario])} msgs")
 
-    fecha_prog = datetime.strptime(fecha_programada_str, "%Y-%m-%d")
+    # Una fecha corrupta en estado_usuarios.json (editada a mano, o un formato
+    # de otra versión) lanzaba ValueError AQUÍ, antes de cualquier try: el
+    # atleta se quedaba sin respuesta y el log solo mostraba el traceback.
+    try:
+        fecha_prog = datetime.strptime(str(fecha_programada_str)[:10], "%Y-%m-%d")
+    except (ValueError, TypeError):
+        log(numero_usuario, "ESTADO",
+            f"fecha_programada inválida ({fecha_programada_str!r}); se reprograma para hoy")
+        fecha_programada_str = fecha_actual
+        fecha_prog = ahora
+        _actualizar_estado_json(numero_usuario, fecha_programada=fecha_actual)
+
     if ahora.date() < fecha_prog.date():
         estatus = f"DESCANSO: Próximo entreno el {fecha_programada_str}."
     elif ahora.date() == fecha_prog.date():
@@ -3566,18 +3833,26 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         historial_memoria[numero_usuario].append({"role": "assistant", "content": texto_final})
 
         # Persistencia SIN la telemetría del turno (no engorda el disco ni contamina
-        # futuros contextos con datos viejos de calendario)
+        # futuros contextos con datos viejos de calendario).
+        # La MISMA versión podada pasa a ser la memoria viva: así el contexto que
+        # verá el modelo en el próximo turno es idéntico al de antes (cuando se
+        # releía del disco), pero sin pagar la relectura.
+        hist_disco = []
+        for m in historial_memoria[numero_usuario]:
+            c = m.get("content", "")
+            if m.get("role") == "user" and TELEMETRIA_INICIO in c:
+                c = c.split(TELEMETRIA_INICIO)[0]
+            hist_disco.append({"role": m.get("role"), "content": c})
+        historial_memoria[numero_usuario] = hist_disco
         try:
-            hist_disco = []
-            for m in historial_memoria[numero_usuario]:
-                c = m.get("content", "")
-                if m.get("role") == "user" and TELEMETRIA_INICIO in c:
-                    c = c.split(TELEMETRIA_INICIO)[0]
-                hist_disco.append({"role": m.get("role"), "content": c})
             async with aiofiles.open(ruta_historial, mode="w", encoding="utf-8") as f:
                 await f.write(json.dumps(hist_disco, indent=2, ensure_ascii=False))
+            # Firma del archivo que ACABAMOS de escribir: sin esto el turno
+            # siguiente vería un mtime distinto y releería el JSON entero.
+            _firmas_historial[numero_usuario] = _firma_archivo(ruta_historial)
         except Exception as e_hist:
             log(numero_usuario, "HIST-ERROR", f"no se pudo persistir: {e_hist}")
+            _firmas_historial.pop(numero_usuario, None)
 
         _limpiar_overrides_solo_hoy(numero_usuario)
         log(numero_usuario, "OUT", f"{time.monotonic() - t_inicio:.1f}s -> {_trunc(texto_final, 150)}")
@@ -3587,6 +3862,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         import traceback
         traceback.print_exc()
         log(numero_usuario, "ERROR-FATAL", f"{type(e).__name__}: {e}")
+        # El mensaje del atleta ya está en memoria pero no hubo respuesta: si se
+        # dejara así, el siguiente turno arrancaría con un historial desalineado
+        # respecto al disco. Se descarta la memoria y se recarga del archivo.
+        historial_memoria.pop(numero_usuario, None)
+        _firmas_historial.pop(numero_usuario, None)
         return "Se me cruzaron los cables un segundo bro 🙏 Repíteme eso porfa."
 
 # ==============================================================================
@@ -3616,7 +3896,9 @@ async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_puro: st
         return f"Faltan datos para generar: {', '.join(faltan)}."
     _actualizar_estado_json(numero_usuario, estado_generacion="generando",
                             generacion_ts=time.time())
-    asyncio.create_task(_generar_rutina_background(datos, numero_usuario))
+    tarea = asyncio.create_task(_generar_rutina_background(datos, numero_usuario))
+    _tareas_generacion.add(tarea)                      # referencia fuerte: ver nota
+    tarea.add_done_callback(_tareas_generacion.discard)
     log(numero_usuario, "GEN", f"pipeline lanzado en background: {datos}")
     return ("Generación DISPARADA en segundo plano (tarda 2-3 minutos). NO describas "
             "ejercicios todavía; el sistema avisará al atleta cuando esté lista.")
@@ -3634,36 +3916,19 @@ def _redondear_carga(kg: float, incremento: float = INCREMENTO_KG_POR_DEFECTO) -
 
 def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool = False) -> str:
     numero_usuario = str(numero_usuario).strip()
-    ruta_base = Path(__file__).resolve().parent.parent / "resources" / "rutinas_generadas" / numero_usuario
-    sesiones = []
-    for archivo in ["1_acumulamiento.json", "2_fuerza.json", "3_realizacion.json"]:
-        ruta_f = ruta_base / archivo
-        if not ruta_f.exists():
-            continue
-        try:
-            with open(ruta_f, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            sesiones = [s for s in data if int(s.get("Semana_Abs", 0)) == int(semana)]
-            if sesiones:
-                break
-        except Exception as e:
-            print(f"[RUTINA] error leyendo {archivo}: {e}")
+    sesiones = _sesiones_semana_cache(numero_usuario, semana)
     if not sesiones:
         return "ESTADO DE RUTINA: Vacío (no hay plan generado para esa semana)."
 
     overrides = _cargar_overrides(numero_usuario)
     rms = cargar_rms(numero_usuario)
     incremento = _incremento_barra(numero_usuario)   # discos reales del atleta
-    descarga = {}
-    try:
-        with open(os.path.join(carpeta_data, f"descargas_{numero_usuario}.json"),
-                  "r", encoding="utf-8") as f:
-            todas = json.load(f)
-            if isinstance(todas, dict):
-                descarga = todas.get(str(semana), {}) or {}
-    except (FileNotFoundError, json.JSONDecodeError):
-        descarga = {}
-    red_int = float(descarga.get("red_intensidad", 0) or 0)
+    # Las descargas viven en overrides_{numero}.json bajo la clave "descargas": es
+    # lo que escribe _guardar_descarga. Antes se leía un descargas_{numero}.json que
+    # NADIE creaba nunca, y con el campo equivocado ('red_intensidad' en vez de
+    # 'red_intensidad_pct'), así que aplicar_descarga no reducía absolutamente nada.
+    descarga = (overrides.get("descargas") or {}).get(str(int(semana)), {}) or {}
+    red_int = float(descarga.get("red_intensidad_pct", descarga.get("red_intensidad", 0)) or 0)
     red_ser = int(descarga.get("red_series", 0) or 0)
 
     indice_hoy = _normalizar_dia_a_indice(dia_actual)
@@ -3682,10 +3947,18 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
                          or ej.get("nombre")
                          or "?")
             base = _norm_ej(nombre)
-            for o_orig, o_new in overrides.items():
-                if _norm_ej(o_orig) == base:
-                    nombre, base = o_new, _norm_ej(o_new)
-                    break
+            # _cargar_overrides devuelve el JSON completo ({"ejercicios": {...},
+            # "descargas": {...}}): iterarlo directo comparaba el nombre del ejercicio
+            # contra las claves de primer nivel, así que la sustitución NUNCA se
+            # aplicaba. El valor es el dict {"nuevo", "alcance"} de
+            # _guardar_override_ejercicio; se tolera el formato plano antiguo.
+            for o_orig, o_datos in (overrides.get("ejercicios") or {}).items():
+                if _norm_ej(o_orig) != base:
+                    continue
+                o_new = o_datos.get("nuevo") if isinstance(o_datos, dict) else o_datos
+                if o_new:
+                    nombre, base = str(o_new), _norm_ej(o_new)
+                break
             series = ej.get("Series", "?")
             try:
                 if red_ser and str(series).isdigit():
@@ -3731,22 +4004,19 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
 # ESTADO Y CALENDARIO
 # ==============================================================================
 def obtener_estado_usuario(numero_usuario: str) -> dict:
-    try:
-        with open(ruta_estado, "r", encoding="utf-8") as f:
-            estados = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        estados = {}
+    """Estado del atleta. Devuelve SIEMPRE una copia: el orquestador escribe
+    sobre el dict que recibe (`estado_hoy['plan_pausado'] = 1`) y no debe poder
+    corromper la caché compartida sin pasar por _actualizar_estado_json."""
+    estados = _leer_estados()
     est = estados.get(numero_usuario)
     if not est:
         est = {"semana": 1, "dia": 1,
                "fecha_programada": datetime.now().strftime("%Y-%m-%d"),
                "ultima_fecha_completada": ""}
+        estados = dict(estados)
         estados[numero_usuario] = est
-        try:
-            with open(ruta_estado, "w", encoding="utf-8") as f:
-                json.dump(estados, f, indent=4, ensure_ascii=False)
-        except OSError as e:
-            print(f"[ESTADO] no se pudo crear: {e}")
+        _escribir_estados(estados)
+    est = dict(est)
     est.setdefault("semana", 1)
     est.setdefault("dia", 1)
     est.setdefault("fecha_programada", datetime.now().strftime("%Y-%m-%d"))

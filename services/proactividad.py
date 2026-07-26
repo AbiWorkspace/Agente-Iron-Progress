@@ -24,7 +24,10 @@ from datetime import date, datetime
 
 import matplotlib
 matplotlib.use("Agg")                     # sin display: solo PNG a disco
-import matplotlib.pyplot as plt
+# API orientada a objetos en vez de pyplot: `generar_grafica_e1rm` corre dentro
+# de `asyncio.to_thread`, y el gestor global de figuras de pyplot NO es seguro
+# entre hilos (dos gráficas simultáneas se pisaban la figura "actual").
+from matplotlib.figure import Figure
 from core.config import  settings
 
 
@@ -89,13 +92,32 @@ def es_boton_readiness(texto: str) -> bool:
     return _norm_boton(texto) in _SCORE_BOTON
 
 
+async def _cliente_graph():
+    """Cliente HTTP compartido con el webhook (keep-alive contra Meta).
+
+    Import perezoso para no crear un ciclo: api.rutas_whatsapp importa este
+    módulo al arrancar. Si el webhook aún no está montado (uso desde un script
+    suelto), se crea un cliente propio de un solo uso.
+    """
+    try:
+        from api.rutas_whatsapp import cliente_http
+        return await cliente_http(), False
+    except Exception:
+        import httpx
+        return httpx.AsyncClient(timeout=60), True
+
+
 async def _post_graph(ruta: str, **kwargs) -> dict:
-    import httpx
-    async with httpx.AsyncClient(timeout=30) as cli:
+    cli, propio = await _cliente_graph()
+    try:
         r = await cli.post(f"{GRAPH_URL}/{PHONE_ID}/{ruta}",
-                           headers={"Authorization": f"Bearer {TOKEN}"}, **kwargs)
+                           headers={"Authorization": f"Bearer {TOKEN}"},
+                           timeout=30, **kwargs)
         r.raise_for_status()
         return r.json()
+    finally:
+        if propio:
+            await cli.aclose()
 
 
 async def enviar_readiness(numero: str, nombre: str = "campeón") -> dict:
@@ -231,7 +253,8 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
         ewma.append(acc)
     prs = [i for i, v in enumerate(e1s) if v > max(e1s[:i], default=0)]
 
-    fig, ax = plt.subplots(figsize=(7, 4), dpi=150)
+    fig = Figure(figsize=(7, 4), dpi=150)
+    ax = fig.subplots()
     ax.plot(fechas, e1s, "o", ms=5, color="#4C78A8", alpha=0.75, label="e1RM sesión")
     ax.plot(fechas, ewma, "-", lw=2.2, color="#F58518", label="tendencia (EWMA)")
     if prs:
@@ -242,9 +265,14 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
     ax.grid(alpha=0.25)
     ax.legend(fontsize=8, loc="lower right")
     fig.autofmt_xdate(rotation=30)
-    ruta = os.path.join(CARPETA_TMP, f"e1rm_{numero}_{re.sub(r'\\W+', '_', ejercicio)}.png")
+    # El patrón se calcula FUERA de la f-string: r'\\W+' (como estaba) busca una
+    # barra invertida literal, así que "press banca" conservaba el espacio en el
+    # nombre del archivo en vez de sanearse a "press_banca".
+    slug = re.sub(r"\W+", "_", ejercicio).strip("_") or "ejercicio"
+    ruta = os.path.join(CARPETA_TMP, f"e1rm_{numero}_{slug}.png")
     fig.savefig(ruta, bbox_inches="tight")
-    plt.close(fig)
+    # Con la API orientada a objetos no hace falta `plt.close`: la figura no
+    # queda registrada en ningún gestor global y el recolector se la lleva.
 
     resumen = {"e1rm_actual_kg": round(ewma[-1], 1),
                "e1rm_inicio_kg": round(ewma[0], 1),
@@ -255,16 +283,20 @@ def generar_grafica_e1rm(numero: str, ejercicio: str, dias: int = 90) -> tuple[s
 
 
 async def _subir_media(ruta_png: str) -> str:
-    import httpx
-    async with httpx.AsyncClient(timeout=60) as cli:
+    cli, propio = await _cliente_graph()
+    try:
         with open(ruta_png, "rb") as f:
             r = await cli.post(
                 f"{GRAPH_URL}/{PHONE_ID}/media",
                 headers={"Authorization": f"Bearer {TOKEN}"},
                 data={"messaging_product": "whatsapp"},
-                files={"file": (os.path.basename(ruta_png), f, "image/png")})
+                files={"file": (os.path.basename(ruta_png), f, "image/png")},
+                timeout=60)
         r.raise_for_status()
         return r.json()["id"]
+    finally:
+        if propio:
+            await cli.aclose()
 
 
 async def enviar_imagen(numero: str, media_id: str, caption: str = "") -> dict:

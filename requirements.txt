@@ -1,0 +1,51 @@
+# Iron Progress V9 — dependencias de producción
+# Versiones fijadas a las del entorno verificado (Python 3.12).
+#   pip install -r requirements.txt
+
+# --- API y servidor ---
+fastapi==0.139.2
+uvicorn==0.51.0
+httpx==0.28.1
+requests==2.34.2
+python-dotenv==1.2.2
+aiofiles==25.1.0
+
+# --- LLM local (Ollama) y RAG ---
+ollama==0.6.2
+langchain-ollama==1.1.0
+langchain-chroma==1.1.0
+chromadb==1.5.9
+
+# --- Planificación proactiva y gráficas ---
+apscheduler==3.11.3
+matplotlib==3.11.1
+seaborn==0.13.2
+
+# --- Cálculo y modelo predictivo ---
+numpy==2.5.1
+pandas==3.0.3
+scikit-learn==1.7.2
+joblib==1.5.3
+
+# --- Visión (VBT + clasificador de ejercicios) ---
+opencv-python==5.0.0.93
+mediapipe==0.10.14
+ultralytics==8.4.104
+moviepy==2.2.1
+
+# --- Audio ---
+faster-whisper==1.2.1
+# faster-whisper necesita FFmpeg instalado en el sistema (no es un paquete pip):
+#   sudo apt install ffmpeg
+
+# --- PyTorch ---
+# NO se instala desde PyPI: este equipo usa la variante ROCm (torch 2.5.1+rocm6.2),
+# que sólo está en el índice de AMD. Instálalo aparte, ANTES que el resto:
+#   pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+# En una máquina con CUDA o sólo CPU, usa el índice correspondiente de pytorch.org.
+
+# --- Sólo para scripts/crear_base_conocimiento.py (ingesta de PDFs al RAG) ---
+# No hacen falta para que el bot funcione; instálalos si vas a reindexar los libros.
+# langchain-community
+# langchain-text-splitters
+# pypdf

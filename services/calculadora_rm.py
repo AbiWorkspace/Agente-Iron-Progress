@@ -15,7 +15,11 @@ class TipoEjercicio(Enum):
 # =========================
 
 def brzycki(peso: float, reps: int) -> float:
-    return peso * (36 / (37 - reps))
+    # El denominador se anula justo en reps=37 (ZeroDivisionError) y se vuelve
+    # negativo por encima. Se acota para que la fórmula nunca reviente: en el rango
+    # donde SÍ se usa (1-15 reps, ver estimacion_hibrida) el resultado no cambia,
+    # porque ahí 37-reps ya vale 22 o más.
+    return peso * (36 / max(1.0, 37 - reps))
 
 
 def epley(peso: float, reps: int) -> float:
