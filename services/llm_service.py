@@ -264,7 +264,7 @@ _CLAIM_ACCION_RE = re.compile(
 # ==============================================================================
 # CATÁLOGO V9: DICCIONARIO MAESTRO DE EJERCICIOS
 # ==============================================================================
-# IMPORTANTE: El orden importa. Las variantes específicas (con mancuernas, en máquina)
+# IMPORTANTE:  El orden importa. Las variantes específicas (con mancuernas, en máquina)
 # van primero para evitar falsos positivos con los ejercicios base.
 _CATALOGO_EJERCICIOS = {
     # --- VARIANTES ESPECÍFICAS ---
