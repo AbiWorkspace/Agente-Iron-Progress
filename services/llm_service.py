@@ -661,6 +661,19 @@ PENSAR_HABILITADO = True
 # resultados es redacción pura. Interruptor para A/B.
 PENSAR_POST_TOOLS = False
 
+# v10 — El thinking NO se apaga en turnos donde el modelo DECIDE: medido sobre 8
+# intenciones reales, think=True acierta 6/8 tool calls y think=False solo 3/8.
+# Falla justo en las inferencias ("ya terminé mi sesión" -> avanzar_dia, "cambia
+# el peso muerto por rumano" -> sustituir_ejercicio), que es para lo que se puso.
+# think="low" quedó descartado: mismo 6/8 pero MÁS lento (63 s vs 49 s de media).
+#
+# Lo que sí sobra es pensar en los turnos donde Python YA ejecutó la acción y le
+# inyectó el resultado al modelo ([SISTEMA — SERIE YA REGISTRADA], [SISTEMA —
+# RUTINA SOLICITADA]...): ahí no hay nada que decidir, solo redactar una
+# confirmación, y se pagaban ~1.950 tokens de razonamiento (~50 s) por nada.
+# Interruptor para A/B: ponlo en True y vuelve al comportamiento anterior.
+PENSAR_AUNQUE_PYTHON_RESUELVA = False
+
 # v8 (Mandato 2) — herramientas que ESCRIBEN estado. Solo estas se deduplican
 # cross-loop dentro del mismo turno (una lectura repetida es inofensiva; una
 # escritura repetida mete filas DUP en SQLite y corrompe el volumen del atleta).
@@ -685,7 +698,24 @@ OPCIONES_QWEN_32B = {
     "repeat_penalty": 1.1,
     "presence_penalty": 0.0,   # v7 CRÍTICO: anula el 1.5 del Modelfile que rompía los tool calls
     "min_p": 0.0,              # v7: fija el sampler, no heredes nada
-    "num_ctx": 16384,
+    # v10 — 32k en vez de 16k. Medido: el prompt de un turno normal llegaba a
+    # 15.234 tokens (system 3.075 + tools 6.299 + historial + telemetría), así que
+    # solo quedaban 1.150 para generar. Con think=True el razonamiento se los comía
+    # enteros y la respuesta salía VACÍA (done_reason='length', contenido 0 chars):
+    # esa era la causa REAL del bug 3.1, no el num_predict corto. Peor: Ollama
+    # marcaba 'truncated = 1' y descartaba tokens del prompt con n_keep=4, o sea
+    # que se comía trozos del system prompt en silencio.
+    # Coste: el KV pasa de 1.024 a ~2.048 MiB (solo 16 de las 64 capas llevan KV,
+    # el resto son recurrentes). Hay VRAM de sobra.
+    # Efecto lateral valioso: la caché de prompts de Ollama está topada al tamaño
+    # del contexto, así que su techo sube de 16.384 a 32.768 tokens y por fin caben
+    # DOS prompts a la vez (antes cualquier llamada intercalada —el clasificador,
+    # un _forzar_respuesta_texto— desalojaba al principal y el siguiente turno
+    # pagaba un reprefill completo de ~16 s).
+    # OJO: este valor debe seguir igual al de scripts/resources/
+    # Entrenamiento_llm_peticion.py; si difieren, Ollama RECARGA el modelo cada vez
+    # que se alternan y vuelve el thrashing de recargas.
+    "num_ctx": 32768,
     "num_predict": 2048,
 }
 
@@ -3319,10 +3349,24 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # herramientas, sintetizar sus resultados). En onboarding/casual Python ya
     # decidió todo y el modelo solo redacta: pensar ahí es latencia tirada.
     # OJO: los tokens de razonamiento consumen num_predict -> presupuesto amplio.
-    pensar_turno = PENSAR_HABILITADO and tools_de_turno is not None
+    # v10 — el "selectivo" de v5 no lo era tanto: tools_de_turno is not None es
+    # cierto en casi todos los turnos reales, así que el modelo razonaba (~1.950
+    # tok, ~50 s medidos) incluso cuando Python ya había ejecutado la acción y le
+    # había inyectado el resultado. Esos turnos son REDACCIÓN, no decisión.
+    # Se excluye el fin de sesión a propósito: ahí, aunque Python haya registrado
+    # la serie, el modelo todavía tiene que decidir si llama a avanzar_dia, y sin
+    # razonar falla ese caso (medido).
+    solo_redaccion = (not PENSAR_AUNQUE_PYTHON_RESUELVA
+                      and (accion_ejecutada or bool(consulta_rutina))
+                      and not FIN_SESION_RE.search(texto_puro))
+    pensar_turno = (PENSAR_HABILITADO and tools_de_turno is not None
+                    and not solo_redaccion)
     if pensar_turno:
         opciones_turno.update(AJUSTES_PENSANDO)
-    log(numero_usuario, "THINK", "activado este turno" if pensar_turno else "desactivado (solo redacción)")
+    log(numero_usuario, "THINK",
+        "activado este turno" if pensar_turno
+        else ("desactivado (Python ya resolvió: solo redacción)" if solo_redaccion
+              else "desactivado (solo redacción)"))
 
     try:
         t_llm = time.monotonic()
