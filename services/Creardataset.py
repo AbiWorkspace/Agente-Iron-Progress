@@ -199,7 +199,12 @@ class ConfigVBT:
                                             # frames -> caja de otro objeto
 
     # Cinemática
-    ventana_savgol: int = 7                 # Muestras de la ventana (~0.23 s a 30 fps)
+    # FIX v3.4: la ventana se define en SEGUNDOS, no en muestras. Con 7 muestras
+    # fijas un video a 60 fps filtraba sobre 0.117 s y uno a 30 fps sobre 0.233 s:
+    # el MISMO levantamiento daba picos distintos según cómo se grabó. El dataset
+    # propio mezcla ambas cadencias (sentadillas a 30, press a 60).
+    ventana_s: float = 0.233                # Ancho temporal del ajuste local
+    ventana_savgol: int = 7                 # Fallback si no se conocen los fps
     poly_savgol: int = 2                    # Grado del ajuste local
     gap_reinicio_s: float = 0.35            # Hueco de detección que invalida la
                                             # ventana: ajustar a través de él
@@ -221,6 +226,15 @@ class ConfigVBT:
     reversa_px_piso: float = 8.0
     compromiso_px_piso: float = 15.0
     frac_linea_suelo: float = 0.75          # Ignora discos apilados en el piso
+
+    # Fin del EMPUJE concéntrico (v3.4). El lockout no es parte de la subida:
+    # si se deja que cualquier micro-ganancia de altura extienda la concéntrica,
+    # un reajuste postural 3 s después del bloqueo se traga la repetición entera
+    # (medido: 5.23 s de "concéntrica" para un tirón real de 1.73 s -> v_avg
+    # 0.111 m/s en vez de 0.315).
+    t_fin_empuje_s: float = 1.20            # sin ganar altura -> empuje acabado
+    frac_ganancia_util: float = 0.035       # x ROM: ganancia mínima que cuenta
+                                            # como "sigue subiendo" (anti-ruido)
 
     # Pose / cinemática articular (opcional)
     pose_cada_n_frames: int = 2             # Inferir pose 1 de cada N frames
@@ -330,9 +344,17 @@ def estimar_rir_por_velocidad(v_ultima_rep: float, perfil: PerfilEjercicio,
     return float(round(min(rir, 8.0), 1))
 
 
-def estimar_rir_por_vl(vl_pct: Optional[float]) -> Optional[str]:
-    """Rango de RIR según la pérdida de velocidad intra-serie."""
-    if vl_pct is None:
+def estimar_rir_por_vl(vl_pct: Optional[float],
+                       n_reps: int = 0) -> Optional[str]:
+    """Rango de RIR según la pérdida de velocidad intra-serie.
+
+    FIX v3.4: el VL solo informa de fatiga si hubo serie suficiente para
+    acumularla. Con 2-3 reps un VL bajo no prueba frescura — puede que la serie
+    simplemente fuera corta — y la tabla devolvía alegremente "4-6 reps en
+    reserva" tras un triple pesado. Por debajo de 4 reps el estimador se
+    abstiene y el RIR queda en manos de la velocidad terminal.
+    """
+    if vl_pct is None or n_reps < 4:
         return None
     if vl_pct < 10:
         return "4-6"
@@ -454,9 +476,17 @@ def estimar_reps_restantes(rir_velocidad: Optional[float],
     if len(rangos) == 2:
         lo = max(rangos[0][0], rangos[1][0])
         hi = min(rangos[0][1], rangos[1][1])
-        if lo > hi:  # sin solape: promedio de extremos
-            lo = int(round((rangos[0][0] + rangos[1][0]) / 2))
-            hi = int(round((rangos[0][1] + rangos[1][1]) / 2))
+        if lo > hi:
+            # FIX v3.4 — SIN SOLAPE = DESACUERDO, no dato.
+            # Antes se promediaban los extremos: con velocidad diciendo (0,0) y
+            # VL diciendo (2,3) salía un "~1-2" que ningún estimador sostenía,
+            # y se reportaba con la misma confianza que un consenso real. Ahora
+            # se devuelve la ENVOLVENTE de ambos y se marca como incierto, que
+            # es lo que honestamente sabemos.
+            lo = min(rangos[0][0], rangos[1][0])
+            hi = max(rangos[0][1], rangos[1][1])
+            texto = f"~{lo}-{hi} (estimadores en desacuerdo)"
+            return {"min": lo, "max": hi, "texto": texto, "incierto": True}
     else:
         lo, hi = rangos[0]
 
@@ -468,7 +498,7 @@ def estimar_reps_restantes(rir_velocidad: Optional[float],
         texto = f"~{lo}"
     else:
         texto = f"~{lo}-{hi}"
-    return {"min": lo, "max": hi, "texto": texto}
+    return {"min": lo, "max": hi, "texto": texto, "incierto": False}
 
 
 def estimar_zona_intensidad(pct_1rm: Optional[float]) -> str:
@@ -686,7 +716,13 @@ class RastreadorDisco:
             return None
 
         x_min, y_min, x_max, y_max = caja
-        alto_detectado = float(y_max - y_min)
+        # FIX v3.4: el disco es CIRCULAR, así que su caja debería ser cuadrada.
+        # Medido sobre el dataset propio, la relación ancho/alto es 0.93-0.96 de
+        # forma sistemática: la perspectiva (cámara no perpendicular al disco)
+        # comprime el eje vertical. Tomar el alto subestimaba el diámetro y por
+        # tanto INFLABA los m/px, y con ellos toda la velocidad de la serie ~5%.
+        # El eje mayor es la mejor estimación del diámetro real bajo escorzo.
+        alto_detectado = max(float(y_max - y_min), float(x_max - x_min))
         if alto_detectado <= 0:
             self._perder()
             return None
@@ -791,9 +827,18 @@ class EstimadorCinematica:
     sabemos qué hizo la barra, e inventarlo es peor que no medir.
     """
 
-    def __init__(self, cfg: ConfigVBT = CONFIG):
+    def __init__(self, cfg: ConfigVBT = CONFIG, fps: Optional[float] = None):
         self.cfg = cfg
-        n = cfg.ventana_savgol
+        # FIX v3.4: ventana anclada al TIEMPO, no al número de frames. Con 7
+        # muestras fijas, a 60 fps el filtro cubría la mitad del intervalo que a
+        # 30 fps: el mismo levantamiento grabado con otra cadencia devolvía
+        # picos distintos. Se conserva un mínimo de 5 muestras para que el
+        # ajuste de grado 2 esté sobredeterminado.
+        if fps and fps > 0:
+            n = int(max(5, round(fps * cfg.ventana_s)))
+        else:
+            n = cfg.ventana_savgol
+        self.n = n
         self.ts: deque = deque(maxlen=n)
         self.ys: deque = deque(maxlen=n)
         self.reinicios_por_hueco = 0
@@ -1013,7 +1058,16 @@ class MaquinaEstadosRep:
         self.t_inicio_rep = 0.0
         self.t_inicio_excentrica = 0.0
         self.t_fin_descenso = 0.0            # última vez que profundizó
-        self.t_fin_ascenso = 0.0             # última vez que ganó altura
+        self.t_fin_ascenso = 0.0             # última vez que ganó altura ÚTIL
+        # Fin del empuje (v3.4): `y_tope` sigue siendo el mínimo absoluto (lo
+        # necesita la detección de reversa para cerrar la rep), pero el ROM y el
+        # tiempo concéntricos se miden contra `y_tope_empuje`, que se CONGELA en
+        # cuanto la barra deja de subir. Sin esta separación el lockout entero
+        # contaba como fase concéntrica.
+        self.y_tope_empuje: Optional[float] = None
+        self.y_ref_ganancia: Optional[float] = None
+        self.t_ultima_ganancia = 0.0
+        self.empuje_cerrado = False
         self._t_exc_pend = 0.0               # excéntrica de la rep en curso
         self._t_amort_pend: Optional[float] = None
 
@@ -1057,9 +1111,15 @@ class MaquinaEstadosRep:
         self.buffer_subida.clear()
         self.path_rep = [(t, float(self.x_suave), float(y))]
 
+    def _abrir_empuje(self, t: float, y: float):
+        """Arranca el cronómetro del empuje concéntrico (v3.4)."""
+        self.y_tope = self.y_tope_empuje = self.y_ref_ganancia = y
+        self.t_ultima_ganancia = t
+        self.empuje_cerrado = False
+
     def _entrar_concentrica_desde_fondo(self, t: float, y: float):
         self.estado = self.fase_maxima = "concentrica"
-        self.y_tope = y
+        self._abrir_empuje(t, y)
         self.inicio_fase_y = self.y_mas_bajo
         # Excéntrica: desde su inicio hasta la última vez que profundizó
         self._t_exc_pend = max(self.t_fin_descenso - self.t_inicio_excentrica, 0.0)
@@ -1081,6 +1141,14 @@ class MaquinaEstadosRep:
     def actualizar(self, t: float, x: float, y: float, v: float,
                    alto_caja: Optional[float]) -> Optional[Repeticion]:
         self._ultimo_alto_caja = alto_caja
+        # FIX v3.4: ESCALA ÚNICA. Antes convivían dos escalas px->m distintas:
+        # `escala_fija_m_px`, congelada en el setup (con la mediana de apenas
+        # ~5 discos, antes de que la semilla de 10 estuviera completa) y usada
+        # para ROM y v_avg; y el `m_por_px` del EMA del rastreador, usado para
+        # v_peak, MPV y las velocidades instantáneas. v_avg y v_peak salían de
+        # reglas distintas, y el `max(v_peak, v_avg)` del cierre no era una
+        # garantía física sino un parche que tapaba la incoherencia.
+        self._fijar_escala(alto_caja)
         rom_min, reversa, compromiso = self._umbrales(alto_caja)
 
         # X con EMA ligera para el bar path (la Y ya llega filtrada por SG)
@@ -1135,11 +1203,16 @@ class MaquinaEstadosRep:
                 self.inicio_fase_y = self.y_inicial
                 self.t_inicio_rep = t
                 self._entrar_excentrica(t, y)
-            elif y < (self.y_inicial - compromiso):
+            elif y < (self.y_inicial - rom_min):
                 # Arranque directo hacia arriba (dominadas / press desde abajo):
                 # no hay excéntrica previa ni transición isométrica que medir.
+                # FIX v3.4: el umbral era `compromiso` (15 px), tan bajo que un
+                # simple unrack o un reajuste de hombros lo disparaba: la 1ª rep
+                # de sentadilla y de peso muerto salía por esta rama y se
+                # reportaba con t_excentrica_s=0 y amortiguación None. Se exige
+                # un ROM completo para aceptar que la serie empezó subiendo.
                 self.estado = self.fase_maxima = "concentrica"
-                self.y_tope = y
+                self._abrir_empuje(t, y)
                 self.inicio_fase_y = self.y_inicial
                 self.t_inicio_concentrica = (self.buffer_arranque[0][0]
                                              if self.buffer_arranque else t)
@@ -1179,12 +1252,44 @@ class MaquinaEstadosRep:
                     self._reiniciar_a_reposo(y)  # rebote pequeño = ruido
 
         elif self.estado == "concentrica":
-            if v > 0:  # solo empuje real: la velocidad negativa no es concéntrica
+            # Solo se acumulan muestras mientras el empuje sigue vivo: las del
+            # lockout son ruido alrededor de cero y hundían la media y el MPV.
+            if v > 0 and not self.empuje_cerrado:
                 self.vels_concentrica.append((t, v))
                 self.vels_serie.append(v)
-            if y < self.y_tope:          # sigue ganando altura
+
+            # --- Ganancia de altura ÚTIL (v3.4) --------------------------
+            # El tope de empuje solo avanza si la mejora supera el ruido de la
+            # señal. Medido en peso muerto: tras el bloqueo la barra "ganaba"
+            # 8.6 px (3.4% del ROM) por reajuste postural 3.5 s más tarde, y
+            # eso estiraba la concéntrica de 1.73 s a 5.23 s.
+            if self.y_tope_empuje is None:
+                self._abrir_empuje(t, y)
+
+            if not self.empuje_cerrado:
+                # ROM: mínimo absoluto alcanzado mientras el empuje sigue vivo.
+                # Se mide SIN margen para no recortar el recorrido real.
+                if y < self.y_tope_empuje:
+                    self.y_tope_empuje = y
+
+                # ¿Sigue subiendo? Se decide contra una referencia con margen,
+                # porque en el lockout la barra oscila varios píxeles (medido:
+                # ±7 px) y sin ese colchón cualquier vaivén se leía como empuje
+                # y volvía a arrancar el cronómetro.
+                rom_actual = abs(self.y_tope_empuje - self.inicio_fase_y)
+                margen = max(rom_actual * self.cfg.frac_ganancia_util, 2.0)
+                sube_de_verdad = (y < (self.y_ref_ganancia - margen)
+                                  and v > self.cfg.vel_sticking)
+                if sube_de_verdad:
+                    self.y_ref_ganancia = y
+                    self.t_fin_ascenso = self.t_ultima_ganancia = t
+                elif (t - self.t_ultima_ganancia) > self.cfg.t_fin_empuje_s:
+                    # Tiempo sin subir: la barra está bloqueada arriba. El
+                    # empuje terminó en la última ganancia real, no aquí.
+                    self.empuje_cerrado = True
+
+            if y < self.y_tope:          # mínimo absoluto (cierre por reversa)
                 self.y_tope = y
-                self.t_fin_ascenso = t
 
             if y > (self.y_tope + reversa):
                 if abs(self.y_tope - self.inicio_fase_y) >= rom_min:
@@ -1208,7 +1313,8 @@ class MaquinaEstadosRep:
         if self.estado != "concentrica" or len(self.vels_concentrica) <= 3:
             return None
         rom_min, _, _ = self._umbrales(self._ultimo_alto_caja)
-        if abs(self.y_tope - self.inicio_fase_y) < rom_min:
+        tope = self.y_tope_empuje if self.y_tope_empuje is not None else self.y_tope
+        if abs(tope - self.inicio_fase_y) < rom_min:
             return None
         # Este cierre llega tarde por definición (tras N s de quietud o al
         # acabarse el archivo): la rep terminó en el último empuje real, no
@@ -1221,7 +1327,10 @@ class MaquinaEstadosRep:
 
     # --------------------------------------------------------------
     def _cerrar_repeticion(self, t_fin: float) -> Repeticion:
-        recorrido_px = abs(self.y_tope - self.inicio_fase_y)
+        # ROM y tiempo se miden sobre el EMPUJE, no sobre el mínimo absoluto:
+        # `y_tope` puede haber avanzado unos píxeles durante el lockout.
+        tope = self.y_tope_empuje if self.y_tope_empuje is not None else self.y_tope
+        recorrido_px = abs(tope - self.inicio_fase_y)
         rom_m = recorrido_px * self.escala_fija_m_px
         # Fin real del empuje: última vez que la barra ganó altura. Así el
         # lockout (barra quieta arriba) no infla el tiempo concéntrico ni
@@ -1249,7 +1358,14 @@ class MaquinaEstadosRep:
         sticking_s = self._calcular_sticking(ts, vs, duracion,
                                              t_fin_empuje)
 
-        if vs.size >= 3:
+        # FIX v3.4: el suavizado del pico se define en TIEMPO (~0.1 s). Con 3
+        # muestras fijas promediaba 100 ms a 30 fps pero solo 50 ms a 60 fps, y
+        # el video a 60 conservaba más ruido de derivada: el mismo movimiento
+        # reportaba un pico más alto solo por haberse grabado más rápido.
+        k = int(max(3, round(self.fps * 0.10)))
+        if vs.size >= k:
+            v_peak = float(np.max(np.convolve(vs, np.ones(k) / k, mode="valid")))
+        elif vs.size >= 3:
             v_peak = float(np.max(np.convolve(vs, np.ones(3) / 3, mode="valid")))
         elif vs.size:
             v_peak = float(np.max(vs))
@@ -1346,10 +1462,16 @@ class MaquinaEstadosRep:
         except Exception:
             return fallback
 
+        # FIX v3.4: `vels_concentrica` solo contiene muestras con v > 0, así que
+        # sus instantes NO son contiguos. `np.gradient` sobre esa serie salta los
+        # huecos y fabrica aceleraciones enormes que disparan el corte a < −g en
+        # sitios arbitrarios. Solo se acepta el corte cuando las dos muestras
+        # implicadas son realmente consecutivas en el video.
+        dt_frame = 1.0 / max(self.fps, 1.0)
         i_pico = int(np.argmax(vs))
         corte = vs.size
-        for i in range(i_pico, vs.size):
-            if acel[i] < -GRAVEDAD:
+        for i in range(max(i_pico, 1), vs.size):
+            if acel[i] < -GRAVEDAD and (ts[i] - ts[i - 1]) <= 1.5 * dt_frame:
                 corte = i
                 break
 
@@ -1387,9 +1509,17 @@ def analizar_serie(registro: list, perfil: PerfilEjercicio,
     mvt_ef, e1rm_origen = res_1rm["mvt_efectivo"], res_1rm["origen"]
     zona = estimar_zona_intensidad(pct1rm)
 
-    rir_vel = estimar_rir_por_velocidad(v_last, perfil, nivel,
-                                        mvt_override=mvt_ef)
-    rir_vl = estimar_rir_por_vl(vl)
+    # FIX v3.4 — CÍRCULO VICIOSO DEL MVT EFECTIVO.
+    # `mvt_ef` se define como min(v_avg de la serie) cuando esa mínima baja del
+    # MVT de tabla. Pero el RIR se evaluaba con `v_last` contra ese mismo
+    # `mvt_ef`, y en una serie normal la última rep ES la más lenta: entonces
+    # `v_last <= mvt_ef` y `estimar_rir_por_velocidad` devolvía 0.0 SIEMPRE.
+    # El estimador se comparaba consigo mismo y declaraba fallo en toda serie
+    # que rompiera la tabla. Para el RIR se usa el MVT de TABLA (referencia
+    # externa e independiente de la serie); `mvt_ef` sigue anclando el e1RM,
+    # donde sí es una cota superior legítima demostrada por el propio atleta.
+    rir_vel = estimar_rir_por_velocidad(v_last, perfil, nivel)
+    rir_vl = estimar_rir_por_vl(vl, n)
     reps_rest = estimar_reps_restantes(rir_vel, rir_vl)
 
     # ---- Técnica: consistencia de ROM ----
@@ -2639,7 +2769,7 @@ def procesar_levantamiento_vbt(
         cap, fps, dt_nominal, ancho, alto = inicializar_video(ruta_video, numero_usuario)
         video_writer, ruta_temporal = _inicializar_escritor_video(ruta_salida, ancho, alto, fps)
 
-        estimador = EstimadorCinematica()
+        estimador = EstimadorCinematica(CONFIG, fps)
         maquina = MaquinaEstadosRep(CONFIG, fps)
 
         puntos_trayectoria = deque(maxlen=30)
@@ -2786,15 +2916,24 @@ def procesar_levantamiento_vbt(
         analisis=analisis,
         carga_kg=carga_kg,
     )
-    contexto_agente = (f"EJERCICIO IDENTIFICADO VÍA IA: "
+    # `nombre_ejercicio` llega ya reconciliado por el orquestador (la corrección
+    # del atleta pisa a la detección de visión). Etiquetarlo como "IDENTIFICADO
+    # VÍA IA" hacía que el modelo lo tratase como una hipótesis más de la visión
+    # y lo pusiera al mismo nivel que la detección errónea que él mismo había
+    # corregido, con las dos afirmaciones contradiciéndose en el mismo prompt.
+    contexto_agente = (f"EJERCICIO DE ESTA SERIE: "
                        f"{nombre_ejercicio.upper()}\n\n{contexto_base}")
 
     # Conversión final para iOS/Web
     _convertir_video_h264(ruta_temporal, ruta_salida)
 
-    v_prom = (round(float(np.mean(maquina.vels_serie)), 3)
-              if maquina.vels_serie
-              else round(float(np.mean([r.v_avg for r in registro_repeticiones])), 3))
+    # FIX v3.4: la media de la serie es la media de las VCM por repetición, no
+    # la media de las muestras instantáneas. Promediar muestras pondera cada rep
+    # por cuántos frames duró, así que las reps LENTAS (las que más frames
+    # aportan) dominaban el resultado y la "velocidad media de la serie" salía
+    # sistemáticamente por debajo de todas las reps que la componen (medido:
+    # 0.245 m/s reportado para reps de 0.316 / 0.314 / 0.266).
+    v_prom = round(float(np.mean([r.v_avg for r in registro_repeticiones])), 3)
 
     # 10. Retorno estructurado: claves originales intactas + claves v3
     return {

@@ -27,6 +27,8 @@ from datetime import date, datetime, timedelta
 
 import numpy as np
 
+from core.ejercicios import canonizar
+
 # ==============================================================================
 # AJUSTA AQUÍ — único punto de acople con tu esquema real (ver migracion_v9.py)
 # ==============================================================================
@@ -105,6 +107,14 @@ def _fecha(v) -> date:
 
 
 def _norm(txt: str) -> str:
+    """Normalización de TEXTO GENÉRICO (dolor, grupo muscular, etiquetas).
+
+    Deliberadamente NO canoniza ejercicios: para eso está `canonizar`, que se
+    aplica de forma explícita en cada punto donde el texto es un ejercicio. La
+    distinción importa — las reglas de ejercicio convierten "hombro" en "press
+    militar", que es correcto para un ejercicio y desastroso para un reporte de
+    dolor articular o para un grupo muscular.
+    """
     return re.sub(r"\s+", " ", str(txt or "").strip().lower())
 
 
@@ -118,12 +128,20 @@ def leer_series(numero: str, ejercicio: str | None = None, dias: int = 180) -> l
          f"AND {C['peso']} IS NOT NULL AND {C['reps']} IS NOT NULL "
          f"AND {C['rpe']} IS NOT NULL")
     args = [str(numero), desde]
-    if ejercicio:
-        q += f" AND LOWER({C['ejercicio']}) = ?"
-        args.append(_norm(ejercicio))
     q += f" ORDER BY {C['fecha']} ASC"
     with _con() as con:
-        return [dict(r) for r in con.execute(q, args)]
+        filas = [dict(r) for r in con.execute(q, args)]
+
+    # El filtro por ejercicio se hace en Python, no en SQL. Las filas ya
+    # escritas conservan el nombre con el que se guardaron ('Press Banco
+    # Plano'), y un `WHERE LOWER(ejercicio)=?` contra la clave canónica no las
+    # encontraría: el histórico quedaría invisible y la detección de PR
+    # compararía contra un conjunto vacío. Canonizando en lectura, las series
+    # antiguas se agrupan con las nuevas SIN reescribir la base.
+    if ejercicio:
+        objetivo = canonizar(ejercicio)
+        filas = [f for f in filas if canonizar(f["e"]) == objetivo]
+    return filas
 
 
 def guardar_serie_v9(numero: str, ejercicio: str, peso_kg: float,
@@ -136,7 +154,7 @@ def guardar_serie_v9(numero: str, ejercicio: str, peso_kg: float,
             f"INSERT INTO {TABLA_SERIES} ({C['usuario']}, {C['ejercicio']}, "
             f"{C['peso']}, repeticiones, rpe_reportado, {C['dolor']}, {C['fecha']}) "
             "VALUES (?,?,?,?,?,?,?)",
-            (str(numero), _norm(ejercicio), float(peso_kg), int(repeticiones),
+            (str(numero), canonizar(ejercicio), float(peso_kg), int(repeticiones),
              float(rpe), str(dolor or "ninguno"), datetime.now().isoformat(" ", "seconds")))
         con.commit()
 
@@ -172,7 +190,7 @@ def registrar_evento(numero: str, tipo: str, ejercicio: str | None, detalle: dic
             "INSERT INTO eventos_autorregulacion (numero_usuario, fecha, tipo, "
             "ejercicio, detalle_json) VALUES (?,?,?,?,?)",
             (str(numero), datetime.now().isoformat(" ", "seconds"), tipo,
-             _norm(ejercicio) if ejercicio else None, json.dumps(detalle, ensure_ascii=False)))
+             canonizar(ejercicio) if ejercicio else None, json.dumps(detalle, ensure_ascii=False)))
         con.commit()
 
 
@@ -183,7 +201,7 @@ def _eventos_hoy(numero: str, tipo_prefijo: str, ejercicio: str | None = None) -
     args = [str(numero), hoy + "%", tipo_prefijo + "%"]
     if ejercicio:
         q += " AND ejercicio=?"
-        args.append(_norm(ejercicio))
+        args.append(canonizar(ejercicio))
     with _con() as con:
         return int(con.execute(q, args).fetchone()[0])
 
@@ -357,7 +375,7 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
 
     GUARDRAILS finales: salto acotado a [−7 %, +5 %] de la última carga top,
     techo en el propio e1RM, redondeo a discos de 2.5."""
-    ejercicio = _norm(ejercicio)
+    ejercicio = canonizar(ejercicio)
     reps = int(repeticiones_objetivo)
     rpe_obj = float(rpe_objetivo)
     if not (1 <= reps <= 30) or not (5.0 <= rpe_obj <= 10.0):
@@ -454,7 +472,7 @@ def analizar_mrv(numero: str, grupo_muscular: str | None = None,
     series = leer_series(numero, None, dias=ventana_dias * 2 + 3)
     if grupo:
         series = [s for s in series
-                  if _GRUPO_DE.get(_norm(s["e"]), "") == grupo or grupo in _norm(s["e"])]
+                  if _GRUPO_DE.get(canonizar(s["e"]), "") == grupo or grupo in canonizar(s["e"])]
     rec  = [s for s in series if _fecha(s["f"]) >= ini_rec]
     prev = [s for s in series if ini_prev <= _fecha(s["f"]) < ini_rec]
     if len(rec) < 4 or len(prev) < 4:
@@ -465,7 +483,7 @@ def analizar_mrv(numero: str, grupo_muscular: str | None = None,
     def _por_ej(bloque):
         out: dict[str, dict] = {}
         for s in bloque:
-            e = _norm(s["e"])
+            e = canonizar(s["e"])
             e1, ef = e1rm_serie(s["w"], s["r"], s["rpe"])
             b = out.setdefault(e, {"e1rms": [], "sets": 0, "duros": 0, "pares": []})
             if ef <= 12:
@@ -540,7 +558,7 @@ def autorregular_dia(numero: str, ejercicio: str, rpe_reportado: float,
 
     Cada llamada se persiste en eventos_autorregulacion: auditoría de por qué
     se bajó una carga + feature futura del modelo."""
-    ejercicio = _norm(ejercicio)
+    ejercicio = canonizar(ejercicio)
     rpe_rep, rpe_obj = float(rpe_reportado), float(rpe_objetivo)
     restantes = max(0, int(series_restantes))
     carga = float(carga_actual_kg)

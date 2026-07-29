@@ -25,7 +25,51 @@ from __future__ import annotations
 import asyncio
 import json
 
+import time
+
+from core.ejercicios import canonizar, mismo_ejercicio, para_mostrar
 from services import motor_predictivo as mp
+
+# ==============================================================================
+# EJERCICIO CONFIRMADO POR EL ATLETA (guarda contra la deriva del LLM)
+# ------------------------------------------------------------------------------
+# Cuando el atleta corrige la detección de visión ("No, sentadilla 140kg"), ese
+# dato queda resuelto en el orquestador... pero `registrar_serie_completada`
+# guardaba `args["ejercicio"]` tal cual, o sea lo que el modelo hubiera decidido
+# escribir. Con la rutina del día en contexto diciendo "Press Banco Plano", el
+# reporte VBT salía correcto (SENTADILLA) y la serie se registraba como press:
+# mismos kilos, mismas reps, mismo e1RM, ejercicio equivocado.
+#
+# Reforzar el prompt reduce la probabilidad; esta guarda la elimina. El dato
+# confirmado se registra aquí antes de invocar al LLM y el handler lo impone.
+# Caduca por TTL para no contaminar series posteriores del mismo atleta.
+_TTL_CONFIRMADO_S = 30 * 60
+_ejercicio_confirmado: dict[str, tuple[str, float]] = {}
+
+
+def fijar_ejercicio_confirmado(numero: str, ejercicio: str | None) -> None:
+    """El orquestador declara qué ejercicio confirmó el atleta para esta serie."""
+    if not ejercicio:
+        return
+    _ejercicio_confirmado[str(numero)] = (str(ejercicio), time.time())
+
+
+def leer_ejercicio_confirmado(numero: str) -> str | None:
+    """Devuelve el ejercicio confirmado vigente, o None si no hay o ya caducó.
+    No lo consume: el LLM puede reinvocar la tool dentro del mismo turno."""
+    dato = _ejercicio_confirmado.get(str(numero))
+    if not dato:
+        return None
+    ejercicio, sellado = dato
+    if (time.time() - sellado) > _TTL_CONFIRMADO_S:
+        _ejercicio_confirmado.pop(str(numero), None)
+        return None
+    return ejercicio
+
+
+def limpiar_ejercicio_confirmado(numero: str) -> None:
+    _ejercicio_confirmado.pop(str(numero), None)
+
 
 # ==============================================================================
 # SOLICITUD 1 — registrar_serie_completada con TRÍADA OBLIGATORIA
@@ -43,9 +87,26 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
     exactamente ese dato — engrana con la maquinaria de honestidad v8
     (acciones_fallidas / _instruccion_fallback)."""
     ejercicio = str(args.get("ejercicio") or "").strip()
+
+    # GUARDA: si el atleta confirmó el ejercicio de esta serie, manda ese dato.
+    # El LLM puede desviarse hacia el nombre de la rutina del día o hacia la
+    # detección de visión que el propio atleta ya corrigió.
+    confirmado = leer_ejercicio_confirmado(numero)
+    corregido_desde = None
+    if confirmado and not mismo_ejercicio(ejercicio, confirmado):
+        corregido_desde, ejercicio = ejercicio, confirmado
+    elif confirmado and not ejercicio:
+        ejercicio = confirmado
+
     peso = _f(args.get("peso_kg"))
     reps = args.get("repeticiones")
     rpe = _f(args.get("rpe"))
+    # El schema pide un número, pero el modelo a veces reenvía lo que dijo el
+    # atleta tal cual ("me quedaron 2"). Antes eso valía None y la serie se
+    # rechazaba entera por tríada incompleta; la frase lleva el dato dentro.
+    if rpe is None and args.get("rpe") is not None:
+        from services.llm_service import rpe_desde_texto
+        rpe = rpe_desde_texto(str(args.get("rpe")))
     dolor = str(args.get("dolor_articular") or "ninguno").strip() or "ninguno"
 
     faltan = []
@@ -80,8 +141,19 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
 
     await asyncio.to_thread(mp.guardar_serie_v9, numero, ejercicio, peso, reps, rpe, dolor)
 
+    # El nombre que se devuelve al coach es el canónico, el mismo con el que
+    # quedó guardado: si el modelo narra "Press Banco Plano" mientras la base
+    # dice "press banca", el atleta no puede auditar su propio historial.
+    etiqueta = para_mostrar(ejercicio)
+    aviso = None
+    if corregido_desde:
+        aviso = (f"OJO: ibas a registrar '{corregido_desde}', pero el atleta "
+                 f"confirmó '{etiqueta}' para esta serie. Se guardó como "
+                 f"'{etiqueta}'. Nómbralo así al responder.")
+
     return {"ok": True,
-            "resumen": f"{ejercicio} {peso:g}×{reps} @RPE {rpe:g}",
+            "resumen": f"{etiqueta} {peso:g}×{reps} @RPE {rpe:g}",
+            **({"correccion_ejercicio": aviso} if aviso else {}),
             "e1rm_serie_kg": e1_nuevo,
             "e1rm_previo_kg": round(e1_prev, 1) or None,
             "es_record": es_pr,

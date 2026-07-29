@@ -15,11 +15,13 @@ from fastapi.responses import PlainTextResponse
 
 # Importaciones de configuración y servicios propios
 from core.config import settings
+from core.ejercicios import canonizar, detectar
 from data.meta_service import enviar_mensaje_whatsapp
 from services.llm_service import generar_respuesta_coach
 from services.audio_service import procesar_audio_whatsapp
 from services.vbt_service import procesar_y_responder_video_vbt
 from services.vision_service import predecir_ejercicio
+from services.handlers_v9 import fijar_ejercicio_confirmado
 
 # --- GANCHOS V9 ---
 from services.proactividad import (
@@ -140,17 +142,18 @@ async def enviar_whatsapp(numero_usuario: str, texto: str) -> None:
 
 
 def corregir_ejercicio_usuario(texto_usuario: str, ejercicio_ia: str) -> str:
-    """Analiza el texto del atleta para detectar si corrigió a la IA."""
-    t = (texto_usuario or "").lower()
-    if any(x in t for x in ["peso muerto", "deadlift", "sumo", "rdl"]):
-        return "peso_muerto"
-    if any(x in t for x in ["sentadilla", "squat", "hack"]):
-        return "sentadilla"
-    if any(x in t for x in ["press", "banca", "bench", "pecho"]):
-        return "press_banca"
-    if any(x in t for x in ["dominada", "pull up", "jalon"]):
-        return "dominadas"
-    return ejercicio_ia
+    """Analiza el texto del atleta para detectar si corrigió a la IA.
+
+    Delega en `core.ejercicios`: antes esta función mantenía su PROPIO mapa de
+    alias y devolvía claves con guion bajo ("press_banca") que no coincidían ni
+    con lo que escribía el clasificador de visión ("Press banco") ni con lo que
+    esperaba `_GRUPO_DE` ("press banca"). Tres vocabularios para el mismo
+    concepto, y la base de datos guardando los tres. El mapa vive ahora en un
+    solo sitio; aquí solo queda la política: lo que dice el atleta pisa a la
+    detección automática, y si no nombra ningún ejercicio se respeta la
+    detección (no todo mensaje es una corrección: "Sí, 120kg" confirma).
+    """
+    return detectar(texto_usuario) or canonizar(ejercicio_ia)
 
 
 async def filtrar_audio_triada(numero_usuario: str, texto_transcrito: str) -> str:
@@ -279,11 +282,30 @@ async def procesar_y_enviar_mensaje(
 
             print("[ORQUESTADOR]: Video procesado. FUSIONANDO EJERCICIO, PESO Y MÉTRICAS...")
             info_declarada = texto_usuario if texto_usuario else "Datos no especificados"
-            mensaje_final_para_llm = (
-                f"TELEMETRÍA DE VIDEO VBT RECIBIDA.\n"
-                f"Detalles de la serie (Ejercicio y Peso): {info_declarada}\n\n"
-                f"{texto_limpio}"
-            )
+            # El ejercicio y la carga YA están resueltos aquí: `nombre_ejercicio`
+            # es la salida de `corregir_ejercicio_usuario`, que da prioridad a lo
+            # que dijo el atleta sobre lo que detectó la visión. Antes ese dato se
+            # usaba solo para el motor VBT y al LLM le llegaba únicamente el texto
+            # narrativo ("IA detectó inicialmente: Press banco. Atleta corrigió
+            # con: No, sentadilla 140kg"). Con la rutina del día en contexto
+            # diciendo "Press Banco Plano", el modelo se quedaba con la detección
+            # errónea y registraba la serie con el ejercicio equivocado, pese a
+            # que el reporte VBT decía SENTADILLA. Ahora el hecho ya resuelto va
+            # primero y sin ambigüedad.
+            hechos = ["TELEMETRÍA DE VIDEO VBT RECIBIDA."]
+            if nombre_ejercicio:
+                # Además del prompt, la guarda dura: el handler de registro
+                # impondrá este ejercicio aunque el modelo escriba otro.
+                fijar_ejercicio_confirmado(numero_usuario, nombre_ejercicio)
+                hechos.append(
+                    f"EJERCICIO CONFIRMADO POR EL ATLETA: {nombre_ejercicio}. "
+                    f"Este es el dato válido: úsalo tal cual al registrar la "
+                    f"serie, aunque la rutina del día o la detección automática "
+                    f"digan otra cosa.")
+            if carga_kg:
+                hechos.append(f"CARGA CONFIRMADA: {carga_kg:g} kg.")
+            hechos.append(f"Mensaje original del atleta: {info_declarada}")
+            mensaje_final_para_llm = "\n".join(hechos) + f"\n\n{texto_limpio}"
 
         # FLUJO 2: TEXTO NORMAL
         elif texto_usuario:
@@ -370,11 +392,18 @@ async def procesar_audio_en_segundo_plano(numero_usuario: str, audio_id: str) ->
             video_id_esperando = datos_video.get("id")
             ej_previo = datos_video.get("ejercicio_detectado", "Movimiento Libre")
 
-            texto_fusionado = (f"Ejercicio detectado por IA: {ej_previo}. "
-                               f"Atleta responde: {texto_transcrito}")
+            # La rama de audio NO aplicaba `corregir_ejercicio_usuario`: pasaba
+            # `ej_previo` (la detección de visión) tal cual, así que un atleta
+            # que corrigiera el ejercicio HABLANDO era ignorado por completo y
+            # todo el análisis VBT corría con el perfil equivocado (MVT y
+            # pendiente carga-velocidad de otro ejercicio). La rama de texto sí
+            # lo hacía; era una asimetría, no una decisión.
+            ej_corregido = corregir_ejercicio_usuario(texto_transcrito, ej_previo)
+            texto_fusionado = (f"IA detectó inicialmente: {ej_previo}. "
+                               f"Atleta corrigió/confirmó con: {texto_transcrito}")
             await procesar_y_enviar_mensaje(numero_usuario, texto_fusionado,
                                             video_id_esperando,
-                                            nombre_ejercicio=ej_previo,
+                                            nombre_ejercicio=ej_corregido,
                                             carga_kg=extraer_peso(texto_transcrito))
         else:
             await procesar_y_enviar_mensaje(numero_usuario, texto_transcrito, None)

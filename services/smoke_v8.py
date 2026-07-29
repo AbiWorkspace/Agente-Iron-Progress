@@ -8,6 +8,13 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 APP  = BASE if os.path.exists(os.path.join(BASE, "llm_service.py")) \
        else os.path.join(BASE, "testbed", "app")
 
+# core/ejercicios.py NO se stubea: es lógica pura (re + unicodedata, sin ollama
+# ni chroma ni disco), así que el smoke la ejercita de verdad. Solo hace falta
+# que la raíz del proyecto esté en el path para poder importarla.
+RAIZ = os.path.dirname(BASE)
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
+
 # ---------- 1) STUBS de dependencias externas ----------
 class _FakeAsyncClient:
     def __init__(self, *a, **k): pass
@@ -61,7 +68,11 @@ POS = ["100 x 10 r @8", "80kg x 5", "3x10 rpe 8", "subí a 0.45 hoy",
 NEG = ["hola bro", "siii", "gracias!", "vale, mañana te digo", "okey espero"]
 for t in POS: chk(f"detecta {t!r}", bool(llm.NOTACION_ENTRENO_RE.search(t)))
 for t in NEG: chk(f"ignora {t!r}", not llm.NOTACION_ENTRENO_RE.search(t))
-chk("es_casual usa el regex (fuente)", "not NOTACION_ENTRENO_RE.search(texto_puro)" in FUENTE)
+# v11 — Antes esto buscaba la expresión literal en el fuente. El clasificador
+# pasó a ser una función (_es_charla_casual), así que se comprueba lo que
+# importa de verdad: que ninguna notación de entrenamiento acabe en modo casual,
+# porque ahí se apagan tools, thinking y RAG.
+for t in POS: chk(f"router: {t!r} nunca es casual", not llm._es_charla_casual(t))
 chk("cinturón serie->no casual (fuente)", "serie detectada -> NO casual" in FUENTE)
 
 # ---------- MANDATO 5 — señal fuerte vs débil + escape del jail ----------

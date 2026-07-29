@@ -1,14 +1,14 @@
 {
-    "527291395298": {
-        "semana": 1,
-        "dia": 2,
-        "fecha_programada": "2026-07-30",
-        "ultima_fecha_completada": "2026-07-28",
-        "onboarding_activo": false,
-        "campo_pendiente": "",
-        "estado_generacion": "lista",
-        "generacion_ts": 1785221455.6285884,
-        "cursor_semana": 1,
-        "cursor_dia": 0
-    }
+  "527291395298": {
+    "semana": 1,
+    "dia": 2,
+    "fecha_programada": "2026-07-30",
+    "ultima_fecha_completada": "2026-07-28",
+    "onboarding_activo": false,
+    "campo_pendiente": "",
+    "estado_generacion": "lista",
+    "generacion_ts": 1785221455.6285884,
+    "cursor_semana": 2,
+    "cursor_dia": 4
+  }
 }

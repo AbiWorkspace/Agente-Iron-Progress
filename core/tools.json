@@ -48,18 +48,17 @@
     "type": "function",
     "function": {
       "name": "evaluar_nivel_fuerza",
-      "description": "Analiza los 1RM del atleta contra su peso corporal, género y edad, y determina su nivel real (principiante/intermedio/avanzado/élite) con estándares de ratios de fuerza. USA CUANDO: vayas a llamar 'generar_rutina' por tu cuenta (es requisito previo junto con 'evaluar_perfil_fisico'), o el atleta pregunte qué tan fuerte es para su peso / cuál es su nivel. NO LA USES CUANDO: falte algún 1RM (calcúlalos antes con 'calcular_rm_exacto') o el sistema ya haya reportado el nivel en este turno.",
+      "description": "Analiza los 1RM del atleta contra su peso corporal y su género, y determina su nivel real (principiante/intermedio/avanzado) con estándares de ratios de fuerza. USA CUANDO: vayas a llamar 'generar_rutina' por tu cuenta (es requisito previo junto con 'evaluar_perfil_fisico'), o el atleta pregunte qué tan fuerte es para su peso / cuál es su nivel. NO LA USES CUANDO: falte algún 1RM (calcúlalos antes con 'calcular_rm_exacto') o el sistema ya haya reportado el nivel en este turno.",
       "parameters": {
         "type": "object",
         "properties": {
           "peso_kg": { "type": "number", "description": "Peso corporal actual en kg." },
           "genero": { "type": "string", "enum": ["hombre", "mujer"], "description": "Género del atleta." },
-          "edad": { "type": "integer", "description": "Edad del atleta en años." },
           "rm_banca_kg": { "type": "number", "description": "1RM calculado en Press de Banca, en kg." },
           "rm_sentadilla_kg": { "type": "number", "description": "1RM calculado en Sentadilla, en kg." },
           "rm_peso_muerto_kg": { "type": "number", "description": "1RM calculado en Peso Muerto, en kg." }
         },
-        "required": ["peso_kg", "genero", "edad", "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg"]
+        "required": ["peso_kg", "genero", "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg"]
       }
     }
   },

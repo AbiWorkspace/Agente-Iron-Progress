@@ -65,13 +65,23 @@ def recibir_peticion(datos_usuario: dict, numero_usuario: str):
         f"Atleta {nivel_atleta_llm} enfocado en {meta_usuario}."
     )
 
+    # El orquestador ya resuelve esto a 'DUP' o 'tradicional'; aquí solo se acota
+    # por si la petición llega de otra vía. Antes ni se leía: el motor caía siempre
+    # en su default DUP aunque el atleta hubiera pedido bloques lineales.
+    tipo_periodizacion = str(datos_usuario.get("tipo_periodizacion") or "DUP").strip()
+    if tipo_periodizacion not in ("DUP", "fusion", "tradicional"):
+        print(f"[PUENTE]: periodización {tipo_periodizacion!r} no reconocida -> uso DUP")
+        tipo_periodizacion = "DUP"
+
     print(f"[PUENTE]: Contexto profundo extraído -> {contexto_usuario}")
+    print(f"[PUENTE]: Periodización -> {tipo_periodizacion}")
 
     distribucion = Distribucion_Torso_Pierna(
         sesiones_por_semana=sesiones_por_semana,
         nivel_atleta=nivel_atleta_llm,
         meta=meta_usuario,
-        contexto_del_usuario=contexto_usuario
+        contexto_del_usuario=contexto_usuario,
+        tipo_periodizacion=tipo_periodizacion
     )
 
     programa = distribucion.generar_programa()

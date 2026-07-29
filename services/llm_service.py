@@ -1,4 +1,5 @@
 import ollama
+import hashlib
 import json
 import math
 import os
@@ -10,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiofiles
+from core.ejercicios import canonizar   # identidad del movimiento, una sola fuente
 from services.handlers_v9 import DISPATCHER_V9
 from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashboard_analitico
 from services.conexion_entrenamiento_llm_orquestacion import recibir_peticion
@@ -93,6 +95,142 @@ NOTACION_ENTRENO_RE = re.compile(
     r"|\d+\s*(?:reps?|repeticiones?)\b"                # 10 reps
     r"|\b0[.,]\d{2,3}\b",                              # 0.25 m/s (VBT)
     re.IGNORECASE)
+
+# ==============================================================================
+# ¿ESTE TURNO NECESITA HERRAMIENTAS? (v11)
+# ------------------------------------------------------------------------------
+# `es_casual` apaga CUATRO cosas a la vez: las 22 tools, el thinking, el RAG del
+# expediente y la telemetría completa. Es una optimización real, pero decidía por
+# ausencia: si el mensaje no contenía ninguna palabra de una lista de gimnasio y
+# medía <=60 caracteres, se apagaba todo.
+#
+# Medido sobre 19 frases que un atleta dice de verdad, 9 se quedaban sin
+# herramientas — entre ellas "tengo hernia discal", "me operaron del menisco",
+# "tomo creatina" y "soy vegetariano". No es que el modelo no usara la tool: no
+# la tenía. Y son justo los datos que `guardar_en_expediente_personal` existe
+# para capturar.
+#
+# El vocabulario de gimnasio nunca va a cubrir todo lo que una persona cuenta de
+# su cuerpo y su vida, así que se añaden dos capas más: el vocabulario del
+# EXPEDIENTE (salud, nutrición, vida, entorno, metas) y una regla estructural —
+# una declaración en primera persona sobre uno mismo es, por definición, un dato
+# del atleta. La política ya escrita en este módulo es que pasarse de activar
+# tools es barato y quedarse corto obliga al modelo a inventar.
+PALABRAS_ENTRENAMIENTO = {
+    "rutina", "plan", "serie", "ejercicio", "rm", "banca", "sentadilla",
+    "muerto", "dominada", "rpe", "kg", "rep", "entreno", "entrena", "entrenar",
+    "peso", "dolor", "duele", "molest", "lesion", "lesión", "semana", "dia", "día",
+    "siguiente", "mañana", "hazme", "crear", "cambiar", "cambio", "sustitu",
+    "mesociclo", "hoy", "toca", "gym", "gimnasio", "marca", "pr", "récord", "record",
+    "termin", "acab", "descans", "dormí", "dormi", "sueño", "estres", "estrés",
+    "fatiga", "cansad", "hombro", "rodilla", "espalda", "codo", "muñeca", "cadera",
+    "cinturon", "cinturón", "straps", "magnesio", "barra", "mancuern", "polea",
+    "maquina", "máquina", "video", "veloc", "prefiero", "odio", "calent", "deficit", "déficit",
+    # v7 - nuevas palabras de control
+    "viaje", "volvi", "volví", "regrese", "regresé", "seguir", "continuar",
+    "reactiva", "reanuda", "reanudar", "vuelta",
+    # v11 — medido en producción: "cual es mi nivel como usuario de pesas?" (39
+    # chars) no matcheaba NADA ("pesas" no contiene "peso") y caía en casual, así
+    # que el turno se quedaba sin herramientas y el modelo respondió de memoria en
+    # vez de llamar a evaluar_nivel_fuerza. Al reformular el atleta, casual=False
+    # y la llamó al instante: fallaba el clasificador, no el modelo.
+    # Pasarse de activar tools es barato (desde la opción B ya no cuestan prefill);
+    # quedarse corto obliga al modelo a inventar.
+    "pesas", "nivel", "fuerte", "fuerza", "ffmi", "grasa", "corporal",
+    "composicion", "composición", "avanzado", "intermedio", "principiante",
+    "novato", "elite", "élite", "percentil", "estandar", "estándar",
+    "grafica", "gráfica", "progreso", "compar", "evalua", "evalúa", "1rm",
+}
+
+# Lo que el atleta cuenta de SÍ MISMO y hay que poder guardar en su expediente.
+# Son las cinco categorías que enumera la description de
+# guardar_en_expediente_personal, que hasta v11 no tenían vocabulario propio.
+PALABRAS_EXPEDIENTE = {
+    # salud y biomecánica
+    "hernia", "discal", "operaron", "operar", "operad", "cirug", "menisco",
+    "tendinit", "tendon", "tendón", "esguince", "fractur", "artritis", "artros",
+    "rehabilit", "fisio", "condromalacia", "lumbalgia", "ciatica", "ciática",
+    "manguito", "bursitis", "luxa", "desgarr", "contractur", "pinza", "crujen",
+    "recuper", "sano", "sana", "curad", "medic", "doctor", "traumatolog",
+    # nutrición
+    "vegetarian", "vegan", "creatina", "proteina", "proteína", "suplement",
+    "ayuno", "ayunar", "dieta", "caloria", "caloría", "macros", "keto", "celiac",
+    "intoleran", "alergi", "como bien", "comiendo", "superavit", "superávit",
+    "volumen", "definicion", "definición", "cafe", "café", "cafeina", "cafeína",
+    # estilo de vida y entorno
+    "trabajo", "trabajar", "oficina", "turno", "guardia", "viajo", "insomnio",
+    "ansiedad", "depres", "fumo", "fumar", "alcohol", "cerveza", "hijo", "bebe",
+    "bebé", "embaraz", "mudo", "mude", "mudé", "horario", "madrugo", "madrugar",
+    "sentad", "de pie", "camino", "bici", "correr", "futbol", "fútbol", "nado",
+    # metas y contexto
+    "competir", "competencia", "campeonato", "torneo", "boda", "playa", "verano",
+    "meta", "objetivo", "powerlifting", "powerbuilding", "hipertrofia",
+    # equipo y preferencias
+    "equipo", "material", "rack", "jaula", "banco", "disco", "kettlebell",
+    "elastic", "banda", "smith", "casa", "parque",
+}
+
+# Una declaración en primera persona sobre uno mismo es, por definición, un dato
+# del atleta: "tengo hernia", "soy vegetariano", "me operaron", "tomo creatina".
+# Cubre lo que ninguna lista de palabras va a cubrir nunca.
+DECLARACION_PERSONAL_RE = re.compile(
+    r"\b(?:tengo|tenia|tenía|soy|estoy|ando|me\s+operaron|me\s+lesion\w*|"
+    r"me\s+duele|me\s+cuesta|tomo|tomaba|como|comia|comía|bebo|duermo|"
+    r"trabajo|vivo|voy\s+a|quiero|necesito|no\s+puedo|no\s+tengo|"
+    r"empec[ée]|empiezo|dej[ée]|deje|sufro|padezco|me\s+diagnostic\w*|"
+    # Hitos que el atleta cuenta y cambian su entrenamiento: recuperarse de una
+    # lesión, el alta médica, una boda o un viaje con fecha.
+    r"me\s+cur[éeoa]\w*|me\s+recuper\w*|me\s+dieron|me\s+caso|me\s+voy\s+a)\b",
+    re.IGNORECASE)
+
+# Charla de verdad trivial: un conjunto PEQUEÑO y cerrado. Saludos, cortesía,
+# risas y muletillas. Cualquier cosa fuera de aquí que además dispare una de las
+# señales de arriba se queda con herramientas.
+CHARLA_TRIVIAL_RE = re.compile(
+    r"^\s*[¿¡]?\s*(?:"
+    r"(?:h?ola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?|hey|qu[eé]\s+tal|"
+    r"c[oó]mo\s+(?:est[aá]s|va|vas)|qu[eé]\s+onda|qu[eé]\s+hay|saludos)"
+    r"|(?:gracias|muchas\s+gracias|mil\s+gracias|de\s+nada|genial|perfecto|"
+    r"excelente|buenisimo|buen[ií]simo|va(?:le)?|listo|entendido|enterado|"
+    r"ok(?:ey|as)?|okis|sale|dale|claro|obvio|dsp|ah+|oh+|uf+|eso|exacto)"
+    r"|(?:j[ae]j[ae]\w*|jsjs\w*|xd+|lol|:\)|:d|😂|🤣|👍|💪|🔥|😅)"
+    r"|(?:adi[oó]s|hasta\s+(?:luego|mañana|pronto)|nos\s+vemos|chao|bye|"
+    r"buenas\s+noches|me\s+voy)"
+    r")[\s!.,¿?¡🙏👊💪😂🤣👍🔥😅]*$",
+    re.IGNORECASE)
+
+
+def _es_charla_casual(texto: str) -> bool:
+    """¿Es charla trivial, sin nada que registrar ni consultar?
+
+    True apaga tools, thinking, RAG y telemetría de ese turno, así que un falso
+    positivo le cuesta al atleta un dato perdido y una respuesta inventada,
+    mientras que un falso negativo solo cuesta unos segundos.
+    """
+    t = str(texto or "").strip().lower()
+    if not t:
+        return True
+    # Va PRIMERO: un mensaje que es ÍNTEGRAMENTE cortesía no necesita nada, y
+    # las listas de abajo lo sacarían de casual por accidente ("buenos días"
+    # contiene "día", que es palabra de entrenamiento).
+    if CHARLA_TRIVIAL_RE.match(t):
+        return True
+    if NOTACION_ENTRENO_RE.search(t):
+        return False
+    if any(p in t for p in PALABRAS_ENTRENAMIENTO):
+        return False
+    if any(p in t for p in PALABRAS_EXPEDIENTE):
+        return False
+    if DECLARACION_PERSONAL_RE.search(t):
+        return False                    # habla de sí mismo: puede haber dato
+    # Una pregunta pide información, y buena parte de las respuestas viven en la
+    # biblioteca o en su expediente. Medido en el historial real: "desequilibrios??"
+    # se quedaba sin herramientas y el modelo contestaba teoría de memoria. Los
+    # saludos con signo ("¿qué tal?") ya salieron por CHARLA_TRIVIAL_RE.
+    if "?" in t and len(t) > 8:
+        return False
+    return len(t) <= 60
+
 
 # v8 (Mandato 5) — CREACIÓN FUERTE: señal INEQUÍVOCA de que el atleta quiere un
 # plan nuevo. Los verbos débiles de EN_CREACION_RE ("quiero...rutina") ya no
@@ -634,6 +772,8 @@ def _escribir_estados(estados: dict) -> None:
 RESUMEN_MARKER    = "[RESUMEN_SESIONES]:"
 TELEMETRIA_INICIO = "\n\n--- TELEMETRÍA ---"
 TELEMETRIA_FIN    = "\n--- FIN TELEMETRÍA ---"
+
+
 VENTANA_RECIENTE  = 20
 UMBRAL_COMPRESION = 30
 LIMITE_EMERGENCIA = 40
@@ -766,6 +906,57 @@ def _desglose_tiempos(resp) -> str:
         return "sin métricas de Ollama"
 
 
+# DEPURACIÓN TEMPORAL (2026-07-28) — ¿por qué diverge el prefijo del prompt?
+# Ollama reporta checkpoints inservibles por ~60 tokens
+# ("checking checkpoint with [19847,19847] against 19787"), lo que obliga a
+# reprocesar los ~20.600 tok enteros cada turno (~26 s). La hipótesis es que la
+# poda de telemetría reescribe la cola del prompt entre turnos.
+#
+# Vuelca una huella por mensaje para poder comparar dos turnos consecutivos y
+# ver EXACTAMENTE cuál cambió. Inerte salvo IRON_DEBUG_PROMPT=1.
+# Comparar con: python3 services/testbed/latencia/diff_prompts.py
+DEBUG_PROMPT = os.environ.get("IRON_DEBUG_PROMPT") == "1"
+DIR_VOLCADO_PROMPT = "/tmp/iron_prompts"
+
+def _volcar_huella_prompt(mensajes, quien):
+    """Huella por mensaje (rol, longitud, sha1, colas) + cola global del prompt."""
+    try:
+        os.makedirs(DIR_VOLCADO_PROMPT, exist_ok=True)
+        huellas, plano = [], []
+        for i, m in enumerate(mensajes):
+            # default=str: los mensajes con tool_calls traen objetos ToolCall
+            # de la librería de Ollama, que json no sabe serializar.
+            crudo = json.dumps(m, ensure_ascii=False, sort_keys=True, default=str)
+            plano.append(crudo)
+            contenido = str(m.get("content") or "")
+            huellas.append({
+                "i": i,
+                "role": m.get("role", "?"),
+                "chars": len(crudo),
+                "sha1": hashlib.sha1(crudo.encode("utf-8")).hexdigest()[:12],
+                "cabeza": contenido[:160],
+                "cola": contenido[-160:],
+            })
+        entero = "\n".join(plano)
+        destino = os.path.join(
+            DIR_VOLCADO_PROMPT,
+            f"{time.strftime('%H%M%S')}_{quien}.json")
+        with open(destino, "w", encoding="utf-8") as fh:
+            json.dump({
+                "quien": quien,
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "n_msgs": len(mensajes),
+                "chars_total": len(entero),
+                "sha1_total": hashlib.sha1(entero.encode("utf-8")).hexdigest()[:12],
+                "cola_global": entero[-3000:],
+                "mensajes": huellas,
+            }, fh, ensure_ascii=False, indent=1)
+        print(f"[PROMPT-DUMP] '{quien}' {len(mensajes)} msgs, "
+              f"{len(entero)} chars -> {destino}")
+    except Exception as e:                      # nunca romper el turno por depurar
+        print(f"[PROMPT-DUMP] fallo al volcar: {e}")
+
+
 async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False,
                    timeout=None):
     """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional.
@@ -782,6 +973,8 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
         if espera > 1.0:
             print(f"[LLM] '{quien}' esperó {espera:.1f}s el turno del modelo")
         usar_thinking = bool(pensar and PENSAR_HABILITADO)
+        if DEBUG_PROMPT:
+            _volcar_huella_prompt(mensajes, quien)
         kwargs = dict(model=MODELO_LLM,
                       messages=mensajes,
                       keep_alive=-1,
@@ -922,6 +1115,73 @@ def _cargar_overrides(numero_usuario: str) -> dict:
 def _guardar_overrides(numero_usuario: str, data: dict) -> None:
     with open(_ruta_overrides(numero_usuario), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+# ==============================================================================
+# ¿ESE EJERCICIO EXISTE EN SU PLAN? (v11)
+# ------------------------------------------------------------------------------
+# `sustituir_ejercicio` aceptaba cualquier cadena. Medido en una conversación
+# real: el atleta pidió cambiar el "press militar", que NO está en su plan, y el
+# sistema escribió el override igualmente. El coach le dijo "he sustituido el
+# Press Militar por Face Pulls en todo tu plan", el atleta se quedó tranquilo...
+# y su plan siguió exactamente igual, porque no hay ningún press militar que
+# sustituir. Una acción que no cambia nada, confirmada como hecha.
+def _ejercicios_del_plan(numero_usuario: str) -> list[str]:
+    """Nombres reales de los ejercicios del plan, tal y como están escritos.
+    Incluye los reemplazos ya vigentes: si ayer cambió el press militar por face
+    pulls, hoy 'face pulls' es un ejercicio suyo tan válido como los demás."""
+    vistos: dict[str, str] = {}
+    for sesiones in _archivos_plan_cargados(numero_usuario):
+        for s in sesiones:
+            for ej in (s.get("Ejercicios") or []):
+                nombre = str(ej.get("Ejercicio") or ej.get("Nombre")
+                             or ej.get("nombre") or "").strip()
+                if nombre:
+                    vistos.setdefault(_norm_ej(nombre), nombre)
+    for datos in (_cargar_overrides(numero_usuario).get("ejercicios") or {}).values():
+        nuevo = datos.get("nuevo") if isinstance(datos, dict) else datos
+        if nuevo:
+            vistos.setdefault(_norm_ej(nuevo), str(nuevo))
+    return list(vistos.values())
+
+
+def _resolver_ejercicio_del_plan(numero_usuario: str, nombre: str) -> str | None:
+    """Traduce como lo dice el atleta ('el militar') al nombre EXACTO del plan
+    ('Press Militar con Barra'), o None si ese movimiento no está en su plan.
+
+    Devolver el nombre exacto no es cosmético: el override se guarda con esa
+    clave y `obtener_rutina_del_json` la compara con `_norm_ej`, así que un
+    nombre aproximado se guardaría sin llegar a aplicarse nunca."""
+    buscado = _norm_ej(re.sub(r"^\s*(?:el|la|los|las|mi|mis)\s+", "", str(nombre or ""),
+                              flags=re.IGNORECASE))
+    if not buscado:
+        return None
+    catalogo = _ejercicios_del_plan(numero_usuario)
+    sin_plural = lambda t: t[:-1] if t.endswith("s") else t   # noqa: E731
+
+    for real in catalogo:                                   # exacto
+        if _norm_ej(real) == buscado:
+            return real
+    for real in catalogo:                                   # 'sentadilla' -> 'Sentadillas'
+        if sin_plural(_norm_ej(real)) == sin_plural(buscado):
+            return real
+
+    # De aquí en adelante puede haber EMPATE, y elegir a ciegas es peor que
+    # preguntar: en un plan con 'Curl de Biceps' y 'Curl Femoral', resolver "el
+    # curl" al primero cambiaría un ejercicio que el atleta no pidió tocar.
+    canon = canonizar(buscado)
+    if canon:
+        iguales = [r for r in catalogo if canonizar(r) == canon]
+        if len(iguales) == 1:
+            return iguales[0]
+        if len(iguales) > 1:
+            return None
+    if len(buscado) >= 4:                                   # 'militar' en 'Press Militar'
+        parciales = [r for r in catalogo
+                     if buscado in _norm_ej(r) or _norm_ej(r) in buscado]
+        if len(parciales) == 1:
+            return parciales[0]
+    return None
+
 
 def _guardar_override_ejercicio(numero_usuario: str, original: str, nuevo: str, alcance: str) -> None:
     ov = _cargar_overrides(numero_usuario)
@@ -1161,19 +1421,244 @@ def _calcular_y_guardar_rm(numero_usuario: str, ejercicio_canonico: str,
 
 _MARCA_KG_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*kg\s*(?:por|x|×)\s*(\d+)", re.IGNORECASE)
 
+# ==============================================================================
+# CLASIFICACIÓN DE META (v11)
+# ------------------------------------------------------------------------------
+# Había DOS listas de palabras distintas para lo mismo (una en _parsear_campo y
+# otra en _parsear_campos_anclados), ambas encadenadas con elif. Consecuencia
+# medida: "quiero ganar músculo y fuerza" hacía match con 'músculo' primero, el
+# elif cortaba la evaluación y la meta quedaba 'hipertrofia' — cuando músculo +
+# fuerza es literalmente la definición de powerbuilding. El mesociclo entero se
+# generaba con la meta equivocada.
+#
+# Aquí la clasificación es una sola, y la coexistencia de señales manda sobre el
+# orden en que aparezcan las palabras.
+_META_HIPERTROFIA_RE = re.compile(
+    r"hipertrofia|\bmasa\b|volumen|m[uú]sculo|musculatura|mamado|crecer|"
+    r"\bgrande\b|\bbajar\b|definir|flaco")
+_META_FUERZA_RE = re.compile(
+    r"powerlifting|\bfuerza\b|\bfuerte\b|\bpesado\b|levantar\s+m[aá]s")
+_META_POWERBUILDING_RE = re.compile(
+    r"powerbuild\w*|power\s*building|fuerte\s+y\s+grande|grande\s+y\s+fuerte|"
+    r"las\s+dos|ambas|los\s+dos|todo\s+junto")
+
+# Para CORREGIR una meta ya guardada exigimos una señal inequívoca: o nombra la
+# metodología, o expresa intención explícita. Sin esto, un "hoy me siento fuerte"
+# en mitad de la conversación le cambiaría el plan al atleta.
+_META_NOMBRADA_RE = re.compile(r"powerbuild\w*|power\s*building|powerlifting|hipertrofia")
+_META_INTENCION_RE = re.compile(
+    r"\b(?:quiero|mi\s+meta|mi\s+objetivo|busco|me\s+interesa|prefiero|"
+    r"me\s+gustar[ií]a|enf[oó]ca\w*|en\s+realidad|mejor)\b")
+
+
+def _clasificar_meta(texto: str) -> str | None:
+    """Devuelve 'powerbuilding' | 'hipertrofia' | 'powerlifting', o None.
+    Si el atleta pide músculo Y fuerza, eso es powerbuilding: la coexistencia
+    gana sobre cuál de las dos palabras aparezca antes en la frase."""
+    t = str(texto or "").lower()
+    if _META_POWERBUILDING_RE.search(t):
+        return "powerbuilding"
+    musculo = bool(_META_HIPERTROFIA_RE.search(t))
+    fuerza = bool(_META_FUERZA_RE.search(t))
+    if musculo and fuerza:
+        return "powerbuilding"
+    if musculo:
+        return "hipertrofia"
+    if fuerza:
+        return "powerlifting"
+    return None
+
+
+def _corregir_meta_declarada(numero_usuario: str, mensaje: str) -> str | None:
+    """El atleta corrige su meta cuando el sistema le está pidiendo OTRA cosa.
+
+    Pasó tal cual: dijo 'powerbuilding supongo' mientras la máquina pedía su
+    marca de banca; el mensaje se descartó por 'no responde al campo pendiente',
+    la meta mal clasificada siguió en pie y el plan se generó con ella — mientras
+    el coach le contestaba 'exacto, powerbuilding es el camino'.
+
+    Devuelve el feedback para el coach si hubo corrección real, o None."""
+    nueva = _clasificar_meta(mensaje)
+    if not nueva:
+        return None
+    t = str(mensaje or "").lower()
+    if not (_META_NOMBRADA_RE.search(t) or _META_INTENCION_RE.search(t)):
+        return None                      # mención de paso, no una decisión
+    actual = (cargar_perfil(numero_usuario) or {}).get("meta")
+    if not actual or actual == nueva:
+        return None
+    actualizar_perfil(numero_usuario, meta=nueva)
+    log(numero_usuario, "ONB-META", f"corregida '{actual}' -> '{nueva}' por declaración explícita")
+    return f"meta corregida a {nueva} (antes estaba anotada como {actual})"
+
+
+# ==============================================================================
+# PARSER DE MARCAS (v11)
+# ------------------------------------------------------------------------------
+# La versión anterior entendía 'N x M' y 'N por M', y para todo lo demás cogía el
+# PRIMER número y asumía 1 repetición. Medido en una conversación real:
+#
+#   "dominadas con 20 kilos de lastre saqué 6"  ->  (20, 1)  ->  1RM = 20 kg
+#
+# El 6 estaba ahí, en el mismo mensaje, y se descartaba en silencio devolviendo
+# éxito. El atleta quedaba registrado ~4 kg por debajo de su fuerza real y todas
+# sus cargas de dominadas salían bajas, sin un solo error en ningún log.
+#
+# Ahora cada número se ANCLA por su unidad ('20 kilos' = peso, '6 reps' = reps) y
+# la heurística de magnitud solo actúa cuando no hay ninguna ancla. Regla nueva:
+# si sobra un número que nadie supo interpretar, NO se inventa nada — se devuelve
+# el motivo para que el coach pregunte.
+_U_PESO_RE = re.compile(r"^\s*(?:kgs?|kilos?|kilogramos?)\b", re.IGNORECASE)
+_U_REPS_RE = re.compile(r"^\s*(?:reps?\b|repeticiones?\b|repes?\b|veces\b)", re.IGNORECASE)
+# "3 series de 10 reps": el 3 no es ni peso ni repeticiones, y confundirlo con las
+# reps registra la marca a un tercio de las repeticiones reales.
+_U_SERIES_RE = re.compile(r"^\s*(?:series?\b|sets?\b)", re.IGNORECASE)
+# Verbo de ejecución justo ANTES del número: "saqué 6", "hice 5", "me salieron 8".
+_VERBO_REPS_RE = re.compile(
+    r"(?:saqu[eé]|saco|hice|hago|logr[eé]|met[ií]|complet[eé]|sal[ií]eron|salen|"
+    r"aguant[eé]|pude|puedo|llegu[eé]\s+a)\s+(?:unas?\s+|como\s+|hasta\s+)?$",
+    re.IGNORECASE)
+# "al fallo" / "las máximas": dice CUÁNTAS sin decir un número. No se puede estimar.
+_REPS_SIN_CIFRA_RE = re.compile(
+    r"al\s+fallo|hasta\s+(?:el\s+)?fallo|las\s+m[aá]ximas?|a\s+tope", re.IGNORECASE)
+# Palabra numérica solo cuando va pegada a una unidad de repetición ("dos veces"),
+# para no convertir el "un" de "un press" en el número 1.
+_PALABRA_NUM_CTX_RE = re.compile(
+    r"\b(un[oa]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\s+"
+    r"(veces|reps?|repeticiones?|repes?)\b", re.IGNORECASE)
+_PALABRA_A_NUM = {"un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
+                  "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
+                  "diez": 10, "once": 11, "doce": 12}
+# '1rm' / 'rm': el '1' es parte de la palabra, no una repetición.
+_RUIDO_RM_RE = re.compile(r"\b1\s*rm\b|\brm\b", re.IGNORECASE)
+
+_PESO_MIN_SIN_UNIDAD = 20.0   # una barra olímpica vacía: por debajo, sin 'kg'
+                              # explícito, un número suelto casi nunca es el peso.
+
+
+def _normalizar_fragmento_marca(fragmento: str) -> str:
+    t = str(fragmento or "").lower().replace(",", ".")
+    t = _PALABRA_NUM_CTX_RE.sub(lambda m: f"{_PALABRA_A_NUM[m.group(1)]} {m.group(2)}", t)
+    return _RUIDO_RM_RE.sub(" ", t)
+
+
+def _tokens_marca(texto: str) -> list[dict]:
+    """Cada número del texto con su papel, deducido de lo que lo rodea."""
+    tokens = []
+    for m in re.finditer(r"\d+(?:\.\d+)?", texto):
+        post = texto[m.end():m.end() + 16]
+        pre = texto[max(0, m.start() - 22):m.start()]
+        if _U_PESO_RE.match(post):
+            papel = "peso"
+        elif _U_REPS_RE.match(post):
+            papel = "reps"          # anclado por su unidad: el más fiable
+        elif _U_SERIES_RE.match(post):
+            papel = "series"        # se descarta: no es ni peso ni repeticiones
+        elif _VERBO_REPS_RE.search(pre):
+            papel = "reps_verbo"    # "saqué 6": fiable, pero cede ante la unidad
+        else:
+            papel = None
+        tokens.append({"val": float(m.group(0)), "papel": papel})
+    return tokens
+
+
+def _parsear_marca_dx(fragmento: str) -> tuple[tuple[float, int] | None, str]:
+    """Devuelve ((peso, reps) | None, motivo). El motivo explica QUÉ falta cuando
+    no se pudo interpretar, para que el coach pregunte eso y solo eso."""
+    texto = _normalizar_fragmento_marca(fragmento)
+    tokens = _tokens_marca(texto)
+    if not tokens:
+        return None, ""
+
+    pesos = [t["val"] for t in tokens if t["papel"] == "peso"]
+    # La unidad manda sobre el verbo: en "hice 3 series de 10 reps" el 3 lo marca
+    # el verbo y el 10 su unidad — las repeticiones son 10.
+    repes = ([int(t["val"]) for t in tokens if t["papel"] == "reps"]
+             or [int(t["val"]) for t in tokens if t["papel"] == "reps_verbo"])
+    libres = [t["val"] for t in tokens if t["papel"] is None]
+
+    # Con el peso anclado no hay duda de cuál número es cuál, así que se admiten
+    # reps altas y es el flujo de arriba quien las rechaza con su mensaje bueno
+    # ("¿fueron 78 reps de verdad?"). Cuando hay que adivinar por magnitud, en
+    # cambio, el rango se aprieta: ahí un número grande sí puede ser el peso.
+    REPS_MAX_ANCLADO, REPS_MAX_INFERIDO = 100, 30
+
+    def valida(p, r, rmax=REPS_MAX_ANCLADO):
+        return (p, int(r)) if (1 <= p <= 500 and 1 <= r <= rmax) else None
+
+    # 1. Ambos anclados por su unidad: no hay nada que adivinar.
+    if pesos and repes:
+        return (valida(pesos[0], repes[0]) or None,
+                "" if valida(pesos[0], repes[0]) else
+                f"{pesos[0]:g} kg x {repes[0]} está fuera de rango")
+
+    # 2. Peso anclado ('20 kilos'): las reps son el otro número que haya.
+    if pesos and not repes:
+        candidatas = [v for v in libres if 1 <= v <= REPS_MAX_ANCLADO]
+        if candidatas:
+            return valida(pesos[0], candidatas[0]), ""
+        if libres:
+            return None, (f"dijo {pesos[0]:g} kg y otro número ({libres[0]:g}) que no "
+                          f"parece repeticiones")
+        if _REPS_SIN_CIFRA_RE.search(texto):
+            return None, f"dijo {pesos[0]:g} kg pero no cuántas repeticiones"
+        return valida(pesos[0], 1), ""          # solo el peso: se asume 1RM directo
+
+    # 3. Reps ancladas ('6 reps'): el peso es el otro número.
+    if repes and not pesos:
+        if libres:
+            return valida(libres[0], repes[0]), ""
+        return None, f"dijo {repes[0]} repeticiones pero no con cuánto peso"
+
+    # 4. Sin anclas: el patrón canónico 'N x M' / 'N por M' sigue mandando.
+    m = _MARCA_KG_RE.search(texto)
+    if m:
+        return valida(float(m.group(1)), int(m.group(2))), ""
+    serie = detectar_serie_en_mensaje(texto)
+    if serie:
+        return valida(serie["peso"], serie["reps"]), ""
+
+    # 5. Dos números sueltos sin ninguna pista: el mayor es el peso, pero solo si
+    #    de verdad parece un peso. '6 o 7' no es 7 kg a 6 reps.
+    if len(libres) == 2:
+        mayor, menor = max(libres), min(libres)
+        if mayor >= _PESO_MIN_SIN_UNIDAD and menor <= REPS_MAX_INFERIDO:
+            return valida(mayor, menor, REPS_MAX_INFERIDO), ""
+        return None, f"no queda claro cuál de los dos números ({libres[0]:g}, {libres[1]:g}) es el peso"
+
+    # 6. Un solo número: se asume su 1RM, salvo que haya dicho que fueron varias.
+    if len(libres) == 1:
+        if _REPS_SIN_CIFRA_RE.search(texto):
+            return None, f"dijo {libres[0]:g} pero no cuántas repeticiones"
+        if 5 <= libres[0] <= 450:
+            return valida(libres[0], 1), ""
+        return None, ""
+
+    # 7. Tres o más números sueltos: antes se cogía el primero y a correr.
+    if len(libres) > 2:
+        return None, (f"vinieron varios números ({', '.join(f'{v:g}' for v in libres[:4])}) "
+                      f"y no está claro cuál es el peso y cuál las repeticiones")
+    return None, ""
+
+
 def _parsear_marca(fragmento: str):
     """Devuelve (peso, reps) de un fragmento de texto, o None."""
-    # 'kg' explícito ancla el peso: evita el swap erróneo en casos como '30kg por 78 reps'
-    m = _MARCA_KG_RE.search(fragmento.replace(",", "."))
-    if m:
-        return float(m.group(1)), int(m.group(2))
-    serie = detectar_serie_en_mensaje(fragmento)
-    if serie:
-        return serie["peso"], serie["reps"]
-    n = _primer_numero(fragmento)
-    if n is not None and 5 <= n <= 450:
-        return n, 1   # un solo número = intento a 1 repetición
-    return None
+    marca, _motivo = _parsear_marca_dx(fragmento)
+    return marca
+
+
+def _parcial_marca(fragmento: str) -> dict:
+    """Lo que SÍ se entendió de una marca incompleta: {'peso': x} o {'reps': y}.
+    Sirve para no perder la mitad del dato entre dos mensajes: "100 kilos al
+    fallo" y luego "5 reps" son una sola marca repartida en dos turnos."""
+    tokens = _tokens_marca(_normalizar_fragmento_marca(fragmento))
+    pesos = [t["val"] for t in tokens if t["papel"] == "peso"]
+    repes = [int(t["val"]) for t in tokens if t["papel"] in ("reps", "reps_verbo")]
+    if pesos and not repes:
+        return {"peso": pesos[0]}
+    if repes and not pesos:
+        return {"reps": repes[0]}
+    return {}
 
 def parsear_batch_rms(numero_usuario: str, mensaje: str) -> list[str]:
     """Extrae varias marcas de un solo mensaje ('150x3 en banca, 215 en sentadilla...')."""
@@ -1274,21 +1759,41 @@ def procesar_respuesta_onboarding(numero_usuario: str, campo: str, mensaje: str)
             return True, f"{int(v)} días de entrenamiento por semana"
 
     elif campo == "meta":
-        if re.search(r"powerbuild|fuerte\s+y\s+grande", msg):
-            actualizar_perfil(numero_usuario, meta="powerbuilding")
-            return True, "meta powerbuilding"
-        if re.search(r"hipertrofia|masa|volumen|m[uú]sculo|crecer|mamado|grande|bajar|definir|flaco", msg):
-            actualizar_perfil(numero_usuario, meta="hipertrofia")
-            return True, "meta hipertrofia"
-        if re.search(r"powerlifting|fuerza|pesado", msg):
-            actualizar_perfil(numero_usuario, meta="powerlifting")
-            return True, "meta powerlifting (fuerza)"
+        meta = _clasificar_meta(msg)
+        if meta:
+            actualizar_perfil(numero_usuario, meta=meta)
+            return True, ("meta powerlifting (fuerza)" if meta == "powerlifting"
+                          else f"meta {meta}")
 
     elif campo in RM_CANONICO:
         # ORDEN CRÍTICO (v3): la marca real se parsea PRIMERO.
         # Tu red anterior con `|0|` hacía match con el dígito '0' de "150kg" o "30kg"
         # y guardaba barra vacía (20 kg) o lastre 0 en marcas perfectamente válidas.
-        marca = _parsear_marca(msg)
+        marca, motivo_marca = _parsear_marca_dx(msg)
+
+        # v11 — MEMORIA DE MARCA A MEDIAS. Al dejar de inventar repeticiones, el
+        # sistema empezó a preguntar lo que faltaba... y a olvidar lo que ya sabía:
+        # "100 kilos al fallo" -> "¿cuántas reps?" -> "5 reps" -> "¿con cuánto
+        # peso?", en bucle. Las dos mitades se acumulan hasta formar la marca.
+        #
+        # Va ANTES de aceptar lo que dio el parser: si ya teníamos las reps de un
+        # turno anterior, "con 100 kilos" son 100 kg x 5, y NO un 1RM de 100 kg
+        # (que es justo lo que devolvería el parser leyendo el mensaje aislado).
+        previo = obtener_estado_usuario(numero_usuario).get("marca_parcial") or {}
+        acumulado = ({k: v for k, v in previo.items() if k != "campo"}
+                     if previo.get("campo") == campo else {})
+        if acumulado:
+            acumulado.update(_parcial_marca(msg))
+            if "peso" in acumulado and "reps" in acumulado:
+                marca, motivo_marca = (float(acumulado["peso"]), int(acumulado["reps"])), ""
+                log(numero_usuario, "ONB-MARCA-UNIDA",
+                    f"{campo}: {acumulado['peso']:g} kg x {acumulado['reps']} (en dos mensajes)")
+        if not marca:
+            pendiente = {**acumulado, **_parcial_marca(msg)}
+            if pendiente:
+                _actualizar_estado_json(numero_usuario,
+                                        marca_parcial={"campo": campo, **pendiente})
+
         if marca:
             peso, reps = marca
             if reps > 15:
@@ -1298,6 +1803,7 @@ def procesar_respuesta_onboarding(numero_usuario: str, campo: str, mensaje: str)
                                f"naturalidad si la cifra es correcta (¿fueron {int(reps)} reps de verdad?).")
             rm = _calcular_y_guardar_rm(numero_usuario, RM_CANONICO[campo], peso, int(reps))
             if rm is not None:
+                _actualizar_estado_json(numero_usuario, marca_parcial={})
                 return True, (f"{RM_CANONICO[campo]}: 1RM estimado {rm:g} kg "
                               f"(a partir de {peso:g} kg x {int(reps)})")
 
@@ -1315,6 +1821,20 @@ def procesar_respuesta_onboarding(numero_usuario: str, campo: str, mensaje: str)
             guardar_rm(numero_usuario, RM_CANONICO[campo], 20, fuente="onboarding_default")
             log(numero_usuario, "ONB-DEFAULT", f"{RM_CANONICO[campo]}: barra vacía 20kg (no sabe marca)")
             return True, f"{RM_CANONICO[campo]}: barra vacía (20 kg) por no saber su marca"
+
+        # v11 — El atleta SÍ dio cifras pero no se pudo saber cuál era cuál. Antes
+        # esto caía al "no responde a lo pendiente" y el coach repetía la pregunta
+        # entera como si no hubiera dicho nada; peor aún, el parser viejo se
+        # inventaba 1 repetición y lo daba por bueno. Ahora se le pregunta
+        # exactamente el dato que falta.
+        if motivo_marca:
+            log(numero_usuario, "ONB-AMBIGUO", f"{campo}: {motivo_marca}")
+            # Plantilla neutra a propósito: los motivos son frases sueltas y
+            # encajarlas tras "El atleta" producía textos agramaticales ("El
+            # atleta no queda claro cuál…") que van directos al modelo.
+            return False, (f"NO se pudo interpretar su marca de {RM_CANONICO[campo]}: "
+                           f"{motivo_marca}. NO se guardó nada. Pregúntale con naturalidad, "
+                           f"en una sola frase, el dato que falta (peso en kg y repeticiones).")
 
     return False, ""
 
@@ -1401,15 +1921,11 @@ def _parsear_campos_anclados(numero_usuario: str, mensaje: str, faltantes: list[
                 guardados.append(f"{v} días de entrenamiento por semana")
 
     if "meta" in faltantes:
-        if re.search(r"powerbuild|fuerte\s+y\s+grande", msg):
-            actualizar_perfil(numero_usuario, meta="powerbuilding")
-            guardados.append("meta powerbuilding")
-        elif re.search(r"hipertrofia|\bmasa\b|volumen|m[uú]sculo|mamado", msg):
-            actualizar_perfil(numero_usuario, meta="hipertrofia")
-            guardados.append("meta hipertrofia")
-        elif re.search(r"powerlifting|\bfuerza\b", msg):
-            actualizar_perfil(numero_usuario, meta="powerlifting")
-            guardados.append("meta powerlifting (fuerza)")
+        meta = _clasificar_meta(msg)
+        if meta:
+            actualizar_perfil(numero_usuario, meta=meta)
+            guardados.append("meta powerlifting (fuerza)" if meta == "powerlifting"
+                             else f"meta {meta}")
 
     if guardados:
         log(numero_usuario, "ONB-EXTRAS", f"campos anclados capturados: {guardados}")
@@ -1613,6 +2129,146 @@ def _normalizar_nombre_tool(nombre: str, usuario: str = "") -> str:
             log(usuario, "TOOL-ALIAS", f"'{nombre}' -> '{_ALIAS_TOOLS[limpio]}'")
         return _ALIAS_TOOLS[limpio]
     return limpio
+
+# v11 — El alias de arriba corregía el NOMBRE de la herramienta, pero nadie
+# corregía el nombre de sus ARGUMENTOS, y ahí había una deriva silenciosa entre
+# core/tools.json (lo que el modelo ve y rellena) y los handlers (lo que el
+# código lee). El modelo mandaba 'dato_a_guardar', tal como pide el schema, y el
+# handler buscaba 'dato': el expediente NUNCA se escribía por esa vía y el coach
+# confirmaba un guardado fantasma. Lo mismo con 'nombre_ejercicio' y
+# 'peso_levantado' en calcular_rm_exacto (el 1RM se atribuía a un ejercicio
+# inferido por regex) y con 'reduccion_intensidad_pct' en aplicar_descarga.
+#
+# El CONTRATO es tools.json: a partir de aquí los handlers leen EXACTAMENTE el
+# nombre declarado en el schema, y esta tabla es solo la red de seguridad para
+# lo que el modelo deforme. Al añadir una tool, el nombre que lees en el handler
+# debe ser literalmente el del schema; services/testbed/test_contrato_tools.py
+# falla si vuelven a separarse.
+_ALIAS_ARGS: dict[str, dict[str, str]] = {
+    "calcular_rm_exacto": {
+        "ejercicio": "nombre_ejercicio", "nombre": "nombre_ejercicio",
+        "peso_kg": "peso_levantado", "peso": "peso_levantado", "kg": "peso_levantado",
+        "carga": "peso_levantado", "reps": "repeticiones", "repes": "repeticiones",
+        "tipo": "tipo_ejercicio",
+    },
+    "registrar_serie_completada": {
+        "nombre_ejercicio": "ejercicio", "peso": "peso_kg",
+        "peso_levantado": "peso_kg", "carga": "peso_kg", "reps": "repeticiones",
+        "esfuerzo": "rpe", "dolor": "dolor_articular", "molestia": "dolor_articular",
+    },
+    "guardar_en_expediente_personal": {
+        "dato": "dato_a_guardar", "texto": "dato_a_guardar",
+        "informacion": "dato_a_guardar", "información": "dato_a_guardar",
+        "nota": "dato_a_guardar", "contenido": "dato_a_guardar",
+        "dato_personal": "dato_a_guardar",
+    },
+    "consultar_expediente_personal": {
+        "concepto": "concepto_a_buscar", "tema": "concepto_a_buscar",
+        "busqueda": "concepto_a_buscar", "búsqueda": "concepto_a_buscar",
+        "consulta": "concepto_a_buscar", "query": "concepto_a_buscar",
+        "dato_a_buscar": "concepto_a_buscar",
+    },
+    "consultar_historial_narrativo": {
+        "contexto": "contexto_a_buscar", "concepto": "contexto_a_buscar",
+        "concepto_a_buscar": "contexto_a_buscar", "tema": "contexto_a_buscar",
+        "busqueda": "contexto_a_buscar", "consulta": "contexto_a_buscar",
+        "query": "contexto_a_buscar",
+    },
+    "consultar_libro_cientifico": {
+        "pregunta": "pregunta_teorica", "tema": "pregunta_teorica",
+        "consulta": "pregunta_teorica", "query": "pregunta_teorica",
+        "concepto": "pregunta_teorica", "pregunta_cientifica": "pregunta_teorica",
+    },
+    "aplicar_descarga": {
+        "reduccion_intensidad": "reduccion_intensidad_pct",
+        "red_intensidad": "reduccion_intensidad_pct",
+        "reduccion_intensidad_porcentaje": "reduccion_intensidad_pct",
+        "intensidad": "reduccion_intensidad_pct",
+        "red_series": "reduccion_series", "series": "reduccion_series",
+    },
+    "sustituir_ejercicio": {
+        "original": "ejercicio_original", "actual": "ejercicio_original",
+        "viejo": "ejercicio_original", "nuevo": "ejercicio_nuevo",
+        "reemplazo": "ejercicio_nuevo", "sustituto": "ejercicio_nuevo",
+        "razon": "motivo", "razón": "motivo",
+    },
+    "consultar_rutina_futura": {
+        "numero_semana": "semana", "week": "semana",
+        "día": "dia", "dia_numero": "dia", "numero_dia": "dia",
+    },
+    "consultar_progreso": {
+        "métrica": "metrica", "tipo": "metrica", "nombre_ejercicio": "ejercicio",
+    },
+    "explicar_tecnica_ejercicio": {
+        "nombre_ejercicio": "ejercicio", "movimiento": "ejercicio",
+    },
+    "registrar_peso_corporal": {
+        "peso": "peso_kg", "peso_corporal": "peso_kg", "peso_corporal_kg": "peso_kg",
+    },
+    "predecir_carga_optima": {
+        "nombre_ejercicio": "ejercicio", "reps_objetivo": "repeticiones_objetivo",
+        "repeticiones": "repeticiones_objetivo", "rpe": "rpe_objetivo",
+    },
+    "analizar_mrv": {
+        "musculo": "grupo_muscular", "músculo": "grupo_muscular",
+        "grupo": "grupo_muscular", "dias": "ventana_dias", "ventana": "ventana_dias",
+    },
+    "autorregular_dia": {
+        "nombre_ejercicio": "ejercicio", "rpe": "rpe_reportado",
+        "peso_kg": "carga_actual_kg", "peso": "carga_actual_kg",
+        "carga_kg": "carga_actual_kg", "carga": "carga_actual_kg",
+        "series": "series_restantes",
+    },
+    "enviar_grafica_progreso": {
+        "nombre_ejercicio": "ejercicio", "dias": "periodo_dias",
+        "periodo": "periodo_dias", "pie": "caption", "texto": "caption",
+    },
+    "evaluar_perfil_fisico": {
+        "peso": "peso_kg", "altura": "altura_m", "estatura": "altura_m",
+        "grasa": "porcentaje_grasa", "grasa_corporal": "porcentaje_grasa",
+        "sexo": "genero",
+    },
+    "evaluar_nivel_fuerza": {
+        "peso": "peso_kg", "sexo": "genero", "banca": "rm_banca_kg",
+        "sentadilla": "rm_sentadilla_kg", "peso_muerto": "rm_peso_muerto_kg",
+    },
+    "avanzar_dia": {"forzar_avance": "forzar", "force": "forzar"},
+    "pausar_plan": {"razon": "motivo", "razón": "motivo"},
+    "generar_rutina": {
+        "dias_semana": "dias", "objetivo": "meta",
+        "periodizacion": "tipo_periodizacion", "tipo": "tipo_periodizacion",
+        "grasa": "porcentaje_grasa", "contexto": "contexto_usuario",
+    },
+}
+
+def _normalizar_args_tool(nombre_tool: str, args: dict, usuario: str = "") -> dict:
+    """Traduce los sinónimos de argumento al nombre canónico del schema.
+    Idempotente (aplicarla dos veces da lo mismo) y no destructiva: si el
+    canónico ya viene con valor, gana él y el alias se descarta."""
+    if not isinstance(args, dict):
+        return {}
+    tabla = _ALIAS_ARGS.get(nombre_tool)
+    if not tabla:
+        return args
+    salida = dict(args)
+    renombrados = []
+    for alias, canonico in tabla.items():
+        if alias not in salida:
+            continue
+        valor = salida.pop(alias)
+        if salida.get(canonico) in (None, "", []):
+            salida[canonico] = valor
+            renombrados.append(f"{alias}->{canonico}")
+    if renombrados and usuario:
+        log(usuario, "ARG-ALIAS", f"{nombre_tool}: {', '.join(renombrados)}")
+    return salida
+
+def _bool_seguro(v) -> bool:
+    """El modelo manda booleanos como true, "true", "sí" o 1 indistintamente."""
+    if isinstance(v, bool):
+        return v
+    return str(v if v is not None else "").strip().lower() in (
+        "true", "1", "si", "sí", "yes", "y")
 
 def _num_seguro(v, defecto=None):
     """Convierte '150', '150kg', ' 3 reps ' o 150 a número; None si no hay dígitos."""
@@ -1858,11 +2514,88 @@ def detectar_series_multiples(mensaje: str) -> list[dict]:
                 break
         # Aquí agregamos el RPE al diccionario
         encontradas.append({"peso": s["peso"], "reps": s["reps"], "rpe": s.get("rpe"), "ejercicio": ejercicio})
+
+    # v11 — El split por comas y por " y " parte "100x5 y me quedaron 2 en el
+    # tanque" en dos trozos: la serie queda en uno y su esfuerzo en el otro, así
+    # que ningún fragmento por separado tiene ambas cosas. Si el mensaje entero
+    # declara un esfuerzo y hay UNA sola serie huérfana, es de ella. Con varias
+    # no se reparte a ciegas: se prefiere perder el dato a atribuirlo mal.
+    sin_rpe = [e for e in encontradas if e["rpe"] is None]
+    if len(sin_rpe) == 1:
+        rpe_global = rpe_desde_texto(mensaje)
+        if rpe_global is not None:
+            sin_rpe[0]["rpe"] = rpe_global
     return encontradas
 
 # ==============================================================================
 # INTERCEPTOR DE SERIES
 # ==============================================================================
+# ==============================================================================
+# RPE HABLADO (v11)
+# ------------------------------------------------------------------------------
+# La tabla de conversión existía... pero solo dentro de la description del
+# parámetro 'rpe' en core/tools.json, o sea únicamente para que la leyera el
+# modelo. El interceptor determinista solo entendía '@8' o 'rpe 8', así que
+# "me quedaron 2 en el tanque" —que es MÁS preciso que decir 'rpe 8', porque es
+# la definición misma del RPE— se guardaba como rpe=None.
+#
+# Lo que se perdía con ese None:
+#   · e1rm_serie() calcula con RIR = 10 − RPE: sin RPE no hay reps efectivas.
+#   · autorregular_dia es OBLIGATORIA con RPE ≥ 9.5. El atleta decía "casi no
+#     subió" y la bajada de carga del día no se disparaba nunca.
+#   · registrar_serie_completada exige la tríada y devolvía faltan_datos.
+_RIR_EXCLUIR = r"(?!\s*(?:series?|ejercicios?|d[ií]as?|semanas?|kilos?|kg|min))"
+_RIR_PATRONES = (
+    rf"(?:me\s+)?qued(?:aron|aban|an|aba|ó|o)\s+(?:como\s+|unas?\s+)?(\d+){_RIR_EXCLUIR}",
+    r"(\d+)\s*(?:reps?\s*)?(?:en\s+(?:el\s+|la\s+)?(?:tanque|reserva|rec[áa]mara)|de\s+reserva)",
+    r"\brir\s*(?:de\s*)?(\d+)",
+    r"(\d+)\s*rir\b",
+    r"podr[ií]a\s+(?:haber\s+)?(?:hecho|sacado|metido)\s+(\d+)\s+m[áa]s",
+    r"me\s+sobr(?:aron|aba|ó|o)\s+(\d+)",
+)
+# Frases sin cifra. El orden importa: 'casi no subió' debe ganar a 'no subió'.
+_RPE_VERBAL = (
+    (9.5, r"casi\s+(?:no\s+)?(?:sub|fall|se\s+queda)|a\s+punto\s+de\s+fallar|"
+          r"por\s+poco\s+(?:no\s+)?(?:sub|la\s+saco)|apenas\s+(?:la\s+)?sub|"
+          r"me\s+cost[óo]\s+(?:horrores|much[íi]simo)|se\s+me\s+atasc"),
+    (10.0, r"\bal\s+fallo\b|hasta\s+el\s+fallo|fallo\s+t[ée]cnico|\bfall[ée]\b|"
+           r"no\s+(?:me\s+)?(?:la\s+)?sali[óo]\s+la\s+[úu]ltima|me\s+qued[ée]\s+trabado|"
+           r"no\s+(?:me\s+)?sub[íi]a?\b"),
+    (9.0, r"(?:me\s+)?qued(?:aba|ó|o|aban)\s+(?:solo\s+)?una?\b|"
+          r"(?:solo\s+)?una\s+m[áa]s\s+(?:y\s+ya|nada\s+m[áa]s)?|una\s+en\s+el\s+tanque"),
+    (6.0, r"\bf[áa]cil\b|\bsuave\b|\bc[óo]modo\b|sobrad[oa]|\bvolad[oa]\b|"
+          r"\bligero\b|sin\s+problema|ni\s+me\s+enter[ée]"),
+)
+_RPE_NUMERICO_RE = re.compile(r"(?:@|\brpe\s*)\s*(\d+(?:[.,]\d+)?)", re.IGNORECASE)
+
+
+def rpe_desde_texto(texto: str) -> float | None:
+    """Traduce a RPE cómo describe el atleta el esfuerzo. Devuelve None si no
+    hay ninguna señal — nunca se inventa un esfuerzo que no se dijo."""
+    t = str(texto or "").lower()
+    m = _RPE_NUMERICO_RE.search(t)               # '@8' / 'rpe 8' siguen mandando
+    if m:
+        try:
+            v = float(m.group(1).replace(",", "."))
+            if 5.0 <= v <= 10.0:
+                return round(v * 2) / 2.0
+        except ValueError:
+            pass
+    for patron in _RIR_PATRONES:                 # RIR explícito: RPE = 10 − RIR
+        m = re.search(patron, t, re.IGNORECASE)
+        if m:
+            try:
+                rir = int(m.group(1))
+            except ValueError:
+                continue
+            if 0 <= rir <= 10:
+                return max(5.0, min(10.0, 10.0 - rir))
+    for valor, patron in _RPE_VERBAL:
+        if re.search(patron, t, re.IGNORECASE):
+            return valor
+    return None
+
+
 def detectar_serie_en_mensaje(mensaje: str) -> dict | None:
     """v9: Detecta peso, repeticiones y opcionalmente el RPE en mensajes directos."""
     patrones = [
@@ -1885,6 +2618,10 @@ def detectar_serie_en_mensaje(mensaje: str) -> dict | None:
             reps = int(reps)
 
             if 1 <= reps <= 30 and peso >= 1:
+                # Sin '@8' pegado a la serie, el esfuerzo puede venir dicho con
+                # palabras en el mismo fragmento ("100x5 y casi no sube").
+                if rpe is None:
+                    rpe = rpe_desde_texto(mensaje)
                 return {"peso": peso, "reps": reps, "rpe": rpe}
     return None
 
@@ -2165,25 +2902,46 @@ def _extraer_tools_de_texto(texto: str) -> list[dict]:
     return tools
 
 
+_DIAS_ES = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+
+
+def fecha_humana(fecha) -> str:
+    """'2026-07-30' -> '2026-07-30 (jueves)'.
+
+    v11 — el modelo deducía el día de la semana a partir de la fecha ISO y lo hacía
+    MAL: dijo "domingo 30" tres veces seguidas cuando el 2026-07-30 era jueves, y el
+    error se propagaba al leer su propia respuesta anterior. Los LLM son malos en
+    aritmética de calendario; se lo damos ya calculado.
+
+    No se usa strftime('%A') a propósito: depende del locale del sistema y en este
+    equipo saldría en inglés.
+    """
+    try:
+        d = datetime.strptime(str(fecha)[:10], "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return str(fecha)
+    return f"{d.strftime('%Y-%m-%d')} ({_DIAS_ES[d.weekday()]})"
+
+
 def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql,
                          es_casual, estado_gen, semana_actual,
                          bloque_onboarding: str = "") -> str:
     """v2: el onboarding ya no manda una lista de instrucciones genéricas;
     manda EXACTAMENTE lo que el sistema acaba de hacer y la ÚNICA pregunta siguiente."""
     if bloque_onboarding:
-        partes = [f"FECHA: {fecha} {hora}", bloque_onboarding]
+        partes = [f"FECHA: {fecha_humana(fecha)} {hora}", bloque_onboarding]
         return TELEMETRIA_INICIO + "\n" + "\n\n".join(partes) + "\n" + TELEMETRIA_FIN
 
     if es_casual:
         # v4.2: en charla casual el estatus es SOLO contexto interno; antes el
         # coach saludaba con "estás atrasado" y soltaba la rutina sin que nadie
         # le preguntara.
-        return (f"{TELEMETRIA_INICIO}\nFECHA: {fecha} {hora}\n"
+        return (f"{TELEMETRIA_INICIO}\nFECHA: {fecha_humana(fecha)} {hora}\n"
                 f"CALENDARIO (contexto interno: NO lo menciones ni muestres la rutina "
                 f"a menos que el atleta saque el tema de entrenar): {estatus}"
                 f"\n{TELEMETRIA_FIN}")
 
-    partes = [f"FECHA: {fecha} {hora}",
+    partes = [f"FECHA: {fecha_humana(fecha)} {hora}",
               f"CALENDARIO: {estatus} | SEMANA ACTUAL: {semana_actual}"]
 
     if estado_gen == "generando":
@@ -2440,6 +3198,17 @@ def _instruccion_fallback(base: str, acciones_ok: list, acciones_fallidas: list)
         partes.append("ACCIONES QUE FALLARON (informa al atleta con honestidad y en corto que "
                       "esto NO se guardó, y pídele reintentarlo o los datos que falten): "
                       + "; ".join(acciones_fallidas) + ".")
+    else:
+        # v11 — sin esto el modelo rellenaba el hueco INVENTANDO la causa: dijo
+        # "hubo un error técnico en el guardado" cuando no hubo ningún error —
+        # simplemente no se intentó nada, porque faltaba saber de qué ejercicio
+        # eran las series. Culpar al sistema de un fallo inexistente destruye la
+        # confianza del atleta y le hace reintentar algo que nunca falló.
+        partes.append("NO hubo ningún error técnico ni fallo del sistema: sencillamente no "
+                      "se ejecutó ninguna acción. Tienes PROHIBIDO inventar errores de "
+                      "guardado, fallos técnicos o problemas del sistema. Si falta un dato "
+                      "para poder registrar algo (por ejemplo de QUÉ EJERCICIO es una serie), "
+                      "pídeselo con naturalidad, como haría un coach que necesita saberlo.")
     partes.append("Responde al atleta en 1-3 frases, con tu tono de coach, sin tecnicismos "
                   "ni nombres de herramientas.")
     return " ".join(partes)
@@ -2533,11 +3302,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         _actualizar_estado_json(numero_usuario, fecha_programada=fecha_actual)
 
     if ahora.date() < fecha_prog.date():
-        estatus = f"DESCANSO: Próximo entreno el {fecha_programada_str}."
+        estatus = f"DESCANSO: Próximo entreno el {fecha_humana(fecha_programada_str)}."
     elif ahora.date() == fecha_prog.date():
-        estatus = f"AL DÍA: Hoy ({fecha_actual}) toca entrenamiento."
+        estatus = f"AL DÍA: Hoy ({fecha_humana(fecha_actual)}) toca entrenamiento."
     else:
-        estatus = f"ATRASADO: Era el {fecha_programada_str}, reponiendo hoy ({fecha_actual})."
+        estatus = f"ATRASADO: Era el {fecha_humana(fecha_programada_str)}, reponiendo hoy ({fecha_humana(fecha_actual)})."
 
     if estado_hoy.get("plan_pausado"):
         estatus = "PLAN PAUSADO por el atleta; no hay entrenamiento programado hasta que lo reactive."
@@ -2853,6 +3622,16 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 numero_usuario, mensaje_usuario,
                 [c for c in calcular_faltantes(numero_usuario)
                  if c != campo_pendiente])
+            # v11 — La meta ya guardada NO está en 'faltantes', así que _parsear_
+            # campos_anclados ni la miraba: cuando el atleta la corregía ("en
+            # realidad powerbuilding") el mensaje se descartaba por no responder
+            # al campo pendiente, y el plan se generaba con la meta vieja mientras
+            # el coach le confirmaba la nueva. Una declaración explícita manda.
+            if campo_pendiente != "meta":
+                correccion = _corregir_meta_declarada(numero_usuario, mensaje_usuario)
+                if correccion:
+                    extras = list(extras) + [correccion]
+
             if extras:
                 partes_fb = ([feedback] if (exito and feedback) else []) + extras
                 feedback = "; ".join(partes_fb)
@@ -2971,31 +3750,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # ==========================================================================
     # MODO NORMAL (rutina activa / charla) — señales e interceptores
     # ==========================================================================
-    # v4.1: vocabulario ampliado — "ya terminé", "me duele el hombro" o "dormí mal"
-    # eran clasificados como casuales y se quedaban SIN herramientas (avanzar_dia,
-    # expediente...). Además, un mensaje largo nunca es casual aunque no matchee.
-    PALABRAS_ENTRENAMIENTO = {
-        "rutina", "plan", "serie", "ejercicio", "rm", "banca", "sentadilla",
-        "muerto", "dominada", "rpe", "kg", "rep", "entreno", "entrena", "entrenar",
-        "peso", "dolor", "duele", "molest", "lesion", "lesión", "semana", "dia", "día",
-        "siguiente", "mañana", "hazme", "crear", "cambiar", "cambio", "sustitu",
-        "mesociclo", "hoy", "toca", "gym", "gimnasio", "marca", "pr", "récord", "record",
-        "termin", "acab", "descans", "dormí", "dormi", "sueño", "estres", "estrés",
-        "fatiga", "cansad", "hombro", "rodilla", "espalda", "codo", "muñeca", "cadera",
-        "cinturon", "cinturón", "straps", "magnesio", "barra", "mancuern", "polea",
-        "maquina", "máquina", "video", "veloc", "prefiero", "odio", "calent", "deficit", "déficit",
-        # v7 - nuevas palabras de control
-        "viaje", "volvi", "volví", "regrese", "regresé", "seguir", "continuar",
-        "reactiva", "reanuda", "reanudar", "vuelta"
-    }
-    # v8 (Mandato 4) — la NOTACIÓN de entrenamiento manda sobre el conteo de
-    # keywords: "100 x 10 r @8" no contiene ninguna palabra del set y medía <=60
-    # chars, así que caía en casual=True, se apagaban las tools y el modelo
-    # afirmaba "serie anotada ✅" sin haber guardado NADA (bug 3.2). Cualquier
-    # patrón NxM, @RPE, kg, reps o velocidad VBT fuerza estrictamente casual=False.
-    es_casual = (not any(p in texto_puro for p in PALABRAS_ENTRENAMIENTO)
-                 and len(texto_puro) <= 60
-                 and not NOTACION_ENTRENO_RE.search(texto_puro))
+    # El vocabulario y las reglas viven a nivel de módulo (_es_charla_casual):
+    # antes este set se reconstruía en CADA turno y solo era visible desde aquí,
+    # así que no había forma de probar el clasificador sin levantar el orquestador
+    # entero. Ver services/testbed/test_router_casual.py.
+    es_casual = _es_charla_casual(texto_puro)
 
     # v5.2 — Reporte "okey espero": un mensaje de transición corto tras un turno
     # donde el coach habló de plan/generación NO debe apagar herramientas ni
@@ -3173,7 +3932,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         for s in series_todas:
             ej = s.get("ejercicio") or _inferir_ejercicio_serie(mensaje_usuario)
             if not ej:
-                pendientes.append(f"{s['peso']:g} kg x {s['reps']}")
+                # El RPE viaja en el aviso: sin él, el atleta responde de qué
+                # ejercicio era y el esfuerzo que ya había contado se pierde,
+                # obligándole a repetirlo.
+                pendientes.append(f"{s['peso']:g} kg x {s['reps']}"
+                                  + (f" @RPE {s['rpe']:g}" if s.get("rpe") else ""))
                 continue
             try:
                 # v9: Se inyecta el rpe_reportado para que vaya directo a la base de datos
@@ -3256,7 +4019,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         if m_sub:
             orig = m_sub.group(1).strip(" .,")
             nuevo = m_sub.group(2).strip(" .,")
-            if 2 <= len(orig) <= 60 and 2 <= len(nuevo) <= 60 and orig.lower() != nuevo.lower():
+            plausible = (2 <= len(orig) <= 60 and 2 <= len(nuevo) <= 60
+                         and orig.lower() != nuevo.lower())
+            # v11 — Mismo agujero que en la tool: este interceptor escribía el
+            # override sin comprobar que el ejercicio existiera en el plan.
+            orig_real = _resolver_ejercicio_del_plan(numero_usuario, orig) if plausible else None
+            if plausible and not orig_real:
+                catalogo = _ejercicios_del_plan(numero_usuario)
+                contenido_mensaje += (
+                    f"\n\n[SISTEMA — SUSTITUCIÓN NO APLICADA]: el atleta pidió cambiar "
+                    f"'{orig}', que NO está en su plan. NO se cambió nada y tienes PROHIBIDO "
+                    f"decirle que sí. Sus ejercicios son: "
+                    f"{', '.join(catalogo) if catalogo else '(plan vacío)'}. Dile que ese "
+                    f"movimiento no lo tiene y pregúntale a cuál se refería.")
+                acciones_fallidas.append(f"sustitución de '{_trunc(orig, 40)}': no está en el plan")
+                log(numero_usuario, "SUSTITUCION-FANTASMA", f"'{orig}' no existe en el plan")
+            elif orig_real:
+                orig = orig_real
                 alcance = "solo_hoy" if re.search(r"solo\s+hoy|s[oó]lo\s+hoy|por\s+hoy",
                                                   texto_puro) else "permanente"
                 _guardar_override_ejercicio(numero_usuario, orig, nuevo, alcance)
@@ -3322,8 +4101,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             contexto_extra = "\n".join(lineas_ok)
         contenido_mensaje += f"\n\n{contexto_extra}"
 
+    # v11 (Opción B) — la telemetría se concatena Y SE PERSISTE. Ver el bloque de
+    # persistencia más abajo: NO se poda. Es lo que hace que el prompt del turno N
+    # sea prefijo EXACTO del turno N+1 y la caché de Ollama acierte.
     contenido_mensaje += contexto_dinamico
-    historial_memoria[numero_usuario].append({"role": "user", "content": contenido_mensaje})
 
     # v3 — herramientas solo cuando pueden hacer falta:
     #  - onboarding: nunca (el sistema recolecta)
@@ -3334,9 +4115,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         else f"{len(mis_herramientas)} herramientas disponibles")
 
     # v7 — REFUERZO DE EMISIÓN NATIVA
+    # v11 — este bloque NUNCA llegaba al modelo: el `+=` iba DESPUÉS del append al
+    # historial, y como las cadenas son inmutables el dict conservaba la versión
+    # anterior. Se rebindeaba una variable local que ya no se usaba para nada.
+    # Ahora se compone el contenido completo ANTES de guardarlo.
     if tools_de_turno:
         contenido_mensaje += ("\n\n[SISTEMA]: Si decides usar una herramienta, EMÍTELA como "
                               "llamada real (no la escribas como texto ni asumas que ya se ejecutó).")
+
+    historial_memoria[numero_usuario].append({"role": "user", "content": contenido_mensaje})
 
 
     # v3 — num_predict dinámico: una charla normal no necesita 2048 tokens
@@ -3426,7 +4213,12 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             firmas_batch: set[str] = set()
             for tool in calls:
                 n_t, a_t = _extraer_tool(tool)
-                firma = f"{_normalizar_nombre_tool(n_t)}|{json.dumps(a_t, sort_keys=True, ensure_ascii=False)}"
+                # La firma se calcula sobre los args YA normalizados: dos calls que
+                # solo difieren en el alias del argumento ('dato' vs 'dato_a_guardar')
+                # son la misma escritura y deben deduplicarse como tal.
+                n_t = _normalizar_nombre_tool(n_t)
+                a_t = _normalizar_args_tool(n_t, a_t)
+                firma = f"{n_t}|{json.dumps(a_t, sort_keys=True, ensure_ascii=False)}"
                 if firma in firmas_batch:
                     log(numero_usuario, "TOOL-DUP", f"call duplicada en el batch omitida: {_trunc(firma, 100)}")
                     continue
@@ -3439,6 +4231,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             for tool, firma in calls_filtradas:
                 nombre, args = _extraer_tool(tool)
                 nombre = _normalizar_nombre_tool(nombre, numero_usuario)
+                args = _normalizar_args_tool(nombre, args, numero_usuario)
 
                 # v8 (Mandato 2) — dedupe CROSS-LOOP: una escritura ya ejecutada en
                 # una vuelta anterior de ESTE turno no se repite jamás.
@@ -3479,12 +4272,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                                     "El atleta debe reanudarlo primero.")
                             acciones_fallidas.append("avanzar_dia: plan pausado, NO se avanzó")
                         else:
-                            avance = avanzar_estado_usuario(numero_usuario)
+                            forzado = _bool_seguro(args.get("forzar"))
+                            avance = avanzar_estado_usuario(numero_usuario, forzar=forzado)
                             if avance.get("ok"):
                                 estado_hoy = obtener_estado_usuario(numero_usuario)
                                 resultados_texto.append(
                                     f"[avanzar_dia]: calendario avanzado a semana {avance['semana']}, "
-                                    f"día {avance['dia']}. Próximo entreno: {avance['fecha_programada']}.")
+                                    f"día {avance['dia']}"
+                                    f"{' (avance FORZADO, segundo de hoy)' if forzado else ''}. "
+                                    f"Próximo entreno: {fecha_humana(avance['fecha_programada'])}.")
                                 acciones_ok.append(
                                     f"día avanzado a semana {avance['semana']}, día {avance['dia']}")
                             else:
@@ -3494,24 +4290,56 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         necesita_reinvocacion = True
 
                     elif nombre == "calcular_rm_exacto":
-                        peso = _num_seguro(args.get("peso_kg") or args.get("peso"))
-                        reps = _num_seguro(args.get("repeticiones") or args.get("reps"))
-                        ej = (str(args.get("ejercicio") or "").strip()
+                        peso = _num_seguro(args.get("peso_levantado"))
+                        reps = _num_seguro(args.get("repeticiones"))
+                        ej = (str(args.get("nombre_ejercicio") or "").strip()
                               or _inferir_ejercicio_serie(texto_puro) or "press banco plano")
-                        if not peso or not reps or not (1 <= int(reps) <= 15):
+                        # v11 — 'tipo_ejercicio' lleva desde siempre en el schema con
+                        # sus 4 valores y se descartaba: TODO se calculaba como peso
+                        # libre. Unas dominadas con 30 kg de lastre daban un 1RM de
+                        # ~32 kg, ignorando los ~85 kg de peso corporal que el atleta
+                        # también mueve, y ese número entraba a la base como su marca.
+                        try:
+                            tipo = TipoEjercicio(str(args.get("tipo_ejercicio")
+                                                     or "peso_libre").strip().lower())
+                        except ValueError:
+                            tipo = TipoEjercicio.PESO_LIBRE
+                        es_calistenia = tipo is TipoEjercicio.CALISTENIA_PURA
+                        if es_calistenia and peso is None:
+                            peso = 0.0          # solo peso corporal: no hay lastre que reportar
+                        motivos = []
+                        if peso is None or (peso <= 0 and not es_calistenia):
+                            motivos.append(f"peso={args.get('peso_levantado')!r}")
+                        if not reps or not (1 <= int(reps) <= 15):
+                            motivos.append(f"reps={args.get('repeticiones')!r} (rango confiable 1-15)")
+                        if motivos:
                             resultados_texto.append(
-                                f"[calcular_rm_exacto]: datos inválidos (peso={peso}, reps={reps}); el "
-                                "rango confiable es 1-15 reps. NO se calculó ni guardó nada.")
+                                f"[calcular_rm_exacto]: datos inválidos ({'; '.join(motivos)}). "
+                                "NO se calculó ni guardó nada.")
                             acciones_fallidas.append("calcular_rm_exacto: datos fuera de rango, no se guardó")
                         else:
-                            rm = calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
+                            pc = _num_seguro(cargar_perfil(numero_usuario).get("peso_kg"), 85.0) or 85.0
+                            bruto = calcular_1rm(tipo, int(reps), float(peso), peso_corporal=float(pc))
+                            # lastrado y calistenia devuelven un dict (absoluto + lastre);
+                            # se guarda el kilaje COMPARABLE con lo que el atleta carga,
+                            # y el absoluto solo se le cuenta como contexto.
+                            if isinstance(bruto, dict):
+                                rm = float(bruto.get("1rm_solo_lastre_kg",
+                                                     bruto.get("lastre_sugerido_para_1rm_kg", 0.0)))
+                                absoluto = bruto.get("1rm_absoluto_kg",
+                                                     bruto.get("1rm_fuerza_total_kg"))
+                                detalle = (f" [fuerza total con su peso corporal de {float(pc):g} kg: "
+                                           f"{float(absoluto):g} kg]")
+                            else:
+                                rm, detalle = float(bruto), ""
                             # v8 (Mandato 2): escritura fuera del event loop
                             await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
                                                     peso_origen=float(peso), reps_origen=int(reps),
                                                     fuente="tool")
                             resultados_texto.append(
-                                f"[calcular_rm_exacto]: {ej} -> 1RM estimado {rm:g} kg "
-                                f"(a partir de {float(peso):g} kg x {int(reps)}). Ya quedó guardado.")
+                                f"[calcular_rm_exacto]: {ej} ({tipo.value}) -> 1RM estimado "
+                                f"{rm:g} kg (a partir de {float(peso):g} kg x {int(reps)})"
+                                f"{detalle}. Ya quedó guardado.")
                             acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
                         necesita_reinvocacion = True
 
@@ -3558,19 +4386,42 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                             resultados_texto.append("[sustituir_ejercicio]: la sustitución YA la aplicó el "
                                                     "sistema en este turno; NO se repitió.")
                         else:
-                            orig = str(args.get("ejercicio_original") or args.get("original") or "").strip()
-                            nuevo = str(args.get("ejercicio_nuevo") or args.get("nuevo") or "").strip()
+                            orig = str(args.get("ejercicio_original") or "").strip()
+                            nuevo = str(args.get("ejercicio_nuevo") or "").strip()
+                            motivo = str(args.get("motivo") or "").strip()
                             alcance = ("solo_hoy" if str(args.get("alcance", "")).lower().startswith("solo")
                                        else "permanente")
+                            orig_real = (_resolver_ejercicio_del_plan(numero_usuario, orig)
+                                         if orig else None)
                             if not orig or not nuevo:
                                 resultados_texto.append("[sustituir_ejercicio]: faltan el ejercicio original "
                                                         "y/o el nuevo; NO se aplicó nada.")
                                 acciones_fallidas.append("sustituir_ejercicio: datos incompletos, no se aplicó")
+                            elif not orig_real:
+                                # v11 — Antes se escribía el override igual y el coach
+                                # confirmaba un cambio que no tocaba una sola línea del plan.
+                                catalogo = _ejercicios_del_plan(numero_usuario)
+                                resultados_texto.append(
+                                    f"[sustituir_ejercicio]: '{orig}' NO está en el plan de este atleta, "
+                                    f"así que NO se cambió nada. Sus ejercicios son: "
+                                    f"{', '.join(catalogo) if catalogo else '(el plan está vacío)'}. "
+                                    f"Dile con naturalidad que ese movimiento no lo tiene en el plan y "
+                                    f"pregúntale a cuál de los suyos se refería.")
+                                acciones_fallidas.append(
+                                    f"sustituir_ejercicio: '{_trunc(orig, 40)}' no está en el plan, no se aplicó")
+                                log(numero_usuario, "SUSTITUCION-FANTASMA",
+                                    f"'{orig}' no existe en el plan; no se aplicó")
                             else:
+                                orig = orig_real
                                 _guardar_override_ejercicio(numero_usuario, orig, nuevo, alcance)
+                                # El motivo es required en el schema y se descartaba: sin
+                                # él, el expediente no explica POR QUÉ dejó de hacer el
+                                # ejercicio, que es justo lo que hay que recordar meses
+                                # después ('dolor_hombro' no es lo mismo que 'preferencia').
                                 await asyncio.to_thread(  # v8 (Mandato 2): Chroma en thread
                                     guardar_dato_en_expediente, numero_usuario,
-                                    f"Sustitución vía coach: '{orig}' -> '{nuevo}' ({alcance}).")
+                                    f"Sustitución vía coach: '{orig}' -> '{nuevo}' ({alcance})"
+                                    f"{'; motivo: ' + motivo if motivo else ''}.")
                                 resultados_texto.append(
                                     f"[sustituir_ejercicio]: aplicado '{orig}' -> '{nuevo}' ({alcance}), "
                                     "manteniendo series, reps y cargas.")
@@ -3578,19 +4429,35 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         necesita_reinvocacion = True
 
                     elif nombre == "aplicar_descarga":
-                        red_int = float(_num_seguro(args.get("reduccion_intensidad"), 10.0) or 10.0)
-                        red_ser = int(_num_seguro(args.get("reduccion_series"), 1) or 1)
-                        _guardar_descarga(numero_usuario, int(estado_hoy["semana"]), red_int, red_ser)
+                        # v11 — 'semana' era required en el schema y se ignoraba (siempre
+                        # descargaba la actual), y la intensidad se leía de un
+                        # 'reduccion_intensidad' que el modelo nunca manda: el 10 % por
+                        # defecto se aplicaba decidiera lo que decidiera el coach.
+                        sem_d = int(_num_seguro(args.get("semana"), estado_hoy["semana"])
+                                    or estado_hoy["semana"])
+                        v_int = _num_seguro(args.get("reduccion_intensidad_pct"), 10.0)
+                        v_ser = _num_seguro(args.get("reduccion_series"), 1)
+                        # El schema anuncia 0-40 % y 0-3 series; fuera de ahí la semana
+                        # deja de parecerse a lo que el atleta tenía planificado.
+                        red_int = min(40.0, max(0.0, float(10.0 if v_int is None else v_int)))
+                        red_ser = min(3, max(0, int(1 if v_ser is None else v_ser)))
+                        _guardar_descarga(numero_usuario, sem_d, red_int, red_ser)
                         resultados_texto.append(
-                            f"[aplicar_descarga]: descarga aplicada a la semana {estado_hoy['semana']}: "
+                            f"[aplicar_descarga]: descarga aplicada a la semana {sem_d}: "
                             f"-{red_int:g}% de intensidad y -{red_ser} serie(s) por ejercicio.")
-                        acciones_ok.append(f"descarga aplicada a la semana {estado_hoy['semana']}")
+                        acciones_ok.append(f"descarga aplicada a la semana {sem_d}")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_progreso":
-                        bloques = [b for b in (_resumen_progreso_rm(numero_usuario, args.get("ejercicio")),
-                                               _resumen_progreso_peso(numero_usuario)) if b]
-                        res = "\n".join(bloques) or "Sin historial de progreso todavía."
+                        # 'metrica' es required en el schema y se ignoraba: preguntara lo
+                        # que preguntara el atleta, se le devolvían fuerza Y peso corporal.
+                        metrica = str(args.get("metrica") or "").strip().lower()
+                        bloques = []
+                        if metrica != "peso_corporal":
+                            bloques.append(_resumen_progreso_rm(numero_usuario, args.get("ejercicio")))
+                        if metrica != "1rm":
+                            bloques.append(_resumen_progreso_peso(numero_usuario))
+                        res = "\n".join(b for b in bloques if b) or "Sin historial de progreso todavía."
                         resultados_texto.append(f"[consultar_progreso]:\n{res}")
                         necesita_reinvocacion = True
 
@@ -3620,10 +4487,20 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         necesita_reinvocacion = True
 
                     elif nombre == "pausar_plan":
-                        _actualizar_estado_json(numero_usuario, plan_pausado=1)
+                        motivo_pausa = str(args.get("motivo") or "").strip()
+                        _actualizar_estado_json(numero_usuario, plan_pausado=1,
+                                                motivo_pausa=motivo_pausa)
                         estado_hoy["plan_pausado"] = 1
-                        resultados_texto.append("[pausar_plan]: plan PAUSADO; el calendario no avanzará "
-                                                "hasta que lo reanude.")
+                        if motivo_pausa:
+                            # Saber que paró por lesión y no por viaje cambia cómo se
+                            # retoma el plan cuando vuelva.
+                            await asyncio.to_thread(
+                                guardar_dato_en_expediente, numero_usuario,
+                                f"El atleta pausó su plan el {fecha_actual}; motivo: {motivo_pausa}.")
+                        resultados_texto.append(
+                            f"[pausar_plan]: plan PAUSADO"
+                            f"{' (' + motivo_pausa + ')' if motivo_pausa else ''}; el calendario "
+                            "no avanzará hasta que lo reanude.")
                         acciones_ok.append("plan pausado")
                         necesita_reinvocacion = True
 
@@ -3637,30 +4514,37 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         necesita_reinvocacion = True
 
                     elif nombre == "guardar_en_expediente_personal":
-                        dato = str(args.get("dato") or args.get("texto") or args.get("informacion") or "").strip()
+                        # v11 — leía 'dato'/'texto'/'informacion' y el schema pide
+                        # 'dato_a_guardar': el modelo mandaba bien el argumento, aquí no
+                        # se encontraba nunca y se caía al else. La memoria permanente
+                        # del atleta llevaba sin escribirse una sola vez por esta vía,
+                        # mientras el coach le confirmaba que lo tenía apuntado.
+                        dato = str(args.get("dato_a_guardar") or "").strip()
                         if dato:
                             await asyncio.to_thread(guardar_dato_en_expediente, numero_usuario, dato)
                             resultados_texto.append(f"[guardar_en_expediente_personal]: anotado: {_trunc(dato, 110)}")
                             acciones_ok.append("dato guardado en su expediente")
                         else:
-                            resultados_texto.append("[guardar_en_expediente_personal]: no venía ningún dato.")
+                            resultados_texto.append("[guardar_en_expediente_personal]: no venía ningún dato; "
+                                                    "NO se guardó nada. No le digas que lo apuntaste.")
+                            acciones_fallidas.append("guardar_en_expediente_personal: sin dato, no se guardó")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_expediente_personal":
-                        concepto = str(args.get("concepto") or args.get("tema") or texto_puro)
+                        concepto = str(args.get("concepto_a_buscar") or "").strip() or texto_puro
                         res = await asyncio.to_thread(consultar_expediente_atleta, numero_usuario, concepto)
                         resultados_texto.append(f"[consultar_expediente_personal '{_trunc(concepto, 50)}']:\n{res}")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_historial_narrativo":
-                        concepto = str(args.get("concepto") or args.get("tema") or texto_puro)
+                        concepto = str(args.get("contexto_a_buscar") or "").strip() or texto_puro
                         res = await asyncio.to_thread(consultar_memoria_historica_atleta,
                                                       numero_usuario, concepto)
                         resultados_texto.append(f"[consultar_historial_narrativo '{_trunc(concepto, 50)}']:\n{res}")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_libro_cientifico":
-                        tema = str(args.get("tema") or args.get("pregunta") or texto_puro)
+                        tema = str(args.get("pregunta_teorica") or "").strip() or texto_puro
                         res = await asyncio.to_thread(consultar_literatura_cientifica, tema)
                         resultados_texto.append(f"[consultar_libro_cientifico '{_trunc(tema, 50)}']:\n{res}")
                         necesita_reinvocacion = True
@@ -3876,17 +4760,25 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
         historial_memoria[numero_usuario].append({"role": "assistant", "content": texto_final})
 
-        # Persistencia SIN la telemetría del turno (no engorda el disco ni contamina
-        # futuros contextos con datos viejos de calendario).
-        # La MISMA versión podada pasa a ser la memoria viva: así el contexto que
-        # verá el modelo en el próximo turno es idéntico al de antes (cuando se
-        # releía del disco), pero sin pagar la relectura.
-        hist_disco = []
-        for m in historial_memoria[numero_usuario]:
-            c = m.get("content", "")
-            if m.get("role") == "user" and TELEMETRIA_INICIO in c:
-                c = c.split(TELEMETRIA_INICIO)[0]
-            hist_disco.append({"role": m.get("role"), "content": c})
+        # v11 (Opción B) — LA TELEMETRÍA YA NO SE PODA. Antes se recortaba aquí, y
+        # eso hacía que el turno siguiente reconstruyera el mensaje SIN el bloque:
+        # el prompt del turno N dejaba de ser prefijo del N+1, Ollama descartaba su
+        # único checkpoint (lo graba al final del prompt, o sea DESPUÉS del bloque)
+        # y reprocesaba los ~15.000 tokens enteros — 17,6 s por turno medidos.
+        #
+        # Persistiendo lo mismo que se envió, el historial es un prefijo que solo
+        # crece y la caché acierta. Referencia medida en las llamadas 'post-tools',
+        # que ya cumplían esa condición: 21.260 tok de prefill en 1,3 s.
+        #
+        # Coste aceptado: ~600 tok/turno de telemetría acumulada. Quedan DENTRO del
+        # prefijo cacheado (se procesan una sola vez) y el compresor los recoge al
+        # pasar UMBRAL_COMPRESION. El riesgo es que el modelo cite un calendario
+        # viejo: por eso el system prompt avisa de que solo vale el ÚLTIMO bloque.
+        #
+        # NO volver a podar aquí "para limpiar el historial" sin releer esto:
+        # es exactamente el cambio que costaba 17,6 s por turno.
+        hist_disco = [{"role": m.get("role"), "content": m.get("content", "")}
+                      for m in historial_memoria[numero_usuario]]
         historial_memoria[numero_usuario] = hist_disco
         try:
             async with aiofiles.open(ruta_historial, mode="w", encoding="utf-8") as f:
@@ -3933,6 +4825,12 @@ async def _handle_generar_rutina(args: dict, numero_usuario: str, texto_puro: st
         "rm_peso_muerto_kg": _num_seguro(args.get("rm_peso_muerto_kg"), r.get("peso muerto")),
         "rm_dominadas_kg": _num_seguro(args.get("rm_dominadas_kg"), r.get("dominadas")),
         "contexto_usuario": str(args.get("contexto_usuario") or ""),
+        # v11 — 'tipo_periodizacion' es required en el schema y se perdía aquí (y
+        # otra vez en el puente): el atleta podía pedir bloques tradicionales y
+        # siempre se le generaba DUP, que es el default del motor.
+        "tipo_periodizacion": ("tradicional"
+                               if str(args.get("tipo_periodizacion") or "").strip().lower()
+                               == "tradicional" else "DUP"),
     }
     faltan = [k for k in ("peso_kg", "rm_banca_kg", "rm_sentadilla_kg", "rm_peso_muerto_kg")
               if datos.get(k) in (None, 0)]
@@ -4067,11 +4965,14 @@ def obtener_estado_usuario(numero_usuario: str) -> dict:
     est.setdefault("ultima_fecha_completada", "")
     return est
 
-def avanzar_estado_usuario(numero_usuario: str) -> dict:
-    """Avanza el calendario UN día real del plan. Candado: máx. un avance por fecha."""
+def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> dict:
+    """Avanza el calendario UN día real del plan. Candado: máx. un avance por fecha.
+    `forzar` lo levanta SOLO cuando el atleta insiste tras habérsele avisado (es lo
+    que promete el parámetro 'forzar' del schema, que hasta v11 no llegaba aquí).
+    Nunca salta el fin del plan: si no hay más semanas generadas, no hay a dónde ir."""
     est = obtener_estado_usuario(numero_usuario)
     hoy = datetime.now().strftime("%Y-%m-%d")
-    if est.get("ultima_fecha_completada") == hoy:
+    if est.get("ultima_fecha_completada") == hoy and not forzar:
         return {"ok": False,
                 "motivo": ("CANDADO del día: hoy ya se marcó una sesión como completada; el "
                            "siguiente día se desbloquea mañana (evita avances dobles)."),
