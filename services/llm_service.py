@@ -12,7 +12,8 @@ from pathlib import Path
 
 import aiofiles
 from core.ejercicios import canonizar   # identidad del movimiento, una sola fuente
-from services.handlers_v9 import DISPATCHER_V9
+from services.handlers_v9 import (DISPATCHER_V9, fijar_ejercicio_confirmado,
+                                  leer_ejercicio_confirmado)
 from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashboard_analitico
 from services.conexion_entrenamiento_llm_orquestacion import recibir_peticion
 from services.calculadora_rm import calcular_1rm, TipoEjercicio
@@ -391,13 +392,118 @@ SUSTITUIR_RE = re.compile(
     r"(?:[.,;]|\s+(?:en\s+todo|porque|ya\s+que|me\s+|solo|s[oó]lo|por\s+hoy)|$)",
     re.IGNORECASE)
 # v7 — el coach afirma en 1ª persona haber COMPLETADO una acción de backend
+# v12 — el regex cubría MENOS de lo que parecía. Medido el 2026-07-29 contra
+# salidas reales, se le escapaban tres formas enteras:
+#   · la ortografía c→qu: "apliqué" no casa con 'aplic[ée]' (solo "aplicé"),
+#   · los tiempos compuestos: "he pausado", "hemos cambiado",
+#   · el participio de titular: "*Ajuste aplicado:*", que es como el modelo
+#     presenta un cambio inexistente sin usar ningún verbo conjugado.
+# Con esas tres puertas abiertas, el guardia anti-mentira no saltaba nunca en
+# los casos que más daño hacen.
+# OJO con el subjuntivo: en español "que te aplique" y "apliqué" solo se
+# distinguen por la tilde, y el primero es una PROPUESTA ("¿quieres que lo
+# apunte?"), no una afirmación. Por eso la terminación admitida es 'é'/'ó'
+# acentuada y NO la 'e' pelada: incluirla convertía cada ofrecimiento del coach
+# en un falso positivo y le hacía reescribir respuestas honestas.
 _CLAIM_ACCION_RE = re.compile(
-    r"\b(?:ya\s+)?(?:reactiv[ée]|reanud[ée]|paus[ée]|congel[ée]|cambi[ée]|sustitu[íi]|"
-    r"reempla[cz][ée]|guard[ée]|registr[ée]|anot[ée]|apunt[ée]|actualic[ée]|aplic[ée]|"
-    r"elimin[ée]|borr[ée]|gener[ée]|avanc[ée])\b"
+    r"\b(?:ya\s+)?(?:reactiv|reanud|paus|congel|cambi|sustitu|reempla[cz]|"
+    r"guard|registr|anot|apunt|actualic|actualiz|aplic|apliqu|elimin|borr|gener|avanc|avanz)"
+    r"(?:[éó]|amos|aste|aron|ad[oa]s?|id[oa]s?)\b"
+    r"|\b(?:he|hemos)\s+\w{2,12}(?:ad|id)[oa]\b"
     r"|\bqued[óo]\s+(?:guardad|registrad|anotad|cambiad|pausad|reactivad|aplicad|eliminad)"
     r"|\b(?:lo\s+)?tengo\s+(?:anotad|apuntad|guardad|registrad)",
     re.IGNORECASE)
+
+# ------------------------------------------------------------------------------
+# v12 — CLAIMS SOBRE EL ESTADO DEL PLAN, CONTRASTADOS CONTRA EL DISCO.
+#
+# El guardia CLAIM-FALSO de v8 exigía que el ATLETA hubiera escrito cifras en su
+# mensaje (NOTACION_ENTRENO_RE sobre texto_puro), así que las mentiras que no
+# van acompañadas de números pasaban enteras. Caso medido el 2026-07-29: ante
+# "llevo toda la semana molido, ¿me toca descarga?" el coach llamó analizar_mrv,
+# NO llamó aplicar_descarga, y respondió "*Ajuste aplicado:* reducción del 10 %
+# en la carga, una serie menos". Nada de eso se aplicó — y el coach siguió
+# repitiéndolo en los 5 turnos siguientes ("la descarga que aplicamos"), así que
+# el atleta habría entrenado un mesociclo entero más flojo por una alucinación.
+#
+# Aquí NO se mira qué herramientas corrieron en el turno (una descarga aplicada
+# ayer es una afirmación honesta hoy): se mira el ESTADO REAL en disco.
+# ------------------------------------------------------------------------------
+_CLAIM_DESCARGA_RE = re.compile(
+    # "la descarga quedó aplicada", "descarga técnica aplicada"
+    r"(?:descarga|deload)[^.\n]{0,40}\b(?:aplicad[oa]s?|activad[oa]s?|puesta|hecha|en\s+marcha)\b"
+    # solo formas de acción CONSUMADA: apliqué / aplicó / aplicamos / puse / metí
+    r"|\b(?:apliqu[éó]|aplic[óé]|aplicamos|activ[éó]|activamos|puse|met[íi])\s+"
+    r"(?:una\s+|la\s+|tu\s+|esa\s+)?(?:descarga|deload)"
+    r"|\b(?:la|esa|esta|tu)\s+descarga\s+que\s+(?:aplicamos|apliqu[éó]|hicimos|puse|met[íi])"
+    r"|\bestamos\s+en\s+(?:una\s+)?\*?(?:descarga|deload)"
+    r"|\bajuste\s+aplicado\b",
+    re.IGNORECASE)
+_CLAIM_PAUSA_RE = re.compile(
+    r"\b(?:he|hemos)\s+(?:pausad|congelad|detenid|parad)[oa]\s+(?:tu|el)\s+(?:plan|calendario)"
+    r"|\b(?:paus[éó]|congel[éó]|detuve|pausamos|congelamos)\s+(?:tu|el)\s+(?:plan|calendario)"
+    r"|\btu\s+plan\s+(?:est[áa]|queda|sigue)\s+(?:en\s+)?(?:pausad|congelad|pausa)",
+    re.IGNORECASE)
+# Sin 'reanudamos'/'reactivamos': en español el presente y el pretérito de la 1ª
+# del plural son idénticos, así que "cuando vuelvas reanudamos el plan" (una
+# promesa) es indistinguible de "reanudamos el plan" (un hecho). Ante la duda se
+# deja pasar: reescribir un mensaje honesto es peor que dejar escapar una forma
+# rara, y las variantes inequívocas ya quedan cubiertas.
+_CLAIM_REANUDA_RE = re.compile(
+    r"\b(?:he|hemos)\s+(?:reactivad|reanudad)[oa]\s+(?:tu|el)\s+(?:plan|calendario)"
+    r"|\b(?:reactiv[éó]|reanud[éó])\s+(?:tu|el)\s+(?:plan|calendario)",
+    re.IGNORECASE)
+_CLAIM_AVANCE_RE = re.compile(
+    r"\b(?:he|hemos)\s+avanzad[oa]\s+(?:tu|el)\s+(?:calendario|plan|d[íi]a)"
+    r"|\bavanc[éó]\s+(?:tu|el)\s+(?:calendario|plan|d[íi]a)"
+    r"|\bcalendario\s+(?:avanzado|actualizado)\b"
+    r"|\b(?:d[íi]a|sesi[óo]n)\s+(?:marcad[oa]\s+como\s+)?complet(?:ad[oa]|o)\b"
+    r"|\bsesi[óo]n\s+cerrada\b",
+    re.IGNORECASE)
+
+
+def _claims_plan_desmentidos(numero_usuario: str, texto: str, semana: int,
+                             fecha_prog_inicial: str = "") -> list[str]:
+    """Afirmaciones sobre el estado del plan que el disco DESMIENTE.
+
+    Devuelve una lista de desmentidos en lenguaje llano, lista para inyectarse en
+    la instrucción de reescritura. Vacía = el texto es coherente con la realidad.
+    """
+    desmentidos: list[str] = []
+    try:
+        overrides = _cargar_overrides(numero_usuario)
+        estado = obtener_estado_usuario(numero_usuario)
+    except Exception:
+        return desmentidos                     # nunca romper el turno por auditar
+
+    if _CLAIM_DESCARGA_RE.search(texto):
+        descargas = {str(k) for k in (overrides.get("descargas") or {})}
+        # El coach puede estar hablando de OTRA semana ("descarga aplicada a la
+        # semana 2"), así que valen la semana actual y cualquiera que nombre el
+        # texto. Si no hay ninguna descarga en ninguna semana, la afirmación es
+        # falsa sin margen de duda.
+        candidatas = {str(int(semana))} | set(re.findall(r"semana\s+(\d+)", texto, re.I))
+        if not (descargas & candidatas):
+            desmentidos.append(
+                "dice que hay una DESCARGA aplicada, pero no hay ninguna descarga "
+                "registrada en su plan: sus series y sus kilos siguen intactos")
+
+    if _CLAIM_PAUSA_RE.search(texto) and not estado.get("plan_pausado"):
+        desmentidos.append("dice que el plan quedó pausado, pero sigue ACTIVO")
+
+    if _CLAIM_REANUDA_RE.search(texto) and estado.get("plan_pausado"):
+        desmentidos.append("dice que reactivó el plan, pero sigue PAUSADO")
+
+    # El avance de día se comprueba comparando la fecha programada de ANTES del
+    # turno con la de ahora: si nadie llamó a avanzar_dia, no se ha movido.
+    if fecha_prog_inicial and _CLAIM_AVANCE_RE.search(texto) \
+            and str(estado.get("fecha_programada", "")) == str(fecha_prog_inicial):
+        desmentidos.append(
+            "dice que dio por terminada la sesión y avanzó el calendario, pero el "
+            f"calendario NO se movió: su próximo entreno sigue siendo el "
+            f"{fecha_humana(fecha_prog_inicial)}")
+
+    return desmentidos
 
 # ==============================================================================
 # CATÁLOGO V9: DICCIONARIO MAESTRO DE EJERCICIOS
@@ -443,6 +549,56 @@ _CATALOGO_EJERCICIOS = {
     "Extension de Tobillo": ["pantorrilla", "gemelos", "gemelo", "tobillo", "elevacion de talones", "costureras"],
     "Dominadas": ["dominadas", "dominada", "pull up", "pull-up", "barra"]
 }
+
+
+# Señales de que la serie CONTINÚA la del turno anterior. Nadie repite el nombre
+# del ejercicio en cada serie: en WhatsApp real la segunda es "otra igual",
+# "listo la segunda, 100x4" o directamente "90x8". Sin arrastre, esas series se
+# perdían y el coach preguntaba de qué ejercicio eran — medido el 2026-07-29:
+# 'listo la segunda igual, 100 por 4' no se guardó (series_log sin id 38).
+_SERIE_CONTINUACION_RE = re.compile(
+    r"\b(?:otra|otr[oa]s|igual|mismo|misma|tambi[eé]n|ahora|luego|despu[eé]s|"
+    r"segunda|tercera|cuarta|quinta|[uú]ltima|siguiente|sigo|van|llevo|"
+    r"cerr[eé]|termin[eé]|acab[eé]|list[oa]|hecho|ya)\b",
+    re.IGNORECASE)
+
+
+# Una MARCA HISTÓRICA no es una serie de hoy. "mi PR de banca es 110x3" contaba
+# como set ejecutado en este momento: entraba en series_log con la fecha de hoy
+# y sin RPE, y desde ahí ensuciaba el dashboard de últimas series y el análisis
+# de MRV (que compara ventanas temporales). La regla 2 del prompt ya dice que una
+# marca va a la calculadora de 1RM, no al diario de entrenamiento.
+_MARCA_HISTORICA_RE = re.compile(
+    r"\bmi\s+(?:pr|r[eé]cord|marca|tope|m[aá]ximo|mejor)\b"
+    r"|\b(?:pr|r[eé]cord)\s+(?:de|en)\b"
+    r"|\bmi\s+1\s*rm\b"
+    r"|\b(?:llegu[ée]|sub[íi]|hice)\s+(?:una\s+vez|alguna\s+vez)\b"
+    r"|\b(?:el\s+)?(?:mes|a[ñn]o|verano)\s+pasado\b"
+    r"|\bhace\s+\w+\s+(?:semanas?|meses|a[ñn]os)\b",
+    re.IGNORECASE)
+
+
+def _ejercicio_de_la_serie(numero_usuario: str, mensaje: str) -> tuple[str | None, bool]:
+    """El ejercicio al que pertenece una serie reportada.
+
+    Devuelve (ejercicio, heredado). `heredado=True` significa que el nombre NO
+    estaba en el mensaje y se tomó del último ejercicio registrado (vigente 30
+    min, guarda de handlers_v9). En ese caso el coach debe DECIR cuál asumió,
+    para que el atleta pueda corregirlo antes de que la serie contamine su
+    historial.
+    """
+    explicito = _inferir_ejercicio_serie(mensaje)
+    if explicito:
+        return explicito, False
+    txt = str(mensaje).strip()
+    # "90x8" pelado también es continuación: un mensaje corto que es SOLO la
+    # notación de la serie no puede referirse a otra cosa.
+    solo_notacion = len(txt) <= 30 and not re.search(r"[a-zA-ZáéíóúñÁÉÍÓÚÑ]{4,}", txt)
+    if _SERIE_CONTINUACION_RE.search(txt) or solo_notacion:
+        heredado = leer_ejercicio_confirmado(numero_usuario)
+        if heredado:
+            return heredado, True
+    return None, False
 
 
 def _inferir_ejercicio_serie(mensaje: str) -> str | None:
@@ -817,6 +973,10 @@ PENSAR_AUNQUE_PYTHON_RESUELVA = False
 # v8 (Mandato 2) — herramientas que ESCRIBEN estado. Solo estas se deduplican
 # cross-loop dentro del mismo turno (una lectura repetida es inofensiva; una
 # escritura repetida mete filas DUP en SQLite y corrompe el volumen del atleta).
+# Umbral de la regla 10 del prompt: por encima de esto, una serie que acaba de
+# hacer obliga a reajustar lo que queda del día en vez de seguir como si nada.
+RPE_ALARMA_AUTORREGULAR = 9.5
+
 TOOLS_ESCRITURA = {
     "generar_rutina", "avanzar_dia", "sustituir_ejercicio", "aplicar_descarga",
     "registrar_peso_corporal", "pausar_plan", "reanudar_plan",
@@ -1660,8 +1820,19 @@ def _parcial_marca(fragmento: str) -> dict:
         return {"reps": repes[0]}
     return {}
 
-def parsear_batch_rms(numero_usuario: str, mensaje: str) -> list[str]:
-    """Extrae varias marcas de un solo mensaje ('150x3 en banca, 215 en sentadilla...')."""
+def parsear_batch_rms(numero_usuario: str, mensaje: str,
+                      solo_campos: set[str] | None = None) -> list[str]:
+    """Extrae varias marcas de un solo mensaje ('150x3 en banca, 215 en sentadilla...').
+
+    `solo_campos` limita QUÉ campos puede escribir (nombres tipo 'rm_banca'). Sin
+    él, esta función ESCRIBE toda marca que encuentre, y como se la llama dos
+    veces por turno de onboarding —una desde procesar_respuesta_onboarding:1699 y
+    otra desde _parsear_campos_anclados— cada marca acababa duplicada en
+    historial_rm_{numero}.json. Medido el 2026-07-29: banca, sentadilla y peso
+    muerto aparecían dos veces con el mismo timestamp, lo que falsea el progreso
+    y la gráfica de e1RM. Filtrar el RESULTADO no servía: la escritura ya había
+    ocurrido.
+    """
     guardados = []
     partes = re.split(r"[,;\n]|\s+y\s+", mensaje.lower())
     for parte in partes:
@@ -1671,6 +1842,8 @@ def parsear_batch_rms(numero_usuario: str, mensaje: str) -> list[str]:
                 campo_detectado = campo
                 break
         if not campo_detectado:
+            continue
+        if solo_campos is not None and campo_detectado not in solo_campos:
             continue
         # dominadas solo a peso corporal (lastre 0)
         if campo_detectado == "rm_dominadas" and re.search(
@@ -1851,12 +2024,15 @@ def _parsear_campos_anclados(numero_usuario: str, mensaje: str, faltantes: list[
     msg = str(mensaje).lower().strip()
     guardados: list[str] = []
 
-    # RMs por keyword de ejercicio (solo si falta alguno; el guardado es idempotente)
-    canon_faltantes = {RM_CANONICO[c] for c in faltantes if c in RM_CANONICO}
-    if canon_faltantes:
-        for fb in parsear_batch_rms(numero_usuario, msg):
-            if fb.split(":")[0].strip() in canon_faltantes:
-                guardados.append(fb)
+    # RMs por keyword de ejercicio, SOLO de los campos que siguen faltando. El
+    # guardado NO es idempotente (guardar_rm hace append al historial), así que
+    # el filtro tiene que viajar hacia dentro: si se deja escribir todo y se
+    # filtra el resultado, la marca del campo que acaba de guardar
+    # procesar_respuesta_onboarding se duplica.
+    campos_rm_faltantes = {c for c in faltantes if c in RM_CANONICO}
+    if campos_rm_faltantes:
+        guardados.extend(parsear_batch_rms(numero_usuario, msg,
+                                           solo_campos=campos_rm_faltantes))
 
     # Segmentos SIN keyword de ejercicio (para que "banca 150kg" no se lea como peso corporal)
     segs = [s for s in re.split(r"[,;\n]|\s+y\s+", msg)
@@ -2688,7 +2864,7 @@ _NOMBRES_TOOLS_RE = re.compile(
     r"autorregular_dia|enviar_grafica_progreso|consultar_rutina_futura|"
     r"sustituir_ejercicio|aplicar_descarga|consultar_progreso|"
     r"explicar_tecnica_ejercicio|registrar_peso_corporal|pausar_plan|"
-    r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm)[`'\"]?",
+    r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm|consultar_volumen_plan)[`'\"]?",
     re.IGNORECASE)
 
 
@@ -3182,12 +3358,23 @@ async def _forzar_respuesta_texto(mensajes: list, instruccion: str) -> str:
         return ""
 
 
-def _instruccion_fallback(base: str, acciones_ok: list, acciones_fallidas: list) -> str:
+def _instruccion_fallback(base: str, acciones_ok: list, acciones_fallidas: list,
+                          notas_turno: list | None = None) -> str:
     """v8 (Mandato 3) — Construye la instrucción del fallback con el ESTADO REAL del
     turno. Antes la instrucción era genérica y el modelo, sin contexto de error,
     ASUMÍA éxito y redactaba '¡Listo! Serie anotada ✅' con la base de datos vacía
-    (bug 2.2). Ahora la verdad viaja explícita y la mentira queda prohibida."""
+    (bug 2.2). Ahora la verdad viaja explícita y la mentira queda prohibida.
+
+    v12 — `notas_turno` existe porque la reescritura se hace sobre
+    historial_memoria, que NO contiene los resultados de las herramientas de este
+    turno (viven en la copia del orquestador y no se persisten). Es decir: el
+    modelo reescribe A CIEGAS. Medido el 2026-07-29: analizar_mrv devolvió
+    'datos_insuficientes', el guardia reescribió, y el modelo —sin ver ese
+    resultado— redactó "hubo un problema técnico momentáneo". Nunca lo hubo.
+    """
     partes = [base]
+    if notas_turno:
+        partes.append("LO QUE DE VERDAD PASÓ AL CONSULTAR: " + " ".join(notas_turno))
     if acciones_ok:
         partes.append("ACCIONES QUE SÍ SE COMPLETARON en este turno (puedes confirmarlas): "
                       + "; ".join(acciones_ok) + ".")
@@ -3252,6 +3439,9 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
     estado_hoy           = obtener_estado_usuario(numero_usuario)
     fecha_programada_str = estado_hoy.get("fecha_programada", fecha_actual)
+    # Foto de la fecha ANTES de tocar nada: el validador de salida la compara
+    # con la de después para saber si el calendario se movió de verdad.
+    fecha_prog_al_entrar = str(fecha_programada_str)
     estado_gen           = estado_hoy.get("estado_generacion", "")
 
     # v3.1 — SELF-HEAL: si el proceso murió a media generación, 'generando' quedaba
@@ -3920,17 +4110,27 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     equipo_registrado_python = False
     acciones_ok: list[str] = []          # v8: escrituras COMPLETADAS de verdad
     acciones_fallidas: list[str] = []    # v8: errores/candados/timeouts del turno
+    # v12: hechos del turno que NO son ni éxito ni fallo (p. ej. "faltan datos
+    # para el análisis") y que los fallbacks necesitan para no inventarse la causa.
+    notas_turno: list[str] = []
     texto_tools_acumulado = ""           # v8: payloads de tools -> whitelist de kg
 
     # --- SERIE(S) ---
     if serie and not rutina_vacia:
         series_todas = detectar_series_multiples(mensaje_usuario)
+        ej_turno, ej_heredado = _ejercicio_de_la_serie(numero_usuario, mensaje_usuario)
+        # Una marca de la que PRESUME no es una serie que acaba de hacer: actualiza
+        # su 1RM, pero no entra en el diario de entrenamiento con la fecha de hoy.
+        es_marca_historica = bool(_MARCA_HISTORICA_RE.search(mensaje_usuario))
         if not series_todas:
             series_todas = [{"peso": serie["peso"], "reps": serie["reps"], "rpe": serie.get("rpe"),
-                             "ejercicio": _inferir_ejercicio_serie(mensaje_usuario)}]
+                             "ejercicio": ej_turno}]
         registradas, pendientes = [], []
+        heredadas = []
         for s in series_todas:
-            ej = s.get("ejercicio") or _inferir_ejercicio_serie(mensaje_usuario)
+            ej = s.get("ejercicio") or ej_turno
+            if ej and not s.get("ejercicio") and ej_heredado:
+                heredadas.append(ej)
             if not ej:
                 # El RPE viaja en el aviso: sin él, el atleta responde de qué
                 # ejercicio era y el esfuerzo que ya había contado se pierde,
@@ -3939,11 +4139,12 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                   + (f" @RPE {s['rpe']:g}" if s.get("rpe") else ""))
                 continue
             try:
-                # v9: Se inyecta el rpe_reportado para que vaya directo a la base de datos
-                await asyncio.to_thread(guardar_serie_sql, numero_usuario,
-                                        {"ejercicio": ej, "peso_kg": s["peso"],
-                                         "repeticiones": int(s["reps"]),
-                                         "rpe_reportado": s.get("rpe")})
+                if not es_marca_historica:
+                    # v9: Se inyecta el rpe_reportado para que vaya directo a la base de datos
+                    await asyncio.to_thread(guardar_serie_sql, numero_usuario,
+                                            {"ejercicio": ej, "peso_kg": s["peso"],
+                                             "repeticiones": int(s["reps"]),
+                                             "rpe_reportado": s.get("rpe")})
 
                 detalle = f"{ej} {s['peso']:g} kg x {int(s['reps'])}"
                 if s.get("rpe"):
@@ -3956,18 +4157,104 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                             fuente="auto_serie")
                     detalle += f" (1RM estimado {rm_val:g} kg)"
                 registradas.append(detalle)
+                # Sella el ejercicio en curso (TTL 30 min). Esta guarda existía en
+                # handlers_v9 desde v9 pero NADIE la llamaba, así que
+                # leer_ejercicio_confirmado devolvía None siempre: ni protegía al
+                # handler de que el LLM cambiara el ejercicio, ni permitía heredarlo
+                # en la serie siguiente.
+                fijar_ejercicio_confirmado(numero_usuario, ej)
             except Exception as e:
                 log(numero_usuario, "SERIE-AUTO", f"error: {e}")
                 acciones_fallidas.append(f"registro automático de serie ({s['peso']:g}x{s['reps']}): {e}")
 
-        if registradas:
+        if registradas and es_marca_historica:
+            serie_registrada_python = True
+            accion_ejecutada = True
+            acciones_ok.append("marca histórica: 1RM actualizado (" + "; ".join(registradas) + ")")
+            contenido_mensaje += (
+                "\n\n[SISTEMA — MARCA ACTUALIZADA]: " + "; ".join(registradas)
+                + ". Es una marca de la que habla, NO una serie de la sesión de hoy: se actualizó "
+                  "su 1RM y sus cargas futuras, pero NO se apuntó en el diario de entrenamiento de "
+                  "hoy. Celébrasela y usa EXACTAMENTE esos números; NO digas que 'quedó registrada "
+                  "la serie de hoy'.")
+            log(numero_usuario, "MARCA-AUTO", f"1RM actualizado sin tocar el diario: {registradas}")
+        elif registradas:
             serie_registrada_python = True
             accion_ejecutada = True
             acciones_ok.append("series registradas por el sistema: " + "; ".join(registradas))
             contenido_mensaje += ("\n\n[SISTEMA — SERIES YA REGISTRADAS]: " + "; ".join(registradas)
                                   + ". Ya quedaron guardadas. NO llames herramientas para esto; solo "
                                     "confírmaselo con tu tono y un comentario breve. Usa EXACTAMENTE esos números.")
-            log(numero_usuario, "SERIE-AUTO", f"registradas: {registradas}")
+            if heredadas:
+                # El atleta no dijo el ejercicio: se dio por hecho que seguía con
+                # el anterior. Se registra igual (perder el dato es peor), pero el
+                # coach tiene que nombrarlo para que pueda corregirlo en el acto.
+                contenido_mensaje += (
+                    f" El atleta NO dijo el ejercicio: se asumió que seguía con "
+                    f"{', '.join(dict.fromkeys(heredadas))}. Nómbralo al confirmar, "
+                    f"en tono natural, para que pueda corregirte si era otro.")
+            log(numero_usuario, "SERIE-AUTO",
+                f"registradas: {registradas}" + (f" (ejercicio heredado: {heredadas})" if heredadas else ""))
+
+            # RPE de alarma en una serie que acaba de hacer. La regla 10 del prompt
+            # manda autorregular el día, pero el bloque de arriba acaba de decirle
+            # "NO llames herramientas para esto", así que el coach improvisaba el
+            # ajuste EN TEXTO con cifras de su cosecha ("bájale un 3-5 %, quita
+            # 1-2 series") — justo lo que <fuente_de_verdad> prohíbe. Aquí se le
+            # levanta el veto y se le dan los datos que la herramienta pide, que
+            # Python sí conoce: el RPE objetivo y las series del plan.
+            duras = [s for s in series_todas
+                     if s.get("rpe") and float(s["rpe"]) >= RPE_ALARMA_AUTORREGULAR]
+            if duras and not es_marca_historica:
+                s_dura = duras[0]
+                ej_dura = s_dura.get("ejercicio") or ej_turno
+                presc = prescripcion_de_hoy(numero_usuario, estado_hoy["semana"],
+                                            estado_hoy["dia"], ej_dura or "")
+                # Se ejecuta AQUÍ, no se le pide al modelo. Pedírselo no funciona:
+                # con una acción ya ejecutada el turno va sin thinking
+                # (solo_redaccion), el modelo no delibera sobre herramientas y, con
+                # la invitación delante, se inventó el ajuste imitando el
+                # vocabulario del motor ("baja a 78 kg por overshoot") sin llamar
+                # nada. Python tiene los cinco datos que la herramienta pide.
+                if presc and presc.get("series") and presc.get("rpe_objetivo") not in (None, ""):
+                    try:
+                        res_auto = await DISPATCHER_V9["autorregular_dia"](numero_usuario, {
+                            "ejercicio": ej_dura,
+                            "rpe_reportado": float(s_dura["rpe"]),
+                            "rpe_objetivo": float(presc["rpe_objetivo"]),
+                            "series_restantes": max(0, int(presc["series"]) - 1),
+                            "carga_actual_kg": float(s_dura["peso"]),
+                        })
+                    except Exception as e:
+                        res_auto = {"ok": False, "error": str(e)}
+                    if res_auto.get("ok"):
+                        accion_ejecutada = True
+                        acciones_ok.append(f"día autorregulado: {res_auto.get('resumen', '')}")
+                        contenido_mensaje += (
+                            f"\n\n[SISTEMA — DÍA YA AUTORREGULADO]: RPE {float(s_dura['rpe']):g} en "
+                            f"{ej_dura} (objetivo {presc['rpe_objetivo']}). El sistema ya recalculó "
+                            f"lo que le queda del día: {json.dumps(res_auto, ensure_ascii=False)}. "
+                            "Comunícale ESOS kilos y ESAS series, literales. PROHIBIDO improvisar "
+                            "el ajuste: nada de 'bájale un 5 %' ni 'quita un par de series' de tu "
+                            "cosecha, y no llames más herramientas para esto.")
+                        texto_tools_acumulado += "\n" + json.dumps(res_auto, ensure_ascii=False)
+                        log(numero_usuario, "RPE-ALARMA",
+                            f"{ej_dura} RPE {s_dura['rpe']} -> autorregulado: {res_auto.get('resumen')}")
+                    else:
+                        acciones_fallidas.append(
+                            f"autorregulación del día ({ej_dura}): {res_auto.get('error', 'fallo interno')}")
+                        log(numero_usuario, "RPE-ALARMA", f"{ej_dura}: autorregulación falló: {res_auto}")
+                else:
+                    # Sin prescripción (ejercicio que no es del día) no hay RPE
+                    # objetivo ni series que recortar: se le pide el dato al atleta
+                    # en vez de inventarlo.
+                    contenido_mensaje += (
+                        f"\n\n[SISTEMA — RPE DE ALARMA]: reportó RPE {float(s_dura['rpe']):g} en "
+                        f"{ej_dura}, que NO está en la sesión de hoy, así que el sistema no sabe "
+                        "cuántas series le quedan ni con qué RPE objetivo. Reconoce el esfuerzo, "
+                        "avísale de que ese RPE es alto para una serie de trabajo y pregúntale "
+                        "cuántas series le quedan. PROHIBIDO inventar el ajuste tú.")
+                    log(numero_usuario, "RPE-ALARMA", f"{ej_dura} RPE {s_dura['rpe']} sin prescripción de hoy")
         if pendientes:
             contenido_mensaje += ("\n\n[SISTEMA]: También reportó series sin decir de qué ejercicio: "
                                   f"{', '.join(pendientes)}. Pregúntale a cuál corresponden ANTES de darlas por hechas.")
@@ -4364,6 +4651,28 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
                             resultados_texto.append(f"[{nombre}]: {json.dumps(res_v9, ensure_ascii=False)}")
 
+                            # v12 — 'datos_insuficientes' NO es una avería: es que
+                            # el atleta todavía no ha entrenado lo bastante para
+                            # que el análisis tenga sentido. Sin decírselo, el
+                            # modelo lo redactaba como fallo técnico ("no pude
+                            # verificar tus números, ¿lo intentamos otra vez?") e
+                            # invitaba a reintentar algo que va a fallar igual
+                            # hasta que haya más sesiones registradas.
+                            if res_v9.get("error") == "datos_insuficientes" or \
+                                    res_v9.get("veredicto") == "datos_insuficientes":
+                                aviso_insuf = (
+                                    f"'{nombre}' no falló: devolvió que aún NO hay suficientes "
+                                    "sesiones registradas para que el análisis signifique algo. "
+                                    "Díselo así, como coach — que todavía te falta historial suyo "
+                                    "para medirlo con rigor, qué necesitas de él (que siga "
+                                    "reportando sus series con peso, reps y RPE) y qué hacéis "
+                                    "mientras tanto. PROHIBIDO hablar de fallos técnicos, de que "
+                                    "'no pudiste verificar' ni ofrecerle reintentarlo.")
+                                resultados_texto.append(f"[SISTEMA]: {aviso_insuf}")
+                                # También por el canal que sobrevive a la reescritura:
+                                # resultados_texto no llega a los fallbacks.
+                                notas_turno.append(aviso_insuf)
+
                             # Engranaje con tu sistema de honestidad v8
 
                             if res_v9.get("ok"):
@@ -4375,9 +4684,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                             else:
 
                                 # Si faltan datos, no lo marcamos como fallo catastrófico, sino como instrucción pendiente
-
-                                if res_v9.get("error") not in ("datos_insuficientes", "faltan_datos"):
-                                    acciones_fallidas.append(f"{nombre}: {res_v9.get('error', 'fallo interno')}")
+                                # v12: analizar_mrv NO usa la clave 'error' — señala la
+                                # falta de historial con 'veredicto': "datos_insuficientes".
+                                # Mirando solo 'error', ese caso normalísimo (atleta nuevo,
+                                # <4 series por ventana) se contabilizaba como
+                                # "analizar_mrv: fallo interno" y el atleta acababa leyendo
+                                # una avería inexistente, con el nombre de la herramienta.
+                                senal = res_v9.get("error") or res_v9.get("veredicto")
+                                if senal not in ("datos_insuficientes", "faltan_datos"):
+                                    acciones_fallidas.append(f"{nombre}: {senal or 'fallo interno'}")
 
                         necesita_reinvocacion = True
 
@@ -4549,6 +4864,19 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         resultados_texto.append(f"[consultar_libro_cientifico '{_trunc(tema, 50)}']:\n{res}")
                         necesita_reinvocacion = True
 
+                    elif nombre == "consultar_volumen_plan":
+                        # Sin semana explícita manda la actual: el atleta pregunta
+                        # por "su" volumen, no por el de una semana cualquiera.
+                        sem_v = _num_seguro(args.get("semana"), estado_hoy.get("semana", 1))
+                        grupo_v = str(args.get("grupo_muscular") or "").strip() or None
+                        res = await asyncio.to_thread(obtener_volumen_semanal_plan,
+                                                      numero_usuario, int(sem_v), grupo_v)
+                        resultados_texto.append(
+                            f"[consultar_volumen_plan semana={int(sem_v)} grupo={grupo_v or 'todos'}]:\n{res}\n"
+                            "Cita estas cifras TAL CUAL; son las de su plan real. No las recalcules.")
+                        texto_tools_acumulado += "\n" + res
+                        necesita_reinvocacion = True
+
                     elif nombre == "evaluar_perfil_fisico":
                         p = cargar_perfil(numero_usuario)
                         datos_eval = {
@@ -4656,7 +4984,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             texto_final = await _forzar_respuesta_texto(
                 historial_memoria[numero_usuario],
                 _instruccion_fallback("Tu respuesta anterior llegó vacía.",
-                                      acciones_ok, acciones_fallidas))
+                                      acciones_ok, acciones_fallidas, notas_turno))
         if not texto_final.strip():
             texto_final = "Se me trabó el sistema un segundo bro 🙏 Mándame eso de nuevo porfa."
 
@@ -4741,15 +5069,51 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 _instruccion_fallback(
                     "Tu borrador AFIRMABA haber guardado/registrado/actualizado algo, pero ninguna "
                     "escritura se completó en este turno.",
-                    acciones_ok, acciones_fallidas))
+                    acciones_ok, acciones_fallidas, notas_turno))
             texto_honesto = limpiar_texto_para_whatsapp(texto_honesto)
             if texto_honesto and not _CLAIM_ACCION_RE.search(texto_honesto):
                 texto_final = texto_honesto
             else:
+                # acciones_fallidas viaja con los nombres CRUDOS de las herramientas
+                # ("analizar_mrv: fallo interno"). Esta plantilla se asigna después
+                # del limpiado general, así que sin pasarla por el filtro el atleta
+                # leía el nombre de la función en WhatsApp — justo lo que prohíbe
+                # <secreto_profesional>.
                 detalle_f = (" Falló: " + "; ".join(acciones_fallidas[:2]) + ".") if acciones_fallidas else ""
-                texto_final = ("Seré honesto contigo bro: eso todavía NO quedó guardado en el "
-                               f"sistema.{detalle_f} Mándamelo así: *ejercicio + peso + reps* "
-                               "(ej: 'banca 100x10') y lo registro al toque 💪")
+                texto_final = limpiar_texto_para_whatsapp(
+                    "Seré honesto contigo bro: eso todavía NO quedó guardado en el "
+                    f"sistema.{detalle_f} Mándamelo así: *ejercicio + peso + reps* "
+                    "(ej: 'banca 100x10') y lo registro al toque 💪")
+
+        # v12 — GUARDIA DE ESTADO DEL PLAN. Independiente del anterior: aquí no
+        # importa si el turno ejecutó algo, sino si lo que el coach AFIRMA sobre
+        # el plan coincide con el disco. Es la red que faltaba para las mentiras
+        # sin cifras (descarga, pausa, reanudación), que el atleta no puede
+        # verificar y que arrastran la conversación entera.
+        desmentidos = _claims_plan_desmentidos(numero_usuario, texto_final,
+                                               estado_hoy.get("semana", 1), fecha_prog_al_entrar)
+        if desmentidos:
+            log(numero_usuario, "CLAIM-ESTADO", "; ".join(desmentidos))
+            instr_estado = (
+                "Tu borrador afirma cambios en el plan que NO existen. La verdad es: "
+                + "; ".join(desmentidos) + ". REESCRIBE la respuesta sin dar por hecho "
+                "ninguno de esos cambios. Si crees que al atleta le conviene una descarga, "
+                "una pausa o un ajuste, PROPÓNSELO y pregúntale si lo aplicas — nunca lo "
+                "des por aplicado. Mantén tu tono de coach y no menciones nada técnico.")
+            texto_estado = limpiar_texto_para_whatsapp(
+                await _forzar_respuesta_texto(historial_memoria[numero_usuario], instr_estado))
+            if texto_estado and not _claims_plan_desmentidos(
+                    numero_usuario, texto_estado, estado_hoy.get("semana", 1),
+                    fecha_prog_al_entrar):
+                texto_final = texto_estado
+            else:
+                # Reincide: plantilla honesta en Python, sin más vueltas al modelo.
+                # Se nombra lo que se desmiente para que el atleta sepa qué NO pasó;
+                # una disculpa genérica le deja sin saber a qué atenerse.
+                texto_final = limpiar_texto_para_whatsapp(
+                    "Ojo bro, me adelanté 🙏 Eso todavía NO está hecho: tu plan sigue "
+                    "exactamente como lo tenías. Dime si quieres que lo aplique de "
+                    "verdad y lo hago al toque.")
 
         # v4 — anti-eco: respuesta idéntica a la anterior se varía mínimamente
         ultimo_asst = next((m.get("content", "") for m in reversed(historial_memoria[numero_usuario])
@@ -4855,6 +5219,106 @@ def _redondear_carga(kg: float, incremento: float = INCREMENTO_KG_POR_DEFECTO) -
     if not incremento or incremento <= 0:
         incremento = INCREMENTO_KG_POR_DEFECTO
     return round(round(kg / incremento) * incremento, 1)
+
+def prescripcion_de_hoy(numero_usuario: str, semana, dia, ejercicio: str) -> dict | None:
+    """Lo que el plan manda HOY para ese ejercicio: series, reps y RPE objetivo.
+
+    Se usa para poder invitar a autorregular con datos reales. Sin esto, ante un
+    RPE 9.5 en la primera serie el coach improvisaba el ajuste en texto ("bájale
+    un 3-5 % y quita 1-2 series"), cifras que no salen de ninguna parte, en vez
+    de llamar a autorregular_dia — que necesita el RPE objetivo y las series
+    restantes, y ninguno de los dos estaba en la telemetría.
+    """
+    sesiones = _sesiones_semana_cache(numero_usuario, semana)
+    indice = _normalizar_dia_a_indice(dia)
+    if not sesiones or indice is None or indice >= len(sesiones):
+        return None
+    objetivo = _norm_ej(ejercicio)
+    for ej in sesiones[indice].get("Ejercicios", []):
+        nombre = str(ej.get("Ejercicio") or ej.get("Nombre") or ej.get("nombre") or "")
+        if _norm_ej(nombre) != objetivo:
+            continue
+        try:
+            series = int(ej.get("Series"))
+        except (TypeError, ValueError):
+            series = None
+        return {"ejercicio": nombre, "series": series,
+                "reps": ej.get("Reps", ej.get("Repeticiones")),
+                "rpe_objetivo": ej.get("RPE")}
+    return None
+
+
+def obtener_volumen_semanal_plan(numero_usuario: str, semana: int,
+                                 grupo_muscular: str | None = None) -> str:
+    """Series PRESCRITAS por grupo muscular en una semana del plan.
+
+    Existe porque no había ninguna forma de responder "¿cuántas series de pecho
+    hago a la semana?" con la verdad: analizar_mrv mide el volumen EJECUTADO
+    (y exige ≥4 series por ventana, así que devuelve 'datos_insuficientes' a
+    cualquier atleta nuevo), y consultar_rutina_futura devuelve el texto de la
+    semana pero contar sus series es justo la aritmética que el coach tiene
+    prohibida. Sin fuente, el modelo se lo inventaba: el 2026-07-29 respondió
+    "13 series directas de pecho" sin consultar nada — acertó, pero por suerte.
+
+    Cuenta sobre el plan REAL: aplica las sustituciones vigentes (que pueden
+    cambiar el grupo muscular) y la reducción de series de una descarga.
+    """
+    from services.motor_predictivo import grupo_muscular_de
+
+    sesiones = _sesiones_semana_cache(numero_usuario, semana)
+    if not sesiones:
+        return f"ESTADO: no hay plan generado para la semana {semana}."
+
+    overrides = _cargar_overrides(numero_usuario)
+    sustituciones = overrides.get("ejercicios") or {}
+    descarga = (overrides.get("descargas") or {}).get(str(int(semana)), {}) or {}
+    red_series = int(descarga.get("red_series", 0) or 0)
+
+    objetivo = _norm_ej(grupo_muscular) if grupo_muscular else None
+    por_grupo: dict[str, dict] = {}
+    for i, ses in enumerate(sesiones, start=1):
+        for ej in ses.get("Ejercicios", []):
+            nombre = str(ej.get("Ejercicio") or ej.get("Nombre") or ej.get("nombre") or "")
+            if not nombre:
+                continue
+            base = _norm_ej(nombre)
+            for o_orig, o_datos in sustituciones.items():
+                if _norm_ej(o_orig) != base:
+                    continue
+                o_new = o_datos.get("nuevo") if isinstance(o_datos, dict) else o_datos
+                if o_new:
+                    nombre = str(o_new)
+                break
+            try:
+                series = int(ej.get("Series", 0))
+            except (TypeError, ValueError):
+                continue
+            if red_series:
+                series = max(1, series - red_series)
+            grupo = grupo_muscular_de(nombre) or "sin clasificar"
+            b = por_grupo.setdefault(grupo, {"series": 0, "detalle": []})
+            b["series"] += series
+            b["detalle"].append(f"día {i} · {nombre} {series}x{ej.get('Reps', '?')}")
+
+    if objetivo:
+        por_grupo = {g: v for g, v in por_grupo.items() if objetivo in _norm_ej(g)}
+        if not por_grupo:
+            disponibles = ", ".join(sorted(
+                grupo_muscular_de(str(e.get("Ejercicio") or "")) or "sin clasificar"
+                for s in sesiones for e in s.get("Ejercicios", [])))
+            return (f"No hay series de '{grupo_muscular}' en la semana {semana}. "
+                    f"Grupos que sí entrena esa semana: {', '.join(sorted(set(disponibles.split(', '))))}.")
+
+    # El desglose ejercicio a ejercicio solo cuando se pregunta por UN grupo: en
+    # la vista general son 10 líneas kilométricas que se comen el contexto sin
+    # aportar nada que el atleta haya pedido.
+    lineas = [f"VOLUMEN PRESCRITO — semana {semana} "
+              f"({len(sesiones)} sesiones){' con DESCARGA aplicada' if red_series else ''}:"]
+    for grupo, datos in sorted(por_grupo.items(), key=lambda kv: -kv[1]["series"]):
+        detalle = f" ({'; '.join(datos['detalle'])})" if objetivo else ""
+        lineas.append(f"  • {grupo}: {datos['series']} series/semana{detalle}")
+    return "\n".join(lineas)
+
 
 def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool = False) -> str:
     numero_usuario = str(numero_usuario).strip()

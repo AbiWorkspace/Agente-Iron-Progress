@@ -39,6 +39,13 @@ ra = types.ModuleType("services.repositorio_atleta"); ra.repositorio = MagicMock
 # v9: llm_service pasó a importar el dispatcher de tools. Sin este stub, el smoke
 # moría en el import con "'services' is not a package" y no llegaba a probar nada.
 h9 = types.ModuleType("services.handlers_v9"); h9.DISPATCHER_V9 = {}
+# v12: el orquestador ya usa la guarda de ejercicio confirmado (antes era código
+# muerto en handlers_v9: nadie llamaba a fijar_*, así que leer_* devolvía None
+# siempre). El stub la reimplementa en memoria para que el smoke la ejercite.
+_confirmados: dict[str, str] = {}
+h9.fijar_ejercicio_confirmado = lambda num, ej: _confirmados.__setitem__(str(num), ej) if ej else None
+h9.leer_ejercicio_confirmado = lambda num: _confirmados.get(str(num))
+h9.limpiar_ejercicio_confirmado = lambda num: _confirmados.pop(str(num), None)
 
 sys.modules.update({
     "ollama": ollama_stub, "aiofiles": aiofiles_stub,
