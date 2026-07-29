@@ -410,5 +410,20 @@
         "required": ["ejercicio"]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_volumen_plan",
+      "description": "Devuelve cuántas SERIES POR GRUPO MUSCULAR tiene PRESCRITAS el plan del atleta en una semana concreta, contadas sobre el plan real (con sus sustituciones y descargas ya aplicadas). USA CUANDO: pregunte cuánto volumen hace, cuántas series de un músculo entrena a la semana, si su volumen es suficiente o excesivo, o cuando quieras comparar su plan con lo que dice la literatura. REGLA DE HIERRO: PROHIBIDO estimar o contar tú las series leyendo la rutina — ese conteo es aritmética y te equivocas; pide los números aquí. NO LA USES CUANDO: preguntes por lo que YA ejecutó o por su fatiga acumulada (eso es 'analizar_mrv', que mide lo entrenado, no lo planificado).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "semana": { "type": "integer", "description": "Semana absoluta a inspeccionar. Omítela para la semana actual (viene en la telemetría)." },
+          "grupo_muscular": { "type": "string", "description": "Opcional. Grupo concreto ('pecho', 'espalda', 'pierna', 'hombro', 'brazo', 'cadena posterior', 'core', 'gemelo'). Omítelo para ver todos." }
+        },
+        "required": []
+      }
+    }
   }
 ]

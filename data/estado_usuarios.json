@@ -1,14 +1,29 @@
 {
-  "527291395298": {
-    "semana": 1,
-    "dia": 2,
-    "fecha_programada": "2026-07-30",
-    "ultima_fecha_completada": "2026-07-28",
-    "onboarding_activo": false,
-    "campo_pendiente": "",
-    "estado_generacion": "lista",
-    "generacion_ts": 1785221455.6285884,
-    "cursor_semana": 2,
-    "cursor_dia": 4
-  }
+    "5215500000999": {
+        "semana": 1,
+        "dia": 2,
+        "fecha_programada": "2026-07-31",
+        "ultima_fecha_completada": "2026-07-29",
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "estado_generacion": "lista",
+        "generacion_ts": 1785358840.5812824,
+        "cursor_semana": 1,
+        "cursor_dia": 0,
+        "plan_pausado": 0,
+        "motivo_pausa": "viaje"
+    },
+    "527291395298": {
+        "semana": 1,
+        "dia": 2,
+        "fecha_programada": "2026-07-30",
+        "ultima_fecha_completada": "2026-07-29",
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "marca_parcial": {},
+        "estado_generacion": "lista",
+        "generacion_ts": 1785366371.3158095,
+        "cursor_semana": 2,
+        "cursor_dia": 2
+    }
 }

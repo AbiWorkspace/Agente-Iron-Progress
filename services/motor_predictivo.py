@@ -446,14 +446,63 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
 # ==============================================================================
 # SOLICITUD 3.1 — MRV: ¿EL VOLUMEN EXCEDIÓ LA RECUPERACIÓN?
 # ==============================================================================
-_GRUPO_DE = {  # mapeo mínimo nombre-canónico → grupo (amplía a tu catálogo)
+# Nombre canónico (el que devuelve core.ejercicios.canonizar) → grupo muscular.
+#
+# CUIDADO con "curl": canonizar() colapsa "Curl Femoral" a "curl", igual que
+# "Curl de Biceps". Con la tabla anterior, el femoral contaba como volumen de
+# BRAZO y analizar_mrv(grupo_muscular='brazo') mezclaba isquios con bíceps —
+# medido el 2026-07-29 contra un plan real: 7 de 18 ejercicios se quedaban sin
+# grupo y el femoral caía en el grupo equivocado. Por eso el desempate por
+# nombre completo va ANTES que el canónico (ver grupo_muscular_de()).
+_GRUPO_DE = {
     "press banca": "pecho", "press inclinado": "pecho", "fondos": "pecho",
+    "press pecho en maquina": "pecho", "aperturas": "pecho",
     "sentadilla": "pierna", "prensa": "pierna", "zancadas": "pierna",
+    "extension de cuadriceps": "pierna", "sentadilla bulgara": "pierna",
     "peso muerto": "cadena posterior", "peso muerto rumano": "cadena posterior",
-    "hip thrust": "cadena posterior", "press militar": "hombro",
+    "hip thrust": "cadena posterior", "curl femoral": "cadena posterior",
+    "press militar": "hombro", "vuelos laterales": "hombro",
+    "elevaciones laterales": "hombro", "face pull": "hombro",
     "remo": "espalda", "remo con barra": "espalda", "jalon": "espalda",
-    "dominadas": "espalda", "curl": "brazo", "extension triceps": "brazo",
+    "dominadas": "espalda", "encogimientos": "espalda",
+    "curl": "brazo", "extension triceps": "brazo", "curl martillo": "brazo",
+    "extension de tobillo": "gemelo", "elevacion de talones": "gemelo",
+    "crunch abdominal": "core", "plancha": "core", "rueda abdominal": "core",
+    "abductor de piernas": "gluteo", "aductor de piernas": "aductor",
 }
+
+# Desempates por el NOMBRE COMPLETO del ejercicio, antes de canonizar. Existen
+# porque canonizar() pierde información: "Curl Femoral" y "Curl de Biceps" acaban
+# los dos en "curl", y son grupos musculares opuestos.
+_GRUPO_POR_NOMBRE = (
+    ("femoral", "cadena posterior"),
+    ("isquio", "cadena posterior"),
+    ("gluteo", "gluteo"),
+    ("abductor", "gluteo"),
+    ("aductor", "aductor"),
+    ("triceps", "brazo"),
+    ("biceps", "brazo"),
+    ("pantorrilla", "gemelo"),
+    ("gemelo", "gemelo"),
+    ("tobillo", "gemelo"),
+    ("abdominal", "core"),
+    ("abdomen", "core"),
+    ("lateral", "hombro"),
+    ("pecho", "pecho"),
+)
+
+
+def grupo_muscular_de(nombre_ejercicio: str) -> str:
+    """Grupo muscular de un ejercicio, o '' si no se reconoce.
+
+    Mira primero el nombre completo (donde 'femoral' desambigua un 'curl') y solo
+    después la clave canónica.
+    """
+    crudo = _norm(nombre_ejercicio)
+    for aguja, grupo in _GRUPO_POR_NOMBRE:
+        if aguja in crudo:
+            return grupo
+    return _GRUPO_DE.get(canonizar(nombre_ejercicio), "")
 
 
 def analizar_mrv(numero: str, grupo_muscular: str | None = None,
@@ -472,7 +521,7 @@ def analizar_mrv(numero: str, grupo_muscular: str | None = None,
     series = leer_series(numero, None, dias=ventana_dias * 2 + 3)
     if grupo:
         series = [s for s in series
-                  if _GRUPO_DE.get(canonizar(s["e"]), "") == grupo or grupo in canonizar(s["e"])]
+                  if grupo_muscular_de(s["e"]) == grupo or grupo in canonizar(s["e"])]
     rec  = [s for s in series if _fecha(s["f"]) >= ini_rec]
     prev = [s for s in series if ini_prev <= _fecha(s["f"]) < ini_rec]
     if len(rec) < 4 or len(prev) < 4:
