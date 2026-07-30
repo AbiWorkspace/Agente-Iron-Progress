@@ -177,8 +177,41 @@ def bloque_consulta_manana():
     chk("y 'hoy' sigue siendo hoy", r.get("tipo") == "ver_rutina", f"{r or None}")
 
 
+def bloque_nombre_unico():
+    print("\n[10] Un ejercicio, un solo nombre venga por donde venga")
+    # Había dos canonizadores: core.ejercicios.canonizar ("press banca") para las
+    # tools y el catálogo del plan ("Press Banco Plano") para el interceptor. La
+    # misma serie entraba con un nombre u otro según la ruta y el historial del
+    # ejercicio quedaba partido en dos.
+    N_PLAN = "5215500000999"          # atleta con plan real generado
+    if not L._ejercicios_del_plan(N_PLAN):
+        print("   (saltado: el atleta de referencia no tiene plan)")
+        return
+    for dicho, esperado in [("banca", "Press Banco Plano"), ("press banca", "Press Banco Plano"),
+                            ("sentadilla", "Sentadillas"), ("remo", "Remo en Maquina")]:
+        del_plan = L._resolver_ejercicio_del_plan(N_PLAN, dicho)
+        chk(f"{dicho!r} → {esperado!r} (nombre del plan)", del_plan == esperado, f"{del_plan!r}")
+    chk("y lo que no está en el plan no se inventa",
+        L._resolver_ejercicio_del_plan(N_PLAN, "snatch olímpico") is None)
+
+
+def bloque_molestias():
+    print("\n[11] Toda molestia va al expediente sin depender de que el modelo se acuerde")
+    positivos = ["me duele el codo en el press", "sentí un tronido en la rodilla",
+                 "traigo la rodilla molesta del futbol", "tengo tendinitis en el codo"]
+    for texto in positivos:
+        dolor = bool(L._DOLOR_RE.search(texto)) and bool(L._detectar_partes_cuerpo(texto))
+        chk(f"se anota: {texto!r}", dolor, f"dolor={bool(L._DOLOR_RE.search(texto))} "
+                                           f"partes={L._detectar_partes_cuerpo(texto)}")
+    chk("una recuperación NO se anota como molestia nueva",
+        bool(L.RECUPERACION_RE.search("ya no me duele el hombro")))
+    for texto in ("hice 100x5 en banca", "el peso muerto me mata (de bueno)", "qué me toca hoy?"):
+        chk(f"no inventa lesiones: {texto!r}",
+            not (L._DOLOR_RE.search(texto) and L._detectar_partes_cuerpo(texto)))
+
+
 def bloque_claims():
-    print("\n[10] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
+    print("\n[12] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
     for texto in ("Lo corrijo en tu expediente.", "Entendido, la ignoro por completo.",
                   "Listo, la borro del diario."):
         chk(f"detecta claim: {texto!r}", bool(L._CLAIM_ACCION_RE.search(texto)))
@@ -199,6 +232,8 @@ def main() -> int:
         bloque_peso_corporal()
         bloque_sustitucion()
         bloque_consulta_manana()
+        bloque_nombre_unico()
+        bloque_molestias()
         bloque_claims()
     finally:
         while D.borrar_ultima_serie(NUM):

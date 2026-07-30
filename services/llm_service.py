@@ -65,6 +65,13 @@ def _detectar_meta(texto: str) -> str | None:
     t = texto.lower()
     if re.search(r"powerbuild|fuerte\s+y\s+grande", t):
         return "powerbuilding"
+    # "quiero las dos cosas, músculo y fuerza" es la definición de powerbuilding,
+    # pero al evaluarse por orden caía en hipertrofia y el atleta acababa con un
+    # plan que no era el que pidió.
+    quiere_musculo = bool(re.search(r"hipertrofia|\bmasa\b|volumen|m[uú]sculo|masa\s+muscular", t))
+    quiere_fuerza = bool(re.search(r"\bfuerza\b|powerlifting|\bfuerte\b", t))
+    if quiere_musculo and quiere_fuerza:
+        return "powerbuilding"
     if re.search(r"powerlifting|fuerza\s+pura", t):
         return "powerlifting"
     if re.search(r"hipertrofia|\bmasa\b|volumen|m[uú]sculo", t):
@@ -876,6 +883,19 @@ RECUPERACION_RE = re.compile(
     r"se\s+me\s+quit[óo]\s+(?:el\s+)?dolor|ya\s+no\s+tengo\s+(?:dolor|molestia)|"
     r"me\s+cur[ée]|super[ée]\s+(?:la\s+)?lesi[óo]n|estoy\s+(?:ya\s+)?recuperad[oa]|"
     r"\bsan[ée]\b)\b",
+    re.IGNORECASE)
+
+# v13 — La regla 5 obliga a guardar toda molestia en el expediente, pero eso
+# dependía de que el modelo se acordara de llamar la herramienta. Medido el
+# 2026-07-30: "me duele el codo en el press" no disparó NINGUNA tool — el coach
+# contestó de maravilla y el dato se perdió, así que la sesión siguiente no
+# sabía nada de ese codo. La salud del atleta no puede depender de la memoria
+# del modelo.
+_DOLOR_RE = re.compile(
+    r"\b(?:me\s+)?(?:duele|due?len|molest[ao]n?|arde|punza|truena|tron[óo]|"
+    r"pincha|jode|tira)\b"
+    r"|\b(?:dolor|molestia|tir[óo]n|pinchazo|tendinitis|lesi[óo]n|inflamaci[óo]n|"
+    r"contractura|calambre|tronido|crujido|chasquido)\b",
     re.IGNORECASE)
 
 _PARTES_CUERPO = {"hombro", "rodilla", "espalda", "codo", "muñeca", "muneca",
@@ -5139,6 +5159,24 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             "(con progresión prudente solo si él lo pide).")
         log(numero_usuario, "RECUPERACION", f"partes resueltas: {partes or 'general'}")
 
+    # v13 — MOLESTIA DECLARADA: al expediente, sin depender del modelo.
+    if (not onboarding_activo and not bloque_onboarding and not es_casual
+            and not RECUPERACION_RE.search(texto_puro) and _DOLOR_RE.search(texto_puro)):
+        partes_dolor = _detectar_partes_cuerpo(texto_puro)
+        if partes_dolor:
+            await asyncio.to_thread(
+                guardar_dato_en_expediente, numero_usuario,
+                f"({fecha_actual}) MOLESTIA reportada en: {', '.join(partes_dolor)}. "
+                f"Dicho por el atleta: \"{str(mensaje_usuario).strip()[:160]}\".")
+            accion_ejecutada = True
+            acciones_ok.append(f"molestia anotada en su expediente ({', '.join(partes_dolor)})")
+            contenido_mensaje += (
+                f"\n\n[SISTEMA — MOLESTIA ANOTADA]: ya quedó guardado en su expediente que le "
+                f"molesta {' y '.join(partes_dolor)}, con la fecha de hoy. NO llames herramientas "
+                "para guardarlo otra vez. Atiéndelo como coach: pregunta lo justo, adapta lo que "
+                "haga falta y no dramatices.")
+            log(numero_usuario, "MOLESTIA", ", ".join(partes_dolor))
+
     # v6 (F3/F5) — no reinyectar notas de una lesión YA resuelta, salvo que el
     # atleta la vuelva a mencionar en este turno. Mata el "loro" en su origen.
     if contexto_extra:
@@ -5420,6 +5458,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                                     "sistema en este turno determinísticamente; NO se duplicó.")
 
                         else:
+
+                            # v13 — MISMO EJERCICIO, UN SOLO NOMBRE. Había dos
+                            # canonizadores distintos: core.ejercicios.canonizar
+                            # ("press banca") para las tools y el catálogo del
+                            # plan ("Press Banco Plano") para el interceptor
+                            # determinista. La misma serie entraba con un nombre
+                            # u otro según la ruta, así que el historial de un
+                            # ejercicio quedaba partido en dos y el progreso, el
+                            # 1RM y el MRV se calculaban sobre la mitad de los
+                            # datos. El nombre del PLAN manda: es el que ve el
+                            # atleta en su rutina.
+                            ej_arg = str(args.get("ejercicio") or "").strip()
+                            if ej_arg:
+                                del_plan = _resolver_ejercicio_del_plan(numero_usuario, ej_arg)
+                                if del_plan and _norm_ej(del_plan) != _norm_ej(ej_arg):
+                                    args["ejercicio"] = del_plan
+                                    log(numero_usuario, "EJ-CANON", f"'{ej_arg}' -> '{del_plan}'")
 
                             # Ejecutamos la herramienta V9 (viaja asíncrono y en thread seguro)
 
