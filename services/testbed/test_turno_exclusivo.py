@@ -33,6 +33,7 @@ Uso:  python -m services.testbed.test_turno_exclusivo     (0 = ok, 1 = roto)
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -137,24 +138,31 @@ async def prueba_sin_turno() -> None:
 
 
 async def prueba_solapamiento_serializado() -> None:
-    """Mientras un turno tiene el modelo, el otro espera: nunca a la vez."""
+    """Con tres turnos a la vez, jamás hay dos inferencias abiertas."""
     TRAZA.clear()
-    solapes = []
 
     async def turno(nombre: str):
         async with llm.turno_exclusivo_llm():
             for i in range(2):
                 await _llamar(f"{nombre}-{i}")
-                # Dentro del turno, entre inferencias: nadie más debe estar dentro.
-                dentro = [q for q, e in TRAZA if e == "entra"]
-                abiertos = len([1 for q, e in TRAZA if e == "entra"]) - \
-                           len([1 for q, e in TRAZA if e == "sale"])
-                if abiertos != 0:
-                    solapes.append((nombre, dentro))
 
     await asyncio.gather(turno("E"), turno("F"), turno("G"))
-    check(not solapes, "jamás dos inferencias abiertas al mismo tiempo",
-          f"solapes detectados: {solapes}")
+
+    # Recorre la traza llevando la cuenta de inferencias abiertas: si en algún
+    # momento pasa de 1, dos peticiones se solaparon contra Ollama (el thrashing
+    # de VRAM que SEM_LLM existe para evitar).
+    abiertas = maximo = 0
+    for _quien, evento in TRAZA:
+        abiertas += 1 if evento == "entra" else -1
+        maximo = max(maximo, abiertas)
+
+    check(maximo == 1, "jamás dos inferencias abiertas al mismo tiempo",
+          f"llegó a {maximo} simultáneas")
+    # Exactamente 3 bloques = ningún turno se partió por la mitad. Si alguno se
+    # intercalara, aparecerían 4 o más (E -> F -> E -> ...).
+    bloques = _bloques(TRAZA)
+    check(len(bloques) == 3, "los tres turnos salen enteros, uno detrás de otro",
+          f"orden observado: {' -> '.join(bloques)}")
 
 
 async def prueba_excepcion_libera() -> None:
@@ -184,27 +192,52 @@ async def prueba_herencia_de_contexto() -> None:
 
     `asyncio.create_task` copia los ContextVar, así que la tarea hija ve el
     guardia del padre. Si lo marcara, el padre haría un release() de un semáforo
-    que la hija tomó, y SEM_LLM acabaría con hueco para DOS inferencias.
+    que en realidad tomó la hija, y SEM_LLM acabaría con hueco para DOS
+    inferencias simultáneas: el thrashing de VRAM, sin ningún error a la vista.
     """
-    TRAZA.clear()
     valor_inicial = llm.SEM_LLM._value   # introspección deliberada: es lo que se corrompe
 
-    async def tarea_de_fondo():
-        llm._soltar_guardia_heredado()   # lo que hace _generar_rutina_background
+    # (a) El patrón REAL de _generar_rutina_background: toma SEM_LLM por su
+    #     cuenta y trabaja sin pasar por chat_llm (recibir_peticion va a un hilo).
+    async def fondo_como_el_generador():
+        llm._soltar_guardia_heredado()
         async with llm.SEM_LLM:
-            await _llamar("BG-0")
+            await asyncio.sleep(0.01)
 
     async with llm.turno_exclusivo_llm():
         await _llamar("J-0")
-        tarea = asyncio.create_task(tarea_de_fondo())
+        tarea = asyncio.create_task(fondo_como_el_generador())
         await asyncio.sleep(0)           # la deja arrancar dentro del turno
     await tarea
 
     check(llm.SEM_LLM._value == valor_inicial,
-          "el contador del semáforo vuelve a su valor original",
+          "tras el generador de rutina el contador vuelve a su valor",
           f"esperado {valor_inicial}, quedó {llm.SEM_LLM._value}: "
           "hay release() de más y caben dos inferencias simultáneas")
-    check(not llm.SEM_LLM.locked(), "SEM_LLM libre tras la tarea de fondo")
+
+    # (b) Una tarea hija que sí usa chat_llm: desvinculada, tiene que ESPERAR su
+    #     propio turno del semáforo en vez de colarse entre dos inferencias del
+    #     turno padre.
+    TRAZA.clear()
+
+    async def fondo_con_chat():
+        llm._soltar_guardia_heredado()
+        await _llamar("BG-0")
+
+    async with llm.turno_exclusivo_llm():
+        await _llamar("K-0")
+        tarea = asyncio.create_task(fondo_con_chat())
+        await asyncio.sleep(0)
+        await _llamar("K-1")
+    await tarea
+
+    check(_bloques(TRAZA) == ["K", "BG"],
+          "la tarea de fondo desvinculada no se cuela dentro del turno",
+          f"orden observado: {' -> '.join(_bloques(TRAZA))}")
+    check(llm.SEM_LLM._value == valor_inicial,
+          "el contador sigue sano tras la tarea de fondo con chat_llm",
+          f"esperado {valor_inicial}, quedó {llm.SEM_LLM._value}")
+    check(not llm.SEM_LLM.locked(), "SEM_LLM libre al final")
 
 
 async def prueba_adquisicion_perezosa() -> None:
@@ -220,6 +253,37 @@ async def prueba_adquisicion_perezosa() -> None:
     check(not llm.SEM_LLM.locked(), "al cerrar el turno se libera")
 
 
+async def prueba_toda_tarea_de_fondo_se_desvincula() -> None:
+    """Comprobación ESTÁTICA: toda tarea lanzada con create_task desde un turno
+    tiene que llamar a `_soltar_guardia_heredado`.
+
+    Va sobre el fuente y no sobre el comportamiento porque el fallo es invisible
+    en ejecución: no lanza excepción, solo deja el semáforo abierto. Si mañana se
+    añade otra tarea de fondo al orquestador y se olvida la desvinculación, este
+    test lo dice; en producción solo se vería como el equipo congelándose.
+    """
+    fuente = (RAIZ / "services" / "llm_service.py").read_text(encoding="utf-8")
+
+    lanzadas = re.findall(r"asyncio\.create_task\(\s*(\w+)\s*\(", fuente)
+    check(bool(lanzadas), "se encontraron tareas de fondo que revisar",
+          "el patrón create_task(nombre(...)) ya no casa: revisa este test")
+
+    sin_desvincular = []
+    for nombre in set(lanzadas):
+        # Cuerpo de la corrutina: de su 'async def' al siguiente def de nivel 0.
+        m = re.search(rf"^async def {re.escape(nombre)}\(.*?(?=^\S)",
+                      fuente, re.DOTALL | re.MULTILINE)
+        if not m:
+            sin_desvincular.append(f"{nombre} (no se encontró su definición)")
+            continue
+        if "_soltar_guardia_heredado()" not in m.group(0):
+            sin_desvincular.append(nombre)
+
+    check(not sin_desvincular,
+          "toda tarea de fondo se desvincula del guardia del turno",
+          f"les falta _soltar_guardia_heredado(): {', '.join(sin_desvincular)}")
+
+
 async def main() -> int:
     llm.cliente_ollama = _ClienteFalso()
     print("\n=== test_turno_exclusivo ===\n")
@@ -230,6 +294,7 @@ async def main() -> int:
             ("4. EXCEPCIÓN", prueba_excepcion_libera),
             ("5. HERENCIA", prueba_herencia_de_contexto),
             ("6. PEREZA", prueba_adquisicion_perezosa),
+            ("7. DESVINCULACIÓN", prueba_toda_tarea_de_fondo_se_desvincula),
     ):
         print(nombre)
         await prueba()
