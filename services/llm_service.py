@@ -413,7 +413,14 @@ _CLAIM_ACCION_RE = re.compile(
     r"(?:[éó]|amos|aste|aron|ad[oa]s?|id[oa]s?)\b"
     r"|\b(?:he|hemos)\s+\w{2,12}(?:ad|id)[oa]\b"
     r"|\bqued[óo]\s+(?:guardad|registrad|anotad|cambiad|pausad|reactivad|aplicad|eliminad)"
-    r"|\b(?:lo\s+)?tengo\s+(?:anotad|apuntad|guardad|registrad)",
+    r"|\b(?:lo\s+)?tengo\s+(?:anotad|apuntad|guardad|registrad)"
+    # v13: el presente también es una afirmación de hecho para quien lo lee.
+    # "Lo corrijo en tu expediente" / "la ignoro por completo" sonaban a acción
+    # consumada y no lo eran.
+    # OJO: solo verbos de rectificación, y nunca precedidos de "y" — "dime el
+    # peso y lo guardo" es una OFERTA, no una acción consumada, y marcarla como
+    # claim falso hacía reescribir respuestas correctas.
+    r"|(?<!\by )\b(?:lo|la|le|los|las)\s+(?:corrijo|ignoro|borro|elimino|quito|descarto)\b",
     re.IGNORECASE)
 
 # ------------------------------------------------------------------------------
@@ -592,6 +599,14 @@ def _ejercicio_de_la_serie(numero_usuario: str, mensaje: str) -> tuple[str | Non
     explicito = _inferir_ejercicio_serie(mensaje)
     if explicito:
         return explicito, False
+    # v13 — El catálogo de sinónimos nunca va a estar completo: el atleta dice
+    # "remo", "militar" o "jalón" a secas y el interceptor lo daba por
+    # desconocido, así que la serie quedaba pendiente y el coach le preguntaba
+    # de qué ejercicio hablaba... teniendo el nombre delante en la sesión de hoy.
+    # Contrastarlo contra el plan resuelve la clase entera sin listas a mano.
+    de_hoy = _ejercicio_por_sesion_de_hoy(numero_usuario, mensaje)
+    if de_hoy:
+        return de_hoy, False
     txt = str(mensaje).strip()
     # "90x8" pelado también es continuación: un mensaje corto que es SOLO la
     # notación de la serie no puede referirse a otra cosa.
@@ -601,6 +616,40 @@ def _ejercicio_de_la_serie(numero_usuario: str, mensaje: str) -> tuple[str | Non
         if heredado:
             return heredado, True
     return None, False
+
+
+_PALABRAS_VACIAS_EJ = {
+    "de", "con", "en", "el", "la", "los", "las", "por", "para", "y", "a", "al",
+    "hice", "acabo", "acabe", "acabé", "serie", "series", "reps", "kilos", "kg",
+    "rpe", "que", "me", "mi", "un", "una", "del", "muy", "todo", "esa", "este",
+    "maquina", "máquina", "barra", "mancuernas", "polea",
+}
+
+
+def _ejercicio_por_sesion_de_hoy(numero_usuario: str, mensaje: str) -> str | None:
+    """Casa una palabra del mensaje con UN ejercicio de la sesión de hoy.
+
+    Solo resuelve si la coincidencia es única: con "press" en un día que tiene
+    press de banca y press de pecho en máquina se prefiere preguntar antes que
+    apuntar la serie en el ejercicio equivocado.
+    """
+    try:
+        estado = _leer_estados().get(str(numero_usuario), {}) or {}
+        sesiones = _sesiones_semana_cache(str(numero_usuario), estado.get("semana"))
+        indice = _normalizar_dia_a_indice(estado.get("dia"))
+        if not sesiones or indice is None or indice >= len(sesiones):
+            return None
+        nombres = [str(e.get("Ejercicio") or e.get("Nombre") or e.get("nombre") or "")
+                   for e in sesiones[indice].get("Ejercicios", [])]
+    except Exception:
+        return None
+
+    palabras = {p for p in re.findall(r"[a-záéíóúñ]{4,}", str(mensaje).lower())
+                if p not in _PALABRAS_VACIAS_EJ}
+    if not palabras:
+        return None
+    candidatos = {n for n in nombres if n and any(p in _norm_ej(n) for p in palabras)}
+    return candidatos.pop() if len(candidatos) == 1 else None
 
 
 def _inferir_ejercicio_serie(mensaje: str) -> str | None:
@@ -2905,8 +2954,171 @@ async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> s
             "en tu mensaje anterior) ---\n"
             + "\n\n".join(bloques) + "\n--- FIN DEL CONTEXTO ---")
 
+# v13 — Notación de PRESCRIPCIÓN (series x reps) frente a notación de MARCA
+# (kilos x reps). Los dos usan la misma "x" y el parser solo entendía la segunda,
+# con el agravante de que ordenaba los números por tamaño: "hice 4x8 con 60 kg"
+# entraba al diario como 8 kg x 4 reps. No es un dato incompleto, es un dato
+# FALSO, y además contamina el 1RM estimado y todas las cargas que se predicen
+# a partir de él. La pista que desambigua es el peso dicho con unidad: si el
+# atleta ya declaró los kilos aparte, la "x" no puede ser de kilos.
+_PESO_CON_UNIDAD_RE = re.compile(
+    r"(?:con|a|al|de)\s*(\d+(?:[.,]\d+)?)\s*(?:kgs?|kilos?|kg)\b", re.IGNORECASE)
+_BLOQUE_SERIES_RE = re.compile(
+    r"\b(\d{1,2})\s*(?:series?|sets?)\s*(?:de|x|×)\s*(\d{1,2})\b"          # 3 series de 12
+    r"|\b(\d{1,2})\s*[x×]\s*(\d{1,2})\b"                                    # 4x8 …con 60 kg
+    r"(?=[^\n]*?(?:con|a|al)\s*\d+(?:[.,]\d+)?\s*(?:kgs?|kilos?|kg)\b)",
+    re.IGNORECASE)
+
+
+def detectar_bloque_de_series(mensaje: str) -> list[dict]:
+    """'3 series de 12 con 40 kilos' / '4x8 con 60 kg' → N series idénticas.
+
+    Devuelve [] si el mensaje no declara los kilos con unidad: sin esa pista la
+    "x" es ambigua y se prefiere no adivinar.
+    """
+    t = str(mensaje or "").lower()
+    mp = _PESO_CON_UNIDAD_RE.search(t)
+    if not mp:
+        return []
+    m = _BLOQUE_SERIES_RE.search(t)
+    if not m:
+        return []
+    series, reps = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+    try:
+        series, reps, peso = int(series), int(reps), float(mp.group(1).replace(",", "."))
+    except (TypeError, ValueError):
+        return []
+    if not (1 <= series <= 12 and 1 <= reps <= 30 and peso >= 1):
+        return []
+    ejercicio = None
+    for kws, campo in _KW_EJERCICIO:
+        if any(k in t for k in kws):
+            ejercicio = RM_CANONICO[campo]
+            break
+    rpe = rpe_desde_texto(t)
+    return [{"peso": peso, "reps": reps, "rpe": rpe, "ejercicio": ejercicio}
+            for _ in range(series)]
+
+
+# v13 — El atleta se corrige constantemente ("perdón, eran 90 no 100") y retira
+# series que no llegó a hacer. Sin una vía real, el coach respondía "lo corrijo
+# en tu expediente" / "la ignoro por completo" y NO ocurría nada: el dato falso
+# se quedaba en el diario contaminando el 1RM y las cargas predichas, y encima
+# el atleta se iba convencido de lo contrario. Es el peor tipo de fallo: el que
+# se ve bien.
+_CORRECCION_RE = re.compile(
+    r"\b(?:perd[óo]n|perdona|disculpa|me equivoqu[ée]|error m[íi]o|mejor dicho|"
+    r"corrige|corr[íi]jelo|no espera|espera no)\b|"
+    r"\b(?:eran|era|fueron|fue)\s+\d+(?:[.,]\d+)?\s*(?:kgs?|kilos?)?\s*,?\s*no\s+\d+"
+    r"|\bno\s+(?:eran|era|fueron|fue)\s+\d+(?:[.,]\d+)?\s*(?:kgs?|kilos?)?\s*,?\s*"
+    r"(?:sino|si\s+no|eran|era|fueron|fue)\s+\d+",
+    re.IGNORECASE)
+# "eran 90 no 100" → el bueno es el primero. "no eran 100 sino 90" → el segundo.
+_CORR_VALOR_RE = (
+    re.compile(r"\bno\s+(?:eran|era|fueron|fue)\s+\d+(?:[.,]\d+)?\s*(?:kgs?|kilos?)?\s*,?\s*"
+               r"(?:sino|si\s+no|eran|era|fueron|fue)\s+(\d+(?:[.,]\d+)?)", re.IGNORECASE),
+    re.compile(r"\b(?:eran|era|fueron|fue|son|es)\s+(\d+(?:[.,]\d+)?)\s*(?:kgs?|kilos?)?\s*,?\s*"
+               r"no\s+(\d+(?:[.,]\d+)?)", re.IGNORECASE),
+)
+_RETIRAR_SERIE_RE = re.compile(
+    r"\b(?:olv[ií]dat?e?|borra|elimina|quita|descarta|no\s+cuentes|no\s+apuntes)\b"
+    r"[^.\n]{0,25}\b(?:esa|esta|ese|[úu]ltima|la\s+serie|el\s+registro)\b"
+    r"|\bno\s+la\s+(?:hice|llegu[ée]\s+a\s+hacer)\b"
+    r"|\besa\s+serie\s+no\s+(?:cuenta|va|la\s+hice)\b",
+    re.IGNORECASE)
+
+
+def _rectificar_ultima_serie(numero_usuario: str, mensaje: str) -> dict | None:
+    """Corrige o retira la última serie del diario. None si el mensaje no lo pide.
+
+    El campo a corregir NO se adivina por el texto: se deduce contrastando el
+    valor que el atleta declara erróneo con la última serie guardada. Si ese
+    valor no coincide con ninguno de sus campos, no se toca nada — más vale no
+    rectificar que rectificar lo que no era.
+    """
+    from services.db_service import (borrar_ultima_serie, corregir_ultima_serie,
+                                     obtener_ultima_serie)
+    texto = str(mensaje or "")
+
+    if _RETIRAR_SERIE_RE.search(texto):
+        res = borrar_ultima_serie(numero_usuario)
+        if not res:
+            return {"etapa": "SERIE-RETIRO", "resumen": "no había ninguna serie que retirar",
+                    "bloque": "NO HAY SERIE QUE RETIRAR]: no consta ninguna serie suya en el "
+                              "diario. Díselo tal cual; NO digas que la borraste."}
+        b = res["borrada"]
+        det = f"{b['ejercicio']} {b['peso_kg']:g} kg x {int(b['repeticiones'] or 0)}"
+        return {"etapa": "SERIE-RETIRO", "resumen": f"serie retirada del diario ({det})",
+                "bloque": f"SERIE RETIRADA DEL DIARIO]: se borró {det}. Confírmaselo con esos "
+                          "datos exactos. Aviso: el 1RM estimado que ya se calculó con esa serie "
+                          "NO se revierte; si te pregunta, dilo."}
+
+    if not _CORRECCION_RE.search(texto):
+        return None
+
+    correcto = erroneo = None
+    for i, patron in enumerate(_CORR_VALOR_RE):
+        m = patron.search(texto)
+        if m:
+            correcto = float(m.group(1).replace(",", "."))
+            if i == 1:
+                erroneo = float(m.group(2).replace(",", "."))
+            break
+    if correcto is None:
+        return None
+
+    ultima = obtener_ultima_serie(numero_usuario)
+    if not ultima:
+        return None
+    equivalencias = {"peso_kg": ultima.get("peso_kg"),
+                     "repeticiones": ultima.get("repeticiones"),
+                     "rpe_reportado": ultima.get("rpe_reportado")}
+    campo = None
+    if erroneo is not None:
+        campo = next((c for c, v in equivalencias.items()
+                      if v is not None and abs(float(v) - erroneo) < 1e-6), None)
+    if campo is None:
+        # Sin valor erróneo explícito solo se puede desambiguar por la unidad.
+        if re.search(r"\d+\s*(?:kgs?|kilos?)", texto, re.I):
+            campo = "peso_kg"
+        elif re.search(r"\brpe\b", texto, re.I):
+            campo = "rpe_reportado"
+        elif re.search(r"\breps?|repeticion", texto, re.I):
+            campo = "repeticiones"
+    if campo is None:
+        return None
+    if campo == "repeticiones":
+        correcto = int(correcto)
+
+    res = corregir_ultima_serie(numero_usuario, {campo: correcto})
+    if not res:
+        return None
+    a, d = res["antes"], res["despues"]
+    ej = d.get("ejercicio") or "el ejercicio"
+    nuevo = (f"{ej} {float(d['peso_kg']):g} kg x {int(d['repeticiones'] or 0)}"
+             + (f" @RPE {float(d['rpe_reportado']):g}" if d.get("rpe_reportado") else ""))
+    detalle_rm = ""
+    try:
+        reps = int(d["repeticiones"] or 0)
+        if 1 <= reps <= 15:
+            rm_val = calcular_1rm(TipoEjercicio("peso_libre"), reps, float(d["peso_kg"]))
+            guardar_rm(numero_usuario, ej, rm_val, peso_origen=float(d["peso_kg"]),
+                       reps_origen=reps, fuente="correccion_serie")
+            detalle_rm = f" Su 1RM estimado se recalculó: {rm_val:g} kg."
+    except Exception as e:                                  # el 1RM es accesorio
+        print(f"[SERIE-CORRECCION] ⚠ no se pudo recalcular el 1RM: {e}")
+    return {"etapa": "SERIE-CORRECCION",
+            "resumen": f"serie corregida: {a} → {d}",
+            "bloque": f"SERIE CORREGIDA EN EL DIARIO]: quedó como {nuevo}.{detalle_rm} "
+                      "Confírmaselo con esos números exactos; ya está hecho, NO llames "
+                      "herramientas para esto."}
+
+
 def detectar_series_multiples(mensaje: str) -> list[dict]:
     """v9: Enumera TODAS las series (peso, reps, rpe y ejercicio) en un volcado de marcas."""
+    bloque = detectar_bloque_de_series(mensaje)
+    if bloque:
+        return bloque
     encontradas = []
     for parte in re.split(r"[,;\n]|\s+y\s+", str(mensaje).lower()):
         s = detectar_serie_en_mensaje(parte)
@@ -3003,6 +3215,12 @@ def rpe_desde_texto(texto: str) -> float | None:
 
 def detectar_serie_en_mensaje(mensaje: str) -> dict | None:
     """v9: Detecta peso, repeticiones y opcionalmente el RPE en mensajes directos."""
+    # v13: "4x8 con 60 kg" son series x reps, no kilos x reps. Se resuelve antes
+    # de los patrones de marca para no invertir los números (ver
+    # detectar_bloque_de_series).
+    bloque = detectar_bloque_de_series(mensaje)
+    if bloque:
+        return {k: bloque[0][k] for k in ("peso", "reps", "rpe")}
     patrones = [
         r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*[xX×]\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
         r'(\d+(?:[.,]\d+)?)\s*(?:kg)?\s*por\s*(\d+)(?:\s*(?:@|rpe)\s*(\d+(?:[.,]\d+)?))?',
@@ -4348,6 +4566,17 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # para el análisis") y que los fallbacks necesitan para no inventarse la causa.
     notas_turno: list[str] = []
     texto_tools_acumulado = ""           # v8: payloads de tools -> whitelist de kg
+
+    # --- RECTIFICACIÓN DE LA ÚLTIMA SERIE (v13) ---
+    # Antes de intentar registrar nada: si el atleta viene a corregirse o a
+    # retirar una serie, lo que toca es UPDATE/DELETE, no un INSERT nuevo.
+    rectificacion = await asyncio.to_thread(_rectificar_ultima_serie, numero_usuario, mensaje_usuario)
+    if rectificacion:
+        accion_ejecutada = True
+        acciones_ok.append(rectificacion["resumen"])
+        contenido_mensaje += "\n\n[SISTEMA — " + rectificacion["bloque"]
+        log(numero_usuario, rectificacion["etapa"], rectificacion["resumen"])
+        serie = None                      # ya está resuelto: no registrar de nuevo
 
     # --- SERIE(S) ---
     if serie and not rutina_vacia:

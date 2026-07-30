@@ -211,6 +211,82 @@ def guardar_serie_sql(numero_usuario: str, datos: dict) -> bool:
         return False
 
 
+def _ultima_serie_id(conexion, numero_usuario: str, ejercicio: str | None = None):
+    sql = "SELECT id, ejercicio, peso_kg, repeticiones, rpe_reportado FROM series_log WHERE numero_usuario = ?"
+    params: list = [str(numero_usuario)]
+    if ejercicio:
+        sql += " AND lower(ejercicio) = lower(?)"
+        params.append(ejercicio)
+    sql += " ORDER BY id DESC LIMIT 1"
+    return conexion.execute(sql, tuple(params)).fetchone()
+
+
+def obtener_ultima_serie(numero_usuario: str, ejercicio: str | None = None) -> dict | None:
+    """La última serie que este atleta apuntó, o None."""
+    try:
+        inicializar_db()
+        with conexion_db(solo_lectura=True) as conexion:
+            fila = _ultima_serie_id(conexion, numero_usuario, ejercicio)
+        if not fila:
+            return None
+        sid, ej, peso, reps, rpe = fila
+        return {"id": sid, "ejercicio": ej, "peso_kg": peso,
+                "repeticiones": reps, "rpe_reportado": rpe}
+    except Exception as e:
+        print(f"[ERROR SQL] Fallo al leer la última serie: {e}")
+        return None
+
+
+def corregir_ultima_serie(numero_usuario: str, cambios: dict,
+                          ejercicio: str | None = None) -> dict | None:
+    """Rectifica la última serie registrada. Devuelve {antes, despues} o None.
+
+    El atleta se corrige constantemente ("perdón, eran 90 no 100") y hasta v13 no
+    había forma de hacerlo: el coach contestaba "lo corrijo en tu expediente" y
+    el dato equivocado se quedaba en el diario contaminando el 1RM estimado.
+    """
+    campos = {"peso_kg": "peso_kg", "repeticiones": "repeticiones", "rpe_reportado": "rpe_reportado"}
+    sets = {k: v for k, v in cambios.items() if k in campos and v is not None}
+    if not sets:
+        return None
+    try:
+        inicializar_db()
+        with conexion_db() as conexion:
+            fila = _ultima_serie_id(conexion, numero_usuario, ejercicio)
+            if not fila:
+                return None
+            sid, ej, peso, reps, rpe = fila
+            asignaciones = ", ".join(f"{c} = ?" for c in sets)
+            conexion.execute(f"UPDATE series_log SET {asignaciones} WHERE id = ? AND numero_usuario = ?",
+                             (*sets.values(), sid, str(numero_usuario)))
+        antes = {"ejercicio": ej, "peso_kg": peso, "repeticiones": reps, "rpe_reportado": rpe}
+        despues = {**antes, **sets}
+        print(f"[SQL] Serie {sid} corregida: {antes} → {despues}")
+        return {"id": sid, "antes": antes, "despues": despues}
+    except Exception as e:
+        print(f"[ERROR SQL] Fallo al corregir serie: {e}")
+        return None
+
+
+def borrar_ultima_serie(numero_usuario: str, ejercicio: str | None = None) -> dict | None:
+    """Elimina la última serie registrada ('olvida esa, no la hice')."""
+    try:
+        inicializar_db()
+        with conexion_db() as conexion:
+            fila = _ultima_serie_id(conexion, numero_usuario, ejercicio)
+            if not fila:
+                return None
+            sid, ej, peso, reps, rpe = fila
+            conexion.execute("DELETE FROM series_log WHERE id = ? AND numero_usuario = ?",
+                             (sid, str(numero_usuario)))
+        borrada = {"ejercicio": ej, "peso_kg": peso, "repeticiones": reps, "rpe_reportado": rpe}
+        print(f"[SQL] Serie {sid} borrada: {borrada}")
+        return {"id": sid, "borrada": borrada}
+    except Exception as e:
+        print(f"[ERROR SQL] Fallo al borrar serie: {e}")
+        return None
+
+
 def obtener_dashboard_analitico(numero_usuario: str) -> str:
     """Extrae las últimas 5 series de ESTE usuario para inyectarlas como contexto al LLM."""
     try:

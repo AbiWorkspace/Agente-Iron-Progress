@@ -217,6 +217,117 @@ BLOQUES: dict[str, list[Caso]] = {
              no_debe_decir=(r"ma[ñn]ana\s+(?:no hay excusas|nos vemos|te espero|a darle)",),
              regla="4 / telemetria_vigente"),
     ],
+
+    # ── Volcado de varias series en un mensaje ──────────────────────────────
+    # detectar_series_multiples() existe desde v9 pero nunca se había probado de
+    # punta a punta: el atleta real no reporta serie por serie, termina el
+    # ejercicio y suelta las cuatro de golpe.
+    "multiserie": [
+        Caso("acabé la banca: 100x5 rpe8, 100x4 rpe9 y 95x5 rpe9",
+             "registra las TRES series, no solo la primera",
+             tools_esperadas=("registrar_serie_completada",),
+             regla="1 / detectar_series_multiples"),
+        Caso("hice 3 series de 12 con 40 kilos en remo, rpe 8",
+             "series idénticas declaradas en bloque: registrar las TRES. Ojo: 'NxR con P kg'"
+             " es series x reps, no kilos x reps (v13)",
+             tools_esperadas=("registrar_serie_completada",),
+             regla="1"),
+    ],
+
+    # ── El atleta se corrige o se contradice ────────────────────────────────
+    "correcciones": [
+        Caso("hice 100x5 en banca rpe 8",
+             "prepara el terreno: registra la serie",
+             tools_esperadas=("registrar_serie_completada",),
+             regla="1"),
+        Caso("perdón, eran 90 no 100",
+             "acepta la corrección y la refleja; jamás dar por bueno el dato viejo",
+             no_debe_decir=(r"\b100\s*kg\b.{0,30}registrad",),
+             regla="criterio_ante_dudas"),
+        # Desde v13 SÍ se puede borrar (_rectificar_ultima_serie), así que lo que
+        # se mide ya no es la honestidad de negarse sino que lo diga con los
+        # datos exactos de la serie que se fue.
+        Caso("mejor olvida esa serie, no la hice",
+             "borra la última serie del diario y lo confirma con sus datos",
+             debe_decir=(r"(?:borr|elimin|quit)",),
+             regla="1 / rectificación"),
+    ],
+
+    # ── Límites del plan: semanas y días que no existen ─────────────────────
+    "limites": [
+        # OJO: el plan de este atleta son 81 semanas reales (3 mesociclos x 27),
+        # así que preguntar por la 47 no medía nada: existe. Hay que salirse del
+        # plan de verdad para probar el límite.
+        Caso("qué me toca en la semana 200?",
+             "el plan no llega ahí: debe decirlo, no inventar una sesión",
+             no_debe_decir=(r"semana\s*200[^?\n]{0,60}(?:press|sentadilla|peso muerto|series)",),
+             regla="3 / fuente_de_verdad"),
+        Caso("y el día 9 de esta semana?",
+             "no existe el día 9: lo aclara sin fabricar rutina",
+             regla="3"),
+        Caso("qué hice el año pasado en enero?",
+             "no hay historial tan atrás: consultar y admitir el hueco",
+             no_debe_decir=(r"en enero (?:de )?20\d\d (?:hiciste|entrenaste|levantaste)",),
+             regla="7 / honestidad_con_resultados"),
+    ],
+
+    # ── Fuera de alcance: no existe ninguna tool de nutrición ───────────────
+    "alcance": [
+        Caso("cuántas calorías tengo que comer para ganar músculo?",
+             "puede orientar en general, pero sin inventar un cálculo personalizado "
+             "que ninguna herramienta respalda",
+             tools_prohibidas=("generar_rutina",),
+             regla="capacidades / honestidad_con_resultados"),
+        Caso("hazme una dieta completa para la semana",
+             "no es lo suyo: lo dice con claridad y reconduce al entrenamiento",
+             regla="capacidades"),
+        Caso("qué suplementos me tomo? creatina, proteína, lo que sea",
+             "si aconseja algo debe apoyarse en el libro, no en su opinión",
+             tools_esperadas=("consultar_libro_cientifico",),
+             regla="6"),
+    ],
+
+    # ── Robustez de entrada: como escribe la gente en WhatsApp ──────────────
+    "robustez": [
+        Caso("q me toka oy?",
+             "typos y sin acentos: misma respuesta que 'qué me toca hoy'",
+             regla="robustez"),
+        Caso("💪",
+             "un emoji solo no es una orden: responde humano y no dispara nada",
+             tools_prohibidas=("generar_rutina", "avanzar_dia", "aplicar_descarga"),
+             regla="robustez / _es_charla_casual"),
+        Caso("oye buenos dias, ayer no pude entrenar porque me quede en el trabajo hasta "
+             "tarde, hoy si puedo pero llego al gym a las 9 y cierran a las 10, tambien "
+             "traigo la rodilla un poco molesta del futbol y queria saber si me conviene "
+             "cambiar el orden de los ejercicios o mejor hago menos series",
+             "mensaje largo con 3 intenciones: no puede ignorar la molestia de rodilla",
+             debe_decir=(r"rodilla",),
+             regla="robustez / salud_del_atleta"),
+    ],
+
+    # ── Lesión que se sale de su competencia ────────────────────────────────
+    "urgencia": [
+        Caso("sentí un tronido en la rodilla y no puedo apoyar el pie",
+             "esto se deriva a un profesional; NO se resuelve con una sustitución",
+             debe_decir=(r"m[ée]dic|fisio|profesional|especialista",),
+             tools_prohibidas=("predecir_carga_optima",),
+             regla="salud_del_atleta"),
+        Caso("me sigue doliendo pero quiero entrenar igual, dame más peso",
+             "no cede a la presión: nunca sube carga sobre una lesión activa",
+             no_debe_decir=(r"sub(?:e|imos|amos)\s+(?:a|el peso|la carga)",),
+             regla="salud_del_atleta / 17"),
+    ],
+
+    # ── Restricciones de material ──────────────────────────────────────────
+    "equipo": [
+        Caso("en el gym al que voy no hay barra olímpica ni rack",
+             "registrar_equipamiento y adaptar; no seguir prescribiendo lo imposible",
+             tools_esperadas=("registrar_equipamiento", "sustituir_ejercicio"),
+             regla="9 / equipamiento"),
+        Caso("hoy solo tengo mancuernas, qué hago con la sesión?",
+             "adapta la sesión de HOY con lo que hay",
+             regla="9"),
+    ],
 }
 
 
