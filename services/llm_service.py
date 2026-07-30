@@ -3465,6 +3465,28 @@ def cargar_herramientas() -> list:
         return []
 
 
+def _rescatar_historial(crudo: str) -> list:
+    """Salva lo que se pueda de un historial JSON truncado a media escritura.
+
+    Descartarlo entero es perder la conversación: el atleta vuelve a un coach que
+    no se acuerda de nada. Como el fichero es una lista de objetos planos, basta
+    con cerrar el array en el último objeto completo.
+    """
+    texto = str(crudo or "").strip()
+    if not texto.startswith("["):
+        return []
+    for corte in range(len(texto), 0, -1):
+        if texto[corte - 1] != "}":
+            continue
+        try:
+            datos = json.loads(texto[:corte] + "]")
+        except json.JSONDecodeError:
+            continue
+        if isinstance(datos, list):
+            return [m for m in datos if isinstance(m, dict) and m.get("role")]
+    return []
+
+
 def historial_usuario(numero_usuario: str) -> str:
     return os.path.join(carpeta_data, f"historial_{numero_usuario}.json")
 
@@ -3767,6 +3789,9 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
                       "'se está generando' o 'ya viene en camino': si hubiera una en marcha "
                       "lo verías escrito aquí.")
         cabecera = (
+            "SESIÓN EN PAUSA — el plan está pausado y NO toca entrenar. No la presentes como el "
+            "entrenamiento de hoy; si quiere volver, primero hay que reanudar el plan."
+            if str(estatus).startswith("PLAN PAUSADO") else
             "PRÓXIMA SESIÓN — hoy NO toca entrenar. No la presentes como el entrenamiento de "
             "hoy; si el atleta quiere adelantarla, dile que puede y que el calendario se moverá. "
             "Los *kg* ya vienen calculados: transcríbelos literales."
@@ -4106,14 +4131,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             or _firmas_historial.get(numero_usuario) != firma_hist):
         historial_memoria[numero_usuario] = []
         if firma_hist is not None:
+            contenido = ""
             try:
                 async with aiofiles.open(ruta_historial, mode="r", encoding="utf-8") as f:
                     contenido = await f.read()
                 cargado = json.loads(contenido)
                 historial_memoria[numero_usuario] = cargado if isinstance(cargado, list) else []
             except Exception as e:
-                log(numero_usuario, "HIST-ERROR", f"historial corrupto, se reinicia: {e}")
-                historial_memoria[numero_usuario] = []
+                rescatado = _rescatar_historial(contenido)
+                respaldo = f"{ruta_historial}.corrupto-{time.strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    Path(ruta_historial).replace(respaldo)
+                except OSError:
+                    respaldo = "(no se pudo respaldar)"
+                historial_memoria[numero_usuario] = rescatado
+                log(numero_usuario, "HIST-ERROR",
+                    f"historial ilegible ({e}); copia en {respaldo}; "
+                    f"se recuperaron {len(rescatado)} mensajes de la conversación")
         else:
             log(numero_usuario, "HIST", "sin historial en disco; se arranca de cero")
         _firmas_historial[numero_usuario] = firma_hist
@@ -4189,6 +4223,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
     if estado_hoy.get("plan_pausado"):
         estatus = "PLAN PAUSADO por el atleta; no hay entrenamiento programado hasta que lo reactive."
+        # Misma contradicción que en descanso: el calendario decía PAUSADO y la
+        # rutina seguía encabezada "*HOY — …*".
+        instruccion_de_hoy = str(instruccion_de_hoy).replace(
+            "*HOY — ", "*SESIÓN EN PAUSA (no toca hasta que reanude) — ")
 
     texto_puro = str(mensaje_usuario).lower().strip()
 
@@ -5561,6 +5599,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
                     elif nombre == "reanudar_plan":
                         _actualizar_estado_json(numero_usuario, plan_pausado=0,
+                                                motivo_pausa="",   # ya no está pausado
                                                 fecha_programada=fecha_actual)
                         estado_hoy["plan_pausado"] = 0
                         resultados_texto.append(f"[reanudar_plan]: plan REANUDADO; próximo entreno "
@@ -5893,8 +5932,13 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                       for m in historial_memoria[numero_usuario]]
         historial_memoria[numero_usuario] = hist_disco
         try:
-            async with aiofiles.open(ruta_historial, mode="w", encoding="utf-8") as f:
+            # Atómica: si el proceso muere a media escritura, el fichero anterior
+            # sigue entero. Escribiendo encima, un corte deja un JSON truncado y
+            # el turno siguiente descarta la conversación completa.
+            tmp_hist = f"{ruta_historial}.tmp"
+            async with aiofiles.open(tmp_hist, mode="w", encoding="utf-8") as f:
                 await f.write(json.dumps(hist_disco, indent=2, ensure_ascii=False))
+            os.replace(tmp_hist, ruta_historial)
             # Firma del archivo que ACABAMOS de escribir: sin esto el turno
             # siguiente vería un mtime distinto y releería el JSON entero.
             _firmas_historial[numero_usuario] = _firma_archivo(ruta_historial)
