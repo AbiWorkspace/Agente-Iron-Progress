@@ -212,16 +212,30 @@ def _eventos_hoy(numero: str, tipo_prefijo: str, ejercicio: str | None = None) -
 def e1rm_serie(peso: float, reps: int, rpe: float) -> tuple[float, float]:
     """Epley ajustado por RIR: e1RM = peso × (1 + reps_efectivas/30), con
     reps_efectivas = reps + (10 − RPE). Devuelve (e1rm, reps_efectivas);
-    con reps_efectivas > 12 la fórmula pierde precisión (nota de confianza)."""
+    con reps_efectivas > 12 la fórmula pierde precisión (nota de confianza).
+
+    Anclaje en 1: una repetición a RPE 10 ES el 1RM, por definición. Epley sin
+    anclar devolvía peso × 31/30, así que un single máximo real de 100 kg se
+    guardaba como 103.3 kg de 1RM — un 3,3 % de más justo en el dato más
+    importante del atleta, y de ahí a todos los porcentajes del plan.
+    (calculadora_rm ya lo anclaba: `if reps == 1: return peso`.)
+    """
     rir = max(0.0, 10.0 - float(rpe))
     reps_ef = float(reps) + rir
+    if reps_ef <= 1.0:
+        return round(float(peso), 1), reps_ef
     return round(float(peso) * (1.0 + reps_ef / 30.0), 1), reps_ef
 
 
 def pct_prescripcion(reps_obj: int, rpe_obj: float) -> float:
     """Inversa de Epley: qué % del e1RM corresponde a (reps @ RPE) objetivo.
-    Ej.: 5 reps @8 → 7 reps efectivas → 81.1 % (coincide con tablas RTS)."""
+    Ej.: 5 reps @8 → 7 reps efectivas → 81.1 % (coincide con tablas RTS).
+
+    Mismo anclaje que e1rm_serie: un single a RPE 10 es el 100 %, no el 96.8 %.
+    Sin él, prescribir un intento máximo de 150 kg mandaba montar 145.2."""
     reps_ef = float(reps_obj) + max(0.0, 10.0 - float(rpe_obj))
+    if reps_ef <= 1.0:
+        return 1.0
     return 1.0 / (1.0 + reps_ef / 30.0)
 
 
@@ -275,10 +289,18 @@ def _sesiones(series: list[dict]) -> list[dict]:
     for s in series:
         d = _fecha(s["f"])
         e1, reps_ef = e1rm_serie(s["w"], s["r"], s["rpe"])
-        b = por_dia.setdefault(d, {"fecha": d, "e1rm": 0.0, "tonelaje": 0.0,
-                                   "sets_duros": 0, "rpes": [], "cargas": []})
-        if reps_ef <= 12 and e1 > b["e1rm"]:
-            b["e1rm"] = e1
+        b = por_dia.setdefault(d, {"fecha": d, "e1rm": 0.0, "e1rm_largo": 0.0,
+                                   "tonelaje": 0.0, "sets_duros": 0,
+                                   "rpes": [], "cargas": []})
+        if reps_ef <= 12:
+            b["e1rm"] = max(b["e1rm"], e1)
+        else:
+            # Series largas: Epley pierde precisión, pero su estimación sigue
+            # siendo MUCHO mejor que el apaño anterior (tratar la carga top como
+            # si fuera un single). En un plan DUP, con días de 12 reps, aquel
+            # fallback hundía el e1RM del atleta: 95 kg x12 entraban como un 1RM
+            # de 95 y el EWMA arrastraba a la baja toda la predicción de cargas.
+            b["e1rm_largo"] = max(b["e1rm_largo"], e1)
         b["tonelaje"] += float(s["w"]) * int(s["r"])
         b["rpes"].append(float(s["rpe"]))
         b["cargas"].append(float(s["w"]))
@@ -290,8 +312,7 @@ def _sesiones(series: list[dict]) -> list[dict]:
         b["rpe_medio"] = round(sum(b["rpes"]) / len(b["rpes"]), 2)
         b["carga_top"] = max(b["cargas"])
         if b["e1rm"] == 0.0:  # todas las series fueron >12 reps efectivas
-            mejor = max(e1rm_serie(w := max(b["cargas"]), 1, 10)[0], 0.0)
-            b["e1rm"] = mejor
+            b["e1rm"] = b["e1rm_largo"] or max(b["cargas"])
         out.append(b)
     return out
 
@@ -409,7 +430,17 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
     carga = e1_hat * pct_prescripcion(reps, rpe_obj) * factor
 
     ultima_top = ses[-1]["carga_top"]
-    carga = max(ultima_top * CLAMP_BAJO, min(carga, ultima_top * CLAMP_ALTO))
+    # El clamp existe para que la barra no dé saltos bruscos, pero comparaba
+    # contra la última carga top FUERA CUAL FUERA su objetivo. En un plan DUP
+    # eso mezclaba peras con manzanas: tras un día de 3x3 pesadas, la
+    # recomendación para 12 reps se veía forzada al 93 % de aquella carga y, con
+    # el techo del e1RM encima, la función devolvía el MISMO kilaje para 3, 8 o
+    # 12 repeticiones. Se compara con la última carga usada en un objetivo de
+    # reps parecido (±3); si no hay ninguna, no se clampa y manda el e1RM.
+    ref_top = next((float(s["w"]) for s in reversed(series)
+                    if abs(int(s["r"]) - reps) <= 3), None)
+    if ref_top:
+        carga = max(ref_top * CLAMP_BAJO, min(carga, ref_top * CLAMP_ALTO))
     carga = min(carga, e1_hat)                      # nadie prescribe > e1RM
     inc = incremento_barra(numero)                  # discos reales del atleta
     carga = max(20.0, redondear_carga(carga, inc))  # barra vacía como piso

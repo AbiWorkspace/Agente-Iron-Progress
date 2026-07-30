@@ -2648,7 +2648,14 @@ def evaluar_nivel_fuerza(args: dict) -> dict:
     ratio_sq = sentadilla / peso if peso > 0 else 0
     ratio_dl = peso_muerto / peso if peso > 0 else 0
 
-    if genero == "hombre":
+    # El perfil normaliza a "hombre"/"mujer", pero esta función también la puede
+    # llamar el modelo con lo que dijera el atleta ("masculino", "varón", ""), y
+    # la comparación exacta mandaba TODO lo demás al baremo femenino: un hombre
+    # que dijera "masculino" salía sobrevalorado y se le generaba una rutina de
+    # nivel superior al suyo. Se detecta explícitamente el femenino; el resto usa
+    # el baremo masculino, que es el que el sistema toma por defecto.
+    es_mujer = bool(re.search(r"mujer|femenin|\bf\b", genero))
+    if not es_mujer:
         niveles = {
             "banca": "Avanzado" if ratio_banca >= 1.5 else "Intermedio" if ratio_banca >= 1.2 else "Principiante",
             "sentadilla": "Avanzado" if ratio_sq >= 2.0 else "Intermedio" if ratio_sq >= 1.5 else "Principiante",
@@ -2664,6 +2671,17 @@ def evaluar_nivel_fuerza(args: dict) -> dict:
     puntos = sum([1 if n == "Principiante" else 2 if n == "Intermedio" else 3 for n in niveles.values()])
     promedio = puntos / 3
     nivel_global = "avanzado" if promedio >= 2.5 else "intermedio" if promedio >= 1.7 else "principiante"
+
+    # Sin peso corporal o sin marcas no hay análisis posible: devolver
+    # "principiante" a secas es un veredicto inventado sobre alguien de quien no
+    # se sabe nada, y encima decide el nivel de la rutina que se le genera.
+    if peso <= 0 or not any((banca, sentadilla, peso_muerto)):
+        falta = "su peso corporal" if peso <= 0 else "sus marcas (1RM)"
+        return {"nivel_sugerido": "principiante",
+                "datos_insuficientes": True,
+                "reporte_texto": (f"NO SE PUEDE EVALUAR EL NIVEL: falta {falta}. "
+                                  "Se asume principiante por prudencia, pero NO se lo "
+                                  "presentes como un diagnóstico: pídele el dato que falta.")}
 
     reporte = (
         f"ANÁLISIS DE FUERZA RELATIVA:\n"
@@ -3311,7 +3329,7 @@ def _rectificar_ultima_serie(numero_usuario: str, mensaje: str) -> dict | None:
     try:
         reps = int(d["repeticiones"] or 0)
         if 1 <= reps <= 15:
-            rm_val = calcular_1rm(TipoEjercicio("peso_libre"), reps, float(d["peso_kg"]))
+            rm_val = _e1rm_de_serie(float(d["peso_kg"]), reps, d.get("rpe_reportado"))
             guardar_rm(numero_usuario, ej, rm_val, peso_origen=float(d["peso_kg"]),
                        reps_origen=reps, fuente="correccion_serie")
             detalle_rm = f" Su 1RM estimado se recalculó: {rm_val:g} kg."
@@ -3497,6 +3515,47 @@ def cargar_herramientas() -> list:
     except Exception as e:
         print(f"[ERROR tools.json]: {e}")
         return []
+
+
+def _reps_efectivas(reps, rpe=None) -> int:
+    """Reps + RIR. Una serie de 5 a la que le sobraban 4 repeticiones vale, en
+    términos de 1RM, mucho más que una de 5 al fallo."""
+    try:
+        r = int(reps)
+    except (TypeError, ValueError):
+        return 0
+    if rpe in (None, ""):
+        return r
+    try:
+        return int(round(r + max(0.0, 10.0 - float(rpe))))
+    except (TypeError, ValueError):
+        return r
+
+
+def _e1rm_de_serie(peso, reps, rpe=None) -> float:
+    """1RM estimado de UNA serie, con UN solo criterio en todo el sistema.
+
+    Había dos conviviendo: motor_predictivo.e1rm_serie (Epley ajustado por RIR),
+    que usan el handler v9, la predicción de cargas y el análisis de MRV, y
+    calculadora_rm.calcular_1rm (híbrido de seis fórmulas), que usaba el
+    interceptor determinista... SIN pasarle el RPE. Resultado: la misma serie
+    daba un 1RM distinto según quién la registrara —hasta un 12 % de diferencia—
+    y el interceptor devolvía el mismo número tanto si al atleta le sobraban
+    cuatro repeticiones como si había ido al fallo. Ese 1RM es la base de todos
+    los porcentajes del plan, así que el error se propagaba a cada carga
+    prescrita.
+
+    Con RPE declarado manda el criterio del sistema (Epley + RIR). Sin RPE —una
+    marca del onboarding, un PR que cuenta de memoria— no hay RIR que aplicar y
+    se usa el híbrido, que se porta mejor en series largas.
+    """
+    from services.motor_predictivo import e1rm_serie
+    if rpe not in (None, ""):
+        try:
+            return e1rm_serie(float(peso), int(reps), float(rpe))[0]
+        except (TypeError, ValueError):
+            pass
+    return calcular_1rm(TipoEjercicio("peso_libre"), int(reps), float(peso))
 
 
 def _rescatar_historial(crudo: str) -> list:
@@ -4938,7 +4997,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     detalle += f" @RPE {s['rpe']:g}"
 
                 if 1 <= int(s["reps"]) <= 15:
-                    rm_val = calcular_1rm(TipoEjercicio("peso_libre"), int(s["reps"]), s["peso"])
+                    rm_val = _e1rm_de_serie(s["peso"], int(s["reps"]), s.get("rpe"))
                     await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm_val,
                                             peso_origen=s["peso"], reps_origen=int(s["reps"]),
                                             fuente="auto_serie")
