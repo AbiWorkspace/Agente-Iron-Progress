@@ -2256,6 +2256,13 @@ _tareas_generacion: set[asyncio.Task] = set()
 
 async def _generar_rutina_background(datos: dict, numero_usuario: str):
     t0 = time.monotonic()
+    # v13 — Esta tarea nace DENTRO de un turno (`_handle_generar_rutina` la lanza
+    # con create_task), así que hereda su guardia de SEM_LLM por ContextVar. Sin
+    # desvincularla, cualquier inferencia que se añada aquí creería tener el
+    # semáforo del turno padre y acabaría soltándolo dos veces: SEM_LLM quedaría
+    # abierto y volverían las inferencias solapadas que congelan el equipo. El
+    # `async with SEM_LLM` de abajo es el que de verdad debe protegerla.
+    _soltar_guardia_heredado()
     log(numero_usuario, "GEN-BG", f"inicio con datos={datos}")
     try:
         # El generador dispara 4 inferencias a Ollama desde su propio hilo. Sin este
@@ -3424,7 +3431,12 @@ async def generar_respuesta_coach(numero_usuario: str, mensaje_usuario: str):
     if lock.locked():
         log(numero_usuario, "LOCK", "mensaje rechazado: hay otro en proceso")
         return "Dame unos segundos bro, sigo con tu mensaje anterior 🙏"
-    async with lock:
+    # v13 — `turno_exclusivo_llm` va DENTRO del lock por usuario y ENVUELVE al
+    # try: si algo revienta entre dos inferencias, el semáforo se libera igual
+    # (ver el finally del context manager). El lock por usuario evita que un
+    # atleta se solape consigo mismo; esto evita que se solape con OTRO atleta a
+    # mitad de turno y se desalojen la caché de prompt mutuamente.
+    async with lock, turno_exclusivo_llm():
         try:
             return await _generar_respuesta_coach_interno(numero_usuario, mensaje_usuario)
         except Exception as e:

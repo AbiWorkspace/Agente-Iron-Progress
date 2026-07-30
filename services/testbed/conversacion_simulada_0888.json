@@ -1,0 +1,139 @@
+{
+  "numero": "5215500000888",
+  "fase": "onboarding",
+  "fecha": "2026-07-28T23:30:33.152651",
+  "turnos": [
+    {
+      "usuario": "hola, llevo como 3 años entrenando por mi cuenta pero me estanqué. quiero ganar músculo y fuerza en serio",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "Recibido. Powerbuilding es el camino para romper ese techo. Lo tengo apuntado.\n\n¿Cuánto pesas ahora mismo? Dame tu peso corporal actual en kg.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 6.0,
+      "log": "[23:26:53][5215500000888][IN] mensaje: 'hola, llevo como 3 años entrenando por mi cuenta pero me estanqué. quiero ganar músculo y fuerza en serio'\n[TOOLS] 22 herramientas registradas: ['generar_rutina', 'evaluar_nivel_fuerza', 'consultar_rutina_futura', 'avanzar_dia', 'calcular_rm_exacto', 'consultar_libro_cientifico', 'consultar_historial_narrativo', 'evaluar_perfil_fisico', 'consultar_expediente_personal', 'guardar_en_expediente_personal', 'sustituir_ejercicio', 'aplicar_descarga', 'consultar_progreso', 'explicar_tecnica_ejercicio', 'registrar_peso_corporal', 'pausar_plan', 'reanudar_plan', 'registrar_serie_completada', 'predecir_carga_optima', 'analizar_mrv', 'autorregular_dia', 'enviar_grafica_progreso']\n[23:26:53][5215500000888][HIST] sin historial en disco; se arranca de cero\n[23:26:53][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=False campo_pendiente='' historial=0 msgs\n[23:26:53][5215500000888][ONB-EXTRAS] campos anclados capturados: ['meta powerbuilding']\n[23:26:53][5215500000888][ONB-ARRASTRE] datos de perfil sin plan ni onboarding: ['meta powerbuilding'] -> la máquina toma el control\n[23:26:53][5215500000888][ONB] ACTIVADO por intención explícita. Capturado del mensaje: ['meta powerbuilding']. Faltan: ['peso_kg', 'altura_m', 'edad', 'genero', 'porcentaje_grasa', 'dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dom…\n[23:26:53][5215500000888][ONB] pidiendo primer campo: peso_kg | conocido: meta powerbuilding\n[23:26:53][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:26:53][5215500000888][TOOLS] desactivadas este turno\n[23:26:53][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 5.9s (2 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 3742 tok en 4.1s (909 tok/s) | decode 38 tok en 1.1s (33.7 tok/s) | CARGA DE MODELO 0.3s | total 5.9s\n[23:26:59][5215500000888][OUT] 6.0s -> Recibido. Powerbuilding es el camino para romper ese techo. Lo tengo apuntado. ⏎  ⏎ ¿Cuánto pesas ahora mismo? Dame tu peso corporal actual en kg.\n"
+    },
+    {
+      "usuario": "peso 82 kilos",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "Perfecto, 82 kg anotado.\n\n¿Y qué estatura tienes?",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 2.3,
+      "log": "[23:26:59][5215500000888][IN] mensaje: 'peso 82 kilos'\n[23:26:59][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='peso_kg' historial=3 msgs\n[23:26:59][5215500000888][ONB-PARSE] campo='peso_kg' exito=True feedback='peso corporal 82 kg' faltan=['altura_m', 'edad', 'genero', 'porcentaje_grasa', 'dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:26:59][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:26:59][5215500000888][TOOLS] desactivadas este turno\n[23:26:59][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 2.3s (4 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 3886 tok en 1.4s (2689 tok/s) | decode 19 tok en 0.5s (34.6 tok/s) | CARGA DE MODELO 0.3s | total 2.3s\n[23:27:01][5215500000888][OUT] 2.3s -> Perfecto, 82 kg anotado. ⏎  ⏎ ¿Y qué estatura tienes?\n"
+    },
+    {
+      "usuario": "mido 1.78",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "1.78 m, perfecto.\n\n¿Cuántos años tienes?",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 2.4,
+      "log": "[23:27:01][5215500000888][IN] mensaje: 'mido 1.78'\n[23:27:01][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='altura_m' historial=5 msgs\n[23:27:01][5215500000888][ONB-PARSE] campo='altura_m' exito=True feedback='altura 1.78 m' faltan=['edad', 'genero', 'porcentaje_grasa', 'dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:01][5215500000888][MODO] casual=True onboarding=True consulta=None serie=None\n[23:27:01][5215500000888][TOOLS] desactivadas este turno\n[23:27:01][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 2.3s (6 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4013 tok en 1.6s (2525 tok/s) | decode 17 tok en 0.5s (34.7 tok/s) | CARGA DE MODELO 0.3s | total 2.3s\n[23:27:03][5215500000888][OUT] 2.4s -> 1.78 m, perfecto. ⏎  ⏎ ¿Cuántos años tienes?\n"
+    },
+    {
+      "usuario": "tengo 29",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "29 años, anotado.\n\n¿Eres hombre o mujer?",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 2.5,
+      "log": "[23:27:03][5215500000888][IN] mensaje: 'tengo 29'\n[23:27:03][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='edad' historial=7 msgs\n[23:27:03][5215500000888][ONB-PARSE] campo='edad' exito=True feedback='edad 29 años' faltan=['genero', 'porcentaje_grasa', 'dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:03][5215500000888][MODO] casual=True onboarding=True consulta=None serie=None\n[23:27:03][5215500000888][TOOLS] desactivadas este turno\n[23:27:03][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 2.5s (8 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4137 tok en 1.8s (2352 tok/s) | decode 16 tok en 0.5s (34.0 tok/s) | CARGA DE MODELO 0.3s | total 2.5s\n[23:27:06][5215500000888][OUT] 2.5s -> 29 años, anotado. ⏎  ⏎ ¿Eres hombre o mujer?\n"
+    },
+    {
+      "usuario": "hombre",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "Hombre, listo.\n\n¿Qué porcentaje de grasa corporal tienes aproximadamente? Si no lo sabes exacto, dame tu mejor estimación visual.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 3.8,
+      "log": "[23:27:06][5215500000888][IN] mensaje: 'hombre'\n[23:27:06][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='genero' historial=9 msgs\n[23:27:06][5215500000888][ONB-PARSE] campo='genero' exito=True feedback='género hombre' faltan=['porcentaje_grasa', 'dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:06][5215500000888][MODO] casual=True onboarding=True consulta=None serie=None\n[23:27:06][5215500000888][TOOLS] desactivadas este turno\n[23:27:06][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 3.8s (10 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4256 tok en 1.9s (2220 tok/s) | decode 31 tok en 1.0s (32.1 tok/s) | CARGA DE MODELO 0.8s | total 3.7s\n[23:27:09][5215500000888][OUT] 3.8s -> Hombre, listo. ⏎  ⏎ ¿Qué porcentaje de grasa corporal tienes aproximadamente? Si no lo sabes exacto, dame tu mejor estimación visual.\n"
+    },
+    {
+      "usuario": "andaré como en 15% de grasa",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "15%, perfecto.\n\n¿Cuántos días a la semana puedes entrenar? Del 1 al 7, dime tu disponibilidad real.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 3.9,
+      "log": "[23:27:09][5215500000888][IN] mensaje: 'andaré como en 15% de grasa'\n[23:27:09][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='porcentaje_grasa' historial=11 msgs\n[23:27:09][5215500000888][ONB-PARSE] campo='porcentaje_grasa' exito=True feedback='15% de grasa corporal' faltan=['dias_semana', 'rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:09][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:09][5215500000888][TOOLS] desactivadas este turno\n[23:27:09][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 3.9s (12 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4409 tok en 2.0s (2195 tok/s) | decode 31 tok en 0.9s (32.7 tok/s) | CARGA DE MODELO 0.9s | total 3.9s\n[23:27:13][5215500000888][OUT] 3.9s -> 15%, perfecto. ⏎  ⏎ ¿Cuántos días a la semana puedes entrenar? Del 1 al 7, dime tu disponibilidad real.\n"
+    },
+    {
+      "usuario": "puedo entrenar 4 días a la semana",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "4 días, anotado.\n\nAhora vamos con tus números. ¿Cuál es tu mejor marca en press de banca plano? Dime cuánto peso moviste y cuántas repeticiones lograste al fallo técnico.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 3.9,
+      "log": "[23:27:13][5215500000888][IN] mensaje: 'puedo entrenar 4 días a la semana'\n[23:27:13][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='dias_semana' historial=13 msgs\n[23:27:13][5215500000888][ONB-PARSE] campo='dias_semana' exito=True feedback='4 días de entrenamiento por semana' faltan=['rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:13][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:13][5215500000888][TOOLS] desactivadas este turno\n[23:27:13][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 3.9s (14 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4565 tok en 2.2s (2036 tok/s) | decode 45 tok en 1.3s (33.6 tok/s) | CARGA DE MODELO 0.3s | total 3.9s\n[23:27:17][5215500000888][OUT] 3.9s -> 4 días, anotado. ⏎  ⏎ Ahora vamos con tus números. ¿Cuál es tu mejor marca en press de banca plano? Dime cuánto peso moviste y cuántas repeticiones lo…\n"
+    },
+    {
+      "usuario": "quiero las dos cosas la verdad, músculo y fuerza. powerbuilding supongo",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "¿Cuál es tu mejor marca en press de banca plano? Dime el peso y las reps (ej. 100 kg x 5).",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 4.6,
+      "log": "[23:27:17][5215500000888][IN] mensaje: 'quiero las dos cosas la verdad, músculo y fuerza. powerbuilding supongo'\n[23:27:17][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='rm_banca' historial=15 msgs\n[23:27:17][5215500000888][ONB-PARSE] campo='rm_banca' exito=False feedback='' faltan=['rm_banca', 'rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:17][5215500000888][ONB] mensaje no responde a 'rm_banca', se retoma\n[23:27:17][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:17][5215500000888][TOOLS] desactivadas este turno\n[23:27:17][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 4.6s (16 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4766 tok en 2.4s (1983 tok/s) | decode 61 tok en 1.9s (32.6 tok/s) | CARGA DE MODELO 0.3s | total 4.6s\n[23:27:22][5215500000888][ONB-REPARADO] salida re-encauzada a 'rm_banca'\n[23:27:22][5215500000888][OUT] 4.6s -> ¿Cuál es tu mejor marca en press de banca plano? Dime el peso y las reps (ej. 100 kg x 5).\n"
+    },
+    {
+      "usuario": "en banca lo último que hice fueron 100 por 5",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "100x5, anotado.\n\n¿Y tu mejor marca en sentadilla libre? Peso y reps.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 4.5,
+      "log": "[23:27:22][5215500000888][IN] mensaje: 'en banca lo último que hice fueron 100 por 5'\n[23:27:22][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='rm_banca' historial=17 msgs\n[23:27:22][5215500000888][RM-GUARDADO] press banco plano: 100.0kg x 5 -> 1RM 115.83\n[23:27:22][5215500000888][RM-GUARDADO] press banco plano: 100.0kg x 5 -> 1RM 115.83\n[23:27:22][5215500000888][ONB-PARSE] campo='rm_banca' exito=True feedback='Marcas guardadas: press banco plano: 1RM estimado 115.8 kg (a partir de 100 kg x 5)' faltan=['rm_sentadilla', 'rm_peso_muerto', 'rm_dominadas']\n[23:27:22][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:22][5215500000888][TOOLS] desactivadas este turno\n[23:27:22][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 4.4s (18 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 4951 tok en 2.7s (1841 tok/s) | decode 26 tok en 0.8s (34.2 tok/s) | CARGA DE MODELO 0.9s | total 4.4s\n[23:27:26][5215500000888][OUT] 4.5s -> 100x5, anotado. ⏎  ⏎ ¿Y tu mejor marca en sentadilla libre? Peso y reps.\n"
+    },
+    {
+      "usuario": "sentadilla 140 por 3",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "140x3, apuntado.\n\n¿Y tu mejor marca en peso muerto? Peso y reps.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 1.3,
+      "log": "[23:27:26][5215500000888][IN] mensaje: 'sentadilla 140 por 3'\n[23:27:26][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='rm_sentadilla' historial=19 msgs\n[23:27:26][5215500000888][RM-GUARDADO] sentadilla: 140.0kg x 3 -> 1RM 151.71\n[23:27:26][5215500000888][RM-GUARDADO] sentadilla: 140.0kg x 3 -> 1RM 151.71\n[23:27:26][5215500000888][ONB-PARSE] campo='rm_sentadilla' exito=True feedback='Marcas guardadas: sentadilla: 1RM estimado 151.7 kg (a partir de 140 kg x 3)' faltan=['rm_peso_muerto', 'rm_dominadas']\n[23:27:26][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:26][5215500000888][TOOLS] desactivadas este turno\n[23:27:26][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 1.3s (20 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 5124 tok en 0.3s (15366 tok/s) | decode 24 tok en 0.7s (34.3 tok/s) | CARGA DE MODELO 0.3s | total 1.3s\n[23:27:28][5215500000888][OUT] 1.3s -> 140x3, apuntado. ⏎  ⏎ ¿Y tu mejor marca en peso muerto? Peso y reps.\n"
+    },
+    {
+      "usuario": "peso muerto 180 por 2",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "En dominadas, ¿cuántas haces y con cuánto lastre? (o dime si son a peso corporal)",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 2.2,
+      "log": "[23:27:28][5215500000888][IN] mensaje: 'peso muerto 180 por 2'\n[23:27:28][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='rm_peso_muerto' historial=21 msgs\n[23:27:28][5215500000888][RM-GUARDADO] peso muerto: 180.0kg x 2 -> 1RM 189.37\n[23:27:28][5215500000888][RM-GUARDADO] peso muerto: 180.0kg x 2 -> 1RM 189.37\n[23:27:28][5215500000888][ONB-PARSE] campo='rm_peso_muerto' exito=True feedback='Marcas guardadas: peso muerto: 1RM estimado 189.4 kg (a partir de 180 kg x 2)' faltan=['rm_dominadas']\n[23:27:28][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:28][5215500000888][TOOLS] desactivadas este turno\n[23:27:28][5215500000888][THINK] desactivado (solo redacción)\n[LLM] 'principal' respondió en 2.2s (22 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 5304 tok en 0.5s (9765 tok/s) | decode 47 tok en 1.4s (33.6 tok/s) | CARGA DE MODELO 0.3s | total 2.2s\n[23:27:30][5215500000888][ONB-REPARADO] salida re-encauzada a 'rm_dominadas'\n[23:27:30][5215500000888][OUT] 2.2s -> En dominadas, ¿cuántas haces y con cuánto lastre? (o dime si son a peso corporal)\n"
+    },
+    {
+      "usuario": "dominadas con 20 kilos de lastre saqué 6",
+      "esperado": "onboarding: el sistema manda, el coach solo redacta",
+      "coach": "Perfecto, 20 kg x 6 anotado. Ya tengo todo lo necesario.\n\nVoy a armar tu plan de powerbuilding ahora mismo. Estará listo en 2-3 minutos y te aviso yo cuando puedas verlo. Aguanta un poco.",
+      "tools": [],
+      "incidencias": [
+        "done_reason x1: respuesta truncada por límite de tokens"
+      ],
+      "segundos": 2.8,
+      "log": "[23:27:30][5215500000888][IN] mensaje: 'dominadas con 20 kilos de lastre saqué 6'\n[23:27:30][5215500000888][ESTADO] semana=1 dia=1 gen='' rutina_vacia=True onboarding=True campo_pendiente='rm_dominadas' historial=23 msgs\n[23:27:30][5215500000888][ONB-PARSE] campo='rm_dominadas' exito=True feedback='Marcas guardadas: dominadas: 1RM estimado 20 kg (a partir de 20 kg x 1)' faltan=[]\n[23:27:30][5215500000888][PIPELINE] perfil={'peso_kg': 82.0, 'altura_m': 1.78, 'edad': 29, 'genero': 'hombre', 'porcentaje_grasa': 15.0, 'dias_semana': 4, 'meta': 'powerbuilding'} | rms={'dominadas': 20.0, 'peso muerto': 189.4, 'press banco plano': 115.8, …\n[23:27:30][5215500000888][PIPELINE] nivel calculado: intermedio\n[23:27:30][5215500000888][GEN] pipeline lanzado en background: {'meta': 'powerbuilding', 'nivel': 'intermedio', 'dias': 4, 'peso_kg': 82.0, 'porcentaje_grasa': 15.0, 'rm_banca_kg': 115.8, 'rm_sentadilla_kg': 151.7, 'rm_peso_muerto_kg': 189.4, 'rm_domi…\n[23:27:30][5215500000888][ONB] COMPLETO -> pipeline: 'Generación DISPARADA en segundo plano (tarda 2-3 minutos). NO describas ejercicios todavía; el sistema avisará al atleta cuando esté lista.'\n[23:27:30][5215500000888][MODO] casual=False onboarding=True consulta=None serie=None\n[23:27:30][5215500000888][TOOLS] desactivadas este turno\n[23:27:30][5215500000888][THINK] desactivado (solo redacción)\n[23:27:30][5215500000888][GEN-BG] inicio con datos={'meta': 'powerbuilding', 'nivel': 'intermedio', 'dias': 4, 'peso_kg': 82.0, 'porcentaje_grasa': 15.0, 'rm_banca_kg': 115.8, 'rm_sentadilla_kg': 151.7, 'rm_peso_muerto_kg': 189.4, 'rm_dominadas_kg': 20.0…\n[LLM] 'principal' respondió en 2.7s (24 msgs, done_reason=stop, thinking=no)\n[LLM-PERF] 'principal' prefill 5484 tok en 0.8s (7002 tok/s) | decode 56 tok en 1.7s (33.6 tok/s) | CARGA DE MODELO 0.3s | total 2.7s\n==================================================\n[PUENTE]: Conectando el Orquestador con el Motor de Reglas...\n[PUENTE]: Atleta -> 5215500000888\n[PUENTE]: Datos recibidos -> {'meta': 'powerbuilding', 'nivel': 'intermedio', 'dias': 4, 'peso_kg': 82.0, 'porcentaje_grasa': 15.0, 'rm_banca_kg': 115.8, 'rm_sentadilla_kg': 151.7, 'rm_peso_muerto_kg': 189.4, 'rm_dominadas_kg': 20.0, 'contexto_usuario': '', 'tipo_periodizacion': 'DUP'}\n==================================================\n[PUENTE]: Contexto profundo extraído -> \n[PUENTE]: Periodización -> DUP\n[23:27:33][5215500000888][OUT] 2.8s -> Perfecto, 20 kg x 6 anotado. Ya tengo todo lo necesario. ⏎  ⏎ Voy a armar tu plan de powerbuilding ahora mismo. Estará listo en 2-3 minutos y te aviso…\n"
+    }
+  ]
+}
