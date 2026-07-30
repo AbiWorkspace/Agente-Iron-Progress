@@ -893,30 +893,133 @@ _estados_firma: tuple | None = None
 _lock_estados = threading.Lock()
 
 
+# v13 — El fichero de estado es el único sitio donde vive el calendario de CADA
+# atleta, y además está versionado en git mientras la app lo reescribe varias
+# veces por turno: los conflictos de merge son inevitables. El 2026-07-29 quedó
+# uno sin resolver y el resultado fue silencioso y total: json.load lanzaba
+# JSONDecodeError, el except lo confundía con "el fichero no existe", _leer_estados
+# devolvía {} y el siguiente _escribir_estados habría dejado en disco un único
+# atleta, borrando a todos los demás para siempre. Nadie se habría enterado.
+_CONFLICTO_RE = re.compile(
+    r"^<<<<<<< [^\n]*\n(?P<a>.*?)\n=======\n(?P<b>.*?)\n>>>>>>> [^\n]*$",
+    re.S | re.M)
+
+
+def _fusionar_estados(a: dict, b: dict) -> dict:
+    """Une dos versiones del mapa de estados. Por atleta gana la marca de
+    generación más alta; a igualdad, el primer argumento."""
+    fusion = dict(b)
+    for num, datos in a.items():
+        previo = b.get(num) or {}
+        if float(datos.get("generacion_ts") or 0) >= float(previo.get("generacion_ts") or 0):
+            fusion[num] = datos
+    return fusion
+
+
+def _rescatar_estados_json(crudo: str) -> dict | None:
+    """Intenta salvar un fichero de estado ilegible. Devuelve None si no puede.
+
+    Cubre el caso realista: marcadores de conflicto de git. Se parsean los DOS
+    lados y se fusionan, que es exactamente lo que haría a mano quien resuelve
+    el conflicto. Cualquier otra corrupción no se adivina.
+    """
+    if "<<<<<<<" not in crudo:
+        return None
+    try:
+        def _sin_conflictos(quien: str) -> str:
+            return _CONFLICTO_RE.sub(lambda m: m.group(quien), crudo)
+        lado_a = json.loads(_sin_conflictos("a"))
+        lado_b = json.loads(_sin_conflictos("b"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not (isinstance(lado_a, dict) and isinstance(lado_b, dict)):
+        return None
+    return _fusionar_estados(lado_a, lado_b)
+
+
 def _leer_estados() -> dict:
     """Todos los estados de usuario, cacheados por firma del archivo."""
     global _estados_cache, _estados_firma
     firma = _firma_archivo(ruta_estado)
     if _estados_cache is not None and _estados_firma == firma:
         return _estados_cache
+
+    datos, degradado = {}, False
     try:
-        with open(ruta_estado, "r", encoding="utf-8") as f:
-            datos = json.load(f)
-        if not isinstance(datos, dict):
-            datos = {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        datos = {}
+        crudo = Path(ruta_estado).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        crudo = ""                      # primer arranque: vacío es correcto
+    except OSError as e:
+        print(f"[ESTADO] ⚠ no se pudo LEER {ruta_estado}: {e}. Se sirve la última "
+              f"copia en memoria y NO se sobrescribirá el fichero.")
+        return _estados_cache if _estados_cache is not None else {}
+
+    if crudo.strip():
+        try:
+            datos = json.loads(crudo)
+            if not isinstance(datos, dict):
+                raise json.JSONDecodeError("la raíz no es un objeto", crudo, 0)
+        except json.JSONDecodeError as e:
+            rescatado = _rescatar_estados_json(crudo)
+            if rescatado is not None:
+                # Se reescribe ya resuelto: dejarlo con marcadores haría que el
+                # siguiente arranque volviera a pasar por aquí.
+                print(f"[ESTADO] ⚠ {ruta_estado} tenía marcadores de conflicto de git. "
+                      f"Resueltos automáticamente: {len(rescatado)} atletas recuperados.")
+                datos = rescatado
+                try:
+                    Path(ruta_estado).write_text(
+                        json.dumps(datos, ensure_ascii=False, indent=4), encoding="utf-8")
+                    firma = _firma_archivo(ruta_estado)
+                except OSError:
+                    pass
+            else:
+                degradado = True
+                respaldo = f"{ruta_estado}.corrupto-{time.strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    Path(respaldo).write_text(crudo, encoding="utf-8")
+                except OSError:
+                    respaldo = "(no se pudo respaldar)"
+                print(f"[ESTADO] ⚠⚠ {ruta_estado} ES ILEGIBLE ({e}). Copia íntegra en "
+                      f"{respaldo}. NO se sobrescribirá el original: repáralo a mano. "
+                      f"Mientras tanto el bot trabaja con el estado que tenga en memoria.")
+
+    if degradado:
+        # Sin caché previa no hay nada que servir, pero el flag impide que una
+        # escritura posterior convierta la corrupción en pérdida definitiva.
+        globals()["_estados_bloqueado"] = True
+        return _estados_cache if _estados_cache is not None else {}
+
+    globals()["_estados_bloqueado"] = False
     with _lock_estados:
         _estados_cache, _estados_firma = datos, firma
     return datos
 
 
+_estados_bloqueado = False
+
+
 def _escribir_estados(estados: dict) -> None:
     """Persiste y deja la caché coherente con lo que acaba de quedar en disco."""
     global _estados_cache, _estados_firma
+    if _estados_bloqueado:
+        print("[ESTADO] ⚠ escritura OMITIDA: el fichero en disco está corrupto y "
+              "sobrescribirlo perdería a los atletas que no se hayan podido leer.")
+        return
+    # Red de última hora: nunca cambiar un fichero con atletas por uno vacío.
+    if not estados and _estados_cache:
+        print("[ESTADO] ⚠ escritura OMITIDA: se intentó dejar el fichero vacío "
+              f"habiendo {len(_estados_cache)} atletas en memoria.")
+        return
     try:
-        with open(ruta_estado, "w", encoding="utf-8") as f:
+        # Escritura atómica: un corte a mitad del json.dump dejaba el fichero
+        # truncado, que es justo la corrupción que este bloque intenta evitar.
+        tmp = f"{ruta_estado}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(estados, f, indent=4, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, ruta_estado)
     except OSError as e:
         print(f"[ESTADO] no se pudo guardar: {e}")
         return
@@ -1258,16 +1361,36 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
         # v8 (Mandato 6) — AUTO-RESCATE DE TRUNCAMIENTO: el thinking se comió el
         # num_predict y el contenido real quedó mutilado. Sin tool calls que
         # procesar, reintenta sin thinking con presupuesto íntegro para contenido.
+        #
+        # v13 — el reintento ya NO va A CIEGAS. Medido (bench_techo_thinking, 48
+        # llamadas): relanzar sin thinking y sin contexto recupera la tool call
+        # 1 vez de 3; reinyectando el razonamiento que YA se hizo, 2 de 3. Tiene
+        # sentido: se habían gastado ~3.000 tokens analizando el caso y se tiraban
+        # enteros, así que el modelo volvía a decidir sin nada. Es lo que producía
+        # el patrón del log del 2026-07-28: 121,7 s, contenido=0, ninguna tool
+        # call, y el coach inventándose un "error técnico" que nunca hubo.
         if (str(done_reason) == "length" and usar_thinking
                 and not msg.get("tool_calls") and len(contenido.strip()) < 60):
             print(f"[LLM] '{quien}' TRUNCADO por presupuesto (contenido={len(contenido)} chars); "
-                  "reintento sin thinking")
+                  f"reintento sin thinking, reusando {len(razonamiento)} chars de razonamiento")
             kwargs["think"] = False
             kwargs["options"] = {**(opciones or OPCIONES_QWEN_32B), "num_predict": 1536}
+            if razonamiento.strip():
+                # Mensaje aparte y NO persistido: igual que el resto de rescates
+                # (_forzar_respuesta_texto), esta llamada es excepcional y su
+                # prompt no tiene que ser prefijo del turno siguiente.
+                kwargs["messages"] = list(mensajes) + [{
+                    "role": "user",
+                    "content": ("[RAZONAMIENTO YA HECHO — no lo repitas, concluye desde aquí]:\n"
+                                + razonamiento.strip()
+                                + "\n\n[SISTEMA]: se agotó el presupuesto de análisis. DECIDE YA: "
+                                  "emite la herramienta que corresponda o responde en corto. "
+                                  "No sigas razonando.")}]
             resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
                                           timeout=timeout or TIMEOUT_CHAT)
             print(f"[LLM] '{quien}' reintento sin thinking listo en {time.monotonic()-t0:.1f}s "
-                  f"(done_reason={_campo_resp(resp, 'done_reason', '?')})")
+                  f"(done_reason={_campo_resp(resp, 'done_reason', '?')}, "
+                  f"tools={bool((resp.get('message') or {}).get('tool_calls'))})")
         return resp
 
 # ==============================================================================
