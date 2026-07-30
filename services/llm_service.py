@@ -2612,6 +2612,20 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
 
         _actualizar_estado_json(numero_usuario, estado_generacion="error")
 
+        # El camino feliz SÍ avisa ("🔥 ¡Listo bro!"), este no avisaba de nada: el
+        # atleta acababa de contestar doce preguntas del onboarding y se quedaba
+        # esperando un mensaje que no iba a llegar nunca. Callarse un fallo es
+        # peor que el fallo.
+        try:
+            from api.rutas_whatsapp import enviar_mensaje_whatsapp
+            await asyncio.to_thread(
+                enviar_mensaje_whatsapp,
+                numero_usuario,
+                "Se me atragantó el armado de tu plan bro 🙏 Tus datos están guardados, "
+                "no perdiste nada. Escríbeme *arma mi plan* y lo reintento ahora mismo.")
+        except Exception as e_aviso:
+            print(f"[GENERACIÓN BG] tampoco pude avisar del fallo: {e_aviso}")
+
 def _normalizar_dia_a_indice(dia_actual) -> int | None:
     if dia_actual is None: return None
     if isinstance(dia_actual, int): return max(0, dia_actual - 1)

@@ -10,10 +10,12 @@ from collections import deque
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 # Importaciones de configuración y servicios propios
+from api.cola_mensajes import (Trabajo, encolar, TEXTO_AVISO_EN_COLA,
+                               TEXTO_COLA_LLENA)
 from core.config import settings
 from core.ejercicios import canonizar, detectar
 from data.meta_service import enviar_mensaje_whatsapp
@@ -50,7 +52,13 @@ MAX_MENSAJES_RECORDADOS = 1000
 # ESTADO DE LA APLICACIÓN (MEMORIA VOLÁTIL)
 # ==========================================
 videos_pendientes: dict[str, dict] = {}
-usuarios_procesando: set[str] = set()
+
+# `usuarios_procesando` ya no existe. Era un filtro de admisión que DESCARTABA el
+# mensaje nuevo del atleta cuando ya tenía uno en proceso ("sentadilla 140x5" y
+# luego "@8": el segundo se perdía sin avisar), y además tenía una carrera —el
+# chequeo estaba aquí y el `add` dentro de la tarea de fondo, que corre después de
+# responder, así que dos entregas seguidas de Meta pasaban las dos—.
+# Ahora manda api/cola_mensajes: una cola FIFO por atleta, nada se descarta.
 
 # Antes era un `set` que se VACIABA entero al llegar a 1000: justo después del
 # borrado, cualquier reentrega de Meta se procesaba como mensaje nuevo y el
@@ -334,32 +342,14 @@ async def procesar_y_enviar_mensaje(
             print(f"[ERROR]: tampoco pude avisar del fallo: {e_aviso}")
 
 
-async def tarea_en_segundo_plano_segura(numero_usuario: str, texto: str, media_id: str) -> None:
-    usuarios_procesando.add(numero_usuario)
-    try:
-        await procesar_y_enviar_mensaje(numero_usuario, texto, media_id)
-    finally:
-        usuarios_procesando.discard(numero_usuario)
-
-
-async def tarea_en_segundo_plano_video(numero_usuario: str, texto: str, media_id: str,
-                                       nombre_ejercicio: str, carga_kg: float = None):
-    usuarios_procesando.add(numero_usuario)
-    try:
-        await procesar_y_enviar_mensaje(numero_usuario, texto, media_id,
-                                        nombre_ejercicio=nombre_ejercicio, carga_kg=carga_kg)
-    finally:
-        usuarios_procesando.discard(numero_usuario)
-
-
 async def procesar_audio_en_segundo_plano(numero_usuario: str, audio_id: str) -> None:
     """Transcribe el audio y lo despacha FUERA del ciclo de petición del webhook.
 
     Antes esto ocurría dentro del handler: Whisper (5-30 s) más el extractor de
     tríada podían superar el timeout de Meta, que marcaba la entrega como fallida y
-    la reintentaba. Ahora el webhook responde 200 al instante y el trabajo pasa aquí.
+    la reintentaba. Ahora el webhook responde 200 al instante y el trabajo pasa a
+    la cola del atleta (api/cola_mensajes).
     """
-    usuarios_procesando.add(numero_usuario)
     try:
         texto_transcrito = await procesar_audio_whatsapp(audio_id)
 
@@ -415,8 +405,6 @@ async def procesar_audio_en_segundo_plano(numero_usuario: str, audio_id: str) ->
                 "Algo falló procesando tu audio bro 🙏 ¿Me lo mandas de nuevo?")
         except Exception:
             pass
-    finally:
-        usuarios_procesando.discard(numero_usuario)
 
 
 async def responder_readiness_en_segundo_plano(numero_usuario: str, texto_boton: str) -> None:
@@ -536,7 +524,102 @@ def _texto_de_boton(mensaje: dict, tipo_mensaje: str) -> tuple[str | None, bool]
     return None, False
 
 
-async def _procesar_mensaje(mensaje: dict, background_tasks: BackgroundTasks) -> None:
+# Señales de que el mensaje NO es la respuesta al video pendiente, sino otra
+# conversación: una pregunta, una consulta de calendario, una molestia, una
+# cancelación. La corrección del ejercicio ("era sentadilla") no casa aquí y
+# sigue el camino de siempre.
+_INTENCION_AJENA_RE = re.compile(
+    r"\?|\b(?:qu[eé]|cu[aá]ndo|cu[aá]nto|c[oó]mo|por\s+qu[eé]|olvida|olv[ií]dalo|cancela|"
+    r"d[eé]jalo|ma[ñn]ana|hoy|rutina|plan|duele|dolor|molest|descanso|semana|gracias|"
+    r"hola|listo\s+termin|termin[ée])\b",
+    re.IGNORECASE)
+
+
+async def _atender_texto(numero_usuario: str, texto_recibido: str) -> None:
+    """Un mensaje de texto, ya dentro del worker del atleta.
+
+    La consulta a `videos_pendientes` se hace AQUÍ y no al recibir el webhook, y
+    eso arregla una carrera real: la entrada la enriquece `procesar_prediccion_
+    rapida` con el `ejercicio_detectado`, y esa predicción tarda (descarga +
+    MediaPipe). Si el atleta mandaba el video y los kilos casi seguidos, el
+    webhook leía la entrada todavía a medias y TODO el análisis VBT corría como
+    "Movimiento Libre" —perfil de otro ejercicio: MVT y pendiente carga-velocidad
+    equivocados—. Ahora la cola garantiza que el video se atendió antes, así que
+    lo que se lee aquí ya está completo.
+    """
+    if numero_usuario not in videos_pendientes:
+        await procesar_y_enviar_mensaje(numero_usuario, texto_recibido, None)
+        return
+
+    if not contiene_peso(texto_recibido):
+        # Sin kilos no hay VBT posible, pero si nombró el ejercicio se guarda:
+        # es la corrección del atleta a la detección automática.
+        ej_previo = videos_pendientes[numero_usuario].get("ejercicio_detectado", "")
+        videos_pendientes[numero_usuario]["ejercicio_detectado"] = \
+            corregir_ejercicio_usuario(texto_recibido, ej_previo)
+
+        # Con un video esperando, CUALQUIER mensaje sin kilos recibía "no logré
+        # identificar los kilos". El atleta mandaba su serie, preguntaba "¿y
+        # mañana qué toca?" y se topaba con eso; la conversación quedaba
+        # secuestrada los 10 minutos que dura el video en memoria. Si lo que
+        # escribe es claramente otra cosa, se le atiende y se le recuerda el
+        # video UNA vez.
+        if _INTENCION_AJENA_RE.search(texto_recibido or ""):
+            await procesar_y_enviar_mensaje(numero_usuario, texto_recibido, None)
+            if not videos_pendientes[numero_usuario].get("recordatorio_enviado"):
+                videos_pendientes[numero_usuario]["recordatorio_enviado"] = True
+                await enviar_whatsapp(
+                    numero_usuario,
+                    "Por cierto, sigo con tu video en espera: mándame los kilos "
+                    "(ej. '140kg') cuando quieras y lo analizo.")
+            return
+
+        await enviar_whatsapp(
+            numero_usuario,
+            "No logré identificar los kilos en tu mensaje. Escríbeme el peso "
+            "(ej. '140kg') para poder iniciar el análisis VBT.")
+        return
+
+    datos_video = videos_pendientes.pop(numero_usuario, {})
+    ej_previo = datos_video.get("ejercicio_detectado", "Movimiento Libre")
+    texto_fusionado = (f"IA detectó inicialmente: {ej_previo}. "
+                       f"Atleta corrigió/confirmó con: {texto_recibido}")
+    await procesar_y_enviar_mensaje(
+        numero_usuario, texto_fusionado, datos_video.get("id"),
+        nombre_ejercicio=corregir_ejercicio_usuario(texto_recibido, ej_previo),
+        carga_kg=extraer_peso(texto_recibido))
+
+
+def _trabajo_texto(numero_usuario: str, texto: str) -> Trabajo:
+    """Turno de chat normal. Es el ÚNICO tipo fusionable: varios textos seguidos
+    del mismo atleta se atienden como un solo turno (ver `_extraer` en la cola)."""
+    return Trabajo(
+        numero=numero_usuario,
+        tipo="texto",
+        etiqueta=f"texto[{_trunc_log(texto)}]",
+        texto=texto,
+        ejecutar=lambda: _atender_texto(numero_usuario, texto),
+        rehacer=lambda t: _trabajo_texto(numero_usuario, t),
+    )
+
+
+def _trunc_log(texto: str, n: int = 40) -> str:
+    texto = " ".join(str(texto or "").split())
+    return texto if len(texto) <= n else texto[:n - 1] + "…"
+
+
+async def _encolar_y_avisar(trabajo: Trabajo) -> None:
+    """Encola y, si el atleta queda esperando detrás de su propio trabajo, se lo
+    dice. El silencio es lo que hacía que un mensaje aparcado pareciera perdido."""
+    recibo = await encolar(trabajo)
+    if not recibo.aceptado:
+        await enviar_whatsapp(trabajo.numero, TEXTO_COLA_LLENA)
+        return
+    if recibo.avisar:
+        await enviar_whatsapp(trabajo.numero, TEXTO_AVISO_EN_COLA)
+
+
+async def _procesar_mensaje(mensaje: dict) -> None:
     """Encola UN mensaje entrante. Cualquier `return` descarta solo este mensaje;
     los demás del mismo lote se siguen procesando."""
     numero_crudo = mensaje.get("from")
@@ -558,10 +641,6 @@ async def _procesar_mensaje(mensaje: dict, background_tasks: BackgroundTasks) ->
 
     numero_usuario = normalizar_numero_mexicano(numero_crudo)
 
-    if numero_usuario in usuarios_procesando:
-        print(f"[WEBHOOK]: {numero_usuario} ya tiene un mensaje en proceso; se descarta el nuevo.")
-        return
-
     # =========================================================
     # GANCHO V9 (1/2): INTERCEPTOR DE BOTONES (READINESS)
     # =========================================================
@@ -577,8 +656,12 @@ async def _procesar_mensaje(mensaje: dict, background_tasks: BackgroundTasks) ->
     if texto_boton and (es_boton_readiness(texto_boton) if es_pulsacion
                         else texto_boton in BOTONES_READINESS):
         print(f"[PROACTIVIDAD]: Botón de readiness recibido de {numero_usuario}: {texto_boton}")
-        background_tasks.add_task(responder_readiness_en_segundo_plano,
-                                  numero_usuario, texto_boton)
+        # También va por la cola: así el readiness queda ANTES del turno en el que
+        # el atleta pregunta qué le toca hoy, que es el orden causal que espera.
+        await _encolar_y_avisar(Trabajo(
+            numero=numero_usuario, tipo="otro", etiqueta=f"readiness[{texto_boton}]",
+            ejecutar=lambda: responder_readiness_en_segundo_plano(numero_usuario,
+                                                                 texto_boton)))
         return
     # =========================================================
 
@@ -590,29 +673,35 @@ async def _procesar_mensaje(mensaje: dict, background_tasks: BackgroundTasks) ->
         texto_recibido = (video.get("caption") or "").strip()
 
         if not contiene_peso(texto_recibido):
+            # Se marca AQUÍ, no al ejecutar: el texto con los kilos puede llegar
+            # en el mismo lote y tiene que ver que hay un video esperando.
             videos_pendientes[numero_usuario] = {
                 "id": media_id,
                 "timestamp": time.time(),
             }
-            background_tasks.add_task(procesar_prediccion_rapida, numero_usuario, media_id)
+            await _encolar_y_avisar(Trabajo(
+                numero=numero_usuario, tipo="video", etiqueta=f"video[{media_id[-6:]}]",
+                ejecutar=lambda: procesar_prediccion_rapida(numero_usuario, media_id)))
             return
 
-        background_tasks.add_task(
-            tarea_en_segundo_plano_video,
-            numero_usuario,
-            texto_recibido,
-            media_id,
-            corregir_ejercicio_usuario(texto_recibido, "Ejercicio No Especificado"),
-            extraer_peso(texto_recibido),
-        )
+        ejercicio = corregir_ejercicio_usuario(texto_recibido, "Ejercicio No Especificado")
+        carga = extraer_peso(texto_recibido)
+        await _encolar_y_avisar(Trabajo(
+            numero=numero_usuario, tipo="video",
+            etiqueta=f"video+datos[{ejercicio} {carga:g}kg]" if carga else "video+datos",
+            ejecutar=lambda: procesar_y_enviar_mensaje(
+                numero_usuario, texto_recibido, media_id,
+                nombre_ejercicio=ejercicio, carga_kg=carga)))
 
     elif tipo_mensaje == "audio":
         # Todo el trabajo del audio (Whisper + extractor de tríada) se encola:
         # ver procesar_audio_en_segundo_plano.
         audio_id = (mensaje.get("audio") or {}).get("id")
         if audio_id:
-            background_tasks.add_task(procesar_audio_en_segundo_plano,
-                                      numero_usuario, audio_id)
+            await _encolar_y_avisar(Trabajo(
+                numero=numero_usuario, tipo="audio", etiqueta=f"audio[{audio_id[-6:]}]",
+                ejecutar=lambda: procesar_audio_en_segundo_plano(numero_usuario,
+                                                                 audio_id)))
 
     elif tipo_mensaje == "text":
         texto_recibido = texto_boton or ""
@@ -622,48 +711,44 @@ async def _procesar_mensaje(mensaje: dict, background_tasks: BackgroundTasks) ->
         if "[ERROR]" in texto_recibido or "[INFO]" in texto_recibido:
             return
 
-        if numero_usuario in videos_pendientes:
-            if not contiene_peso(texto_recibido):
-                ej_previo = videos_pendientes[numero_usuario].get("ejercicio_detectado", "")
-                ej_actualizado = corregir_ejercicio_usuario(texto_recibido, ej_previo)
-                videos_pendientes[numero_usuario]["ejercicio_detectado"] = ej_actualizado
+        await _encolar_y_avisar(_trabajo_texto(numero_usuario, texto_recibido))
 
-                background_tasks.add_task(
-                    enviar_whatsapp,
-                    numero_usuario,
-                    "No logré identificar los kilos en tu mensaje. Escríbeme el peso "
-                    "(ej. '140kg') para poder iniciar el análisis VBT.")
-                return
+    elif tipo_mensaje == "reaction":
+        # Un ❤️ a un mensaje anterior no pide respuesta: contestar aquí sería ruido.
+        print(f"[WEBHOOK] reacción de {numero_usuario}; sin respuesta (correcto)")
 
-            datos_video = videos_pendientes.pop(numero_usuario, {})
-            video_id_esperando = datos_video.get("id")
-            ej_previo = datos_video.get("ejercicio_detectado", "Movimiento Libre")
-
-            ej_corregido = corregir_ejercicio_usuario(texto_recibido, ej_previo)
-            kilos_detectados = extraer_peso(texto_recibido)
-
-            texto_fusionado = (f"IA detectó inicialmente: {ej_previo}. "
-                               f"Atleta corrigió/confirmó con: {texto_recibido}")
-
-            background_tasks.add_task(
-                tarea_en_segundo_plano_video,
-                numero_usuario,
-                texto_fusionado,
-                video_id_esperando,
-                ej_corregido,
-                kilos_detectados,
-            )
-        else:
-            background_tasks.add_task(
-                tarea_en_segundo_plano_segura,
-                numero_usuario,
-                texto_recibido,
-                None,
-            )
+    else:
+        # Antes: silencio absoluto. Una foto de la máquina del gimnasio, un
+        # sticker o un PDF no entraban en ninguna rama y el atleta se quedaba sin
+        # respuesta, con toda la pinta de que el coach se había caído.
+        respuestas = {
+            "image":    ("Las fotos todavía no las leo bro 🙏 Si quieres que te revise la "
+                         "técnica, mándame un *video* de la serie; y si son datos, "
+                         "escríbemelos (ej. 'banca 100x5 rpe 8')."),
+            "sticker":  "😄 Te leo. Cuéntame qué tal va el entreno.",
+            "document": ("No puedo abrir documentos por aquí bro. Escríbeme lo importante "
+                         "y lo trabajamos igual."),
+            "location": "Gracias, pero con la ubicación no hago nada 😅 ¿Cómo va el entreno?",
+            "contacts": "Me llegó un contacto, pero lo mío son tus series 💪 ¿Qué necesitas?",
+        }
+        aviso = respuestas.get(tipo_mensaje,
+                               "Eso no lo puedo abrir bro 🙏 Mándame texto, un audio o un "
+                               "video de tu serie y seguimos.")
+        print(f"[WEBHOOK] tipo '{tipo_mensaje}' no procesable de {numero_usuario}; se avisa")
+        try:
+            await enviar_whatsapp(numero_usuario, aviso)
+        except Exception as e:
+            print(f"[WEBHOOK] no se pudo avisar del tipo no soportado: {e}")
 
 
 @router.post("/webhook")
-async def recibir_mensaje_whatsapp(request: Request, background_tasks: BackgroundTasks):
+async def recibir_mensaje_whatsapp(request: Request):
+    """Valida, deduplica y ENCOLA. El trabajo real lo hace el worker del atleta.
+
+    Ya no hay `BackgroundTasks`: sus tareas corrían en serie dentro de la misma
+    entrega, así que un lote con mensajes de dos atletas hacía esperar al segundo
+    detrás del pipeline completo del primero (hasta 2 minutos si era un video).
+    """
     try:
         # La firma se calcula sobre el cuerpo EXACTO recibido, así que hay que leer
         # los bytes crudos antes de parsear el JSON.
@@ -681,7 +766,7 @@ async def recibir_mensaje_whatsapp(request: Request, background_tasks: Backgroun
                 valor = cambio.get("value") or {}
                 for mensaje in valor.get("messages") or []:
                     try:
-                        await _procesar_mensaje(mensaje, background_tasks)
+                        await _procesar_mensaje(mensaje)
                     except Exception as e_msg:
                         print(f"[ERROR WEBHOOK MENSAJE]: {e_msg}")
 
