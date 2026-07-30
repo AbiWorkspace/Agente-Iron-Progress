@@ -191,7 +191,13 @@ def guardar_serie_sql(numero_usuario: str, datos: dict) -> bool:
             ''', (
                 str(numero_usuario),  # Forzamos string: evita bugs si llega un int
                 fecha_hora,
-                datos.get("ejercicio"),
+                # El MISMO ejercicio entraba con dos grafías según quién lo
+                # escribiera: el interceptor determinista guardaba "press banco
+                # plano" (clave canónica) y el handler del modelo "Press Banco
+                # Plano" (catálogo). En el dashboard aparecían como si fueran dos
+                # ejercicios distintos. Se normaliza al escribir, como ya hace
+                # marcas_rm; para mostrarlo se recapitaliza.
+                str(datos.get("ejercicio") or "").strip().lower() or None,
                 datos.get("peso_kg", 0),
                 datos.get("repeticiones", 0),
                 datos.get("rpe_reportado"),
@@ -287,8 +293,16 @@ def borrar_ultima_serie(numero_usuario: str, ejercicio: str | None = None) -> di
         return None
 
 
+# Una sesión tiene 15-25 series. Con LIMIT 5, a la pregunta más natural del
+# mundo —"¿qué llevo hoy?"— el coach solo veía las cinco últimas y respondía de
+# menos con total seguridad. Además cada línea empezaba con 📉 (gráfico a la
+# baja) sin que eso significara nada: un emoji que sugiere caída en TODAS las
+# series, incluidas las que son un récord.
+LIMITE_SERIES_DASHBOARD = 14
+
+
 def obtener_dashboard_analitico(numero_usuario: str) -> str:
-    """Extrae las últimas 5 series de ESTE usuario para inyectarlas como contexto al LLM."""
+    """Últimas series de ESTE atleta, con el recuento de hoy, para el contexto del LLM."""
     try:
         inicializar_db()
 
@@ -299,18 +313,35 @@ def obtener_dashboard_analitico(numero_usuario: str) -> str:
                 FROM series_log
                 WHERE numero_usuario = ?
                 ORDER BY fecha_hora DESC
-                LIMIT 5
-            ''', (str(numero_usuario),)).fetchall()  # La coma es obligatoria: es una tupla
+                LIMIT ?
+            ''', (str(numero_usuario), LIMITE_SERIES_DASHBOARD)).fetchall()
+            hoy = datetime.now().strftime("%Y-%m-%d")
+            resumen_hoy = conexion.execute('''
+                SELECT lower(ejercicio) AS ej, COUNT(*) AS n
+                FROM series_log
+                WHERE numero_usuario = ? AND substr(fecha_hora, 1, 10) = ?
+                GROUP BY lower(ejercicio)
+                ORDER BY n DESC
+            ''', (str(numero_usuario), hoy)).fetchall()
 
         if not resultados:
             return "Sin datos históricos recientes en la base de datos SQL."
 
-        partes = ["--- ÚLTIMAS 5 SERIES REGISTRADAS (TELEMETRÍA SQL) ---"]
+        partes = [f"--- ÚLTIMAS {len(resultados)} SERIES REGISTRADAS (TELEMETRÍA SQL) ---"]
         for fecha, ej, peso, reps, rpe, vel in resultados:
             fecha_corta = fecha[:10] if fecha else "N/A"
             rpe_str = f"RPE {rpe}" if rpe is not None else "RPE N/A"
             vel_str = f"({vel} m/s)" if vel is not None else ""
-            partes.append(f"📉 {fecha_corta} | {ej}: {peso}kg x {reps} {vel_str} | {rpe_str}")
+            partes.append(f"· {fecha_corta} | {str(ej).title()}: {peso}kg x {reps} "
+                          f"{vel_str} | {rpe_str}")
+
+        if resumen_hoy:
+            total = sum(n for _, n in resumen_hoy)
+            detalle = ", ".join(f"{str(ej).title()}: {n}" for ej, n in resumen_hoy)
+            partes.append(f"SERIES REGISTRADAS HOY ({hoy}): {total} en total ({detalle}). "
+                          "Esto es lo que consta APUNTADO, no lo que prescribe el plan.")
+        else:
+            partes.append("SERIES REGISTRADAS HOY: ninguna todavía.")
 
         return "\n".join(partes) + "\n"
 

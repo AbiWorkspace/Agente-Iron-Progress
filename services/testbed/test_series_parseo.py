@@ -161,8 +161,24 @@ def bloque_sustitucion():
             f"{(m.group(1), m.group(2)) if m else None}")
 
 
+def bloque_consulta_manana():
+    print("\n[9] 'Mañana' es mañana, no hoy")
+    # Antes: "cuál es mi rutina de mañana" caía en ver_rutina y se le respondía
+    # con la sesión de HOY. Y "y mañana?" no lo detectaba nadie.
+    for texto in ("y mañana?", "y mañana qué toca?", "cuál es mi rutina de mañana",
+                  "qué me toca mañana", "y pasado mañana?", "qué entreno mañana"):
+        r = L.detectar_consulta_rutina(texto) or {}
+        chk(f"{texto!r} → día siguiente", r.get("tipo") == "dia_siguiente", f"{r or None}")
+    for texto in ("mañana no puedo entrenar", "mañana me voy de viaje", "te aviso mañana",
+                  "mañana tengo partido"):
+        r = L.detectar_consulta_rutina(texto)
+        chk(f"mencionar mañana no es preguntar: {texto!r}", r is None, f"{r}")
+    r = L.detectar_consulta_rutina("qué me toca hoy?") or {}
+    chk("y 'hoy' sigue siendo hoy", r.get("tipo") == "ver_rutina", f"{r or None}")
+
+
 def bloque_claims():
-    print("\n[9] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
+    print("\n[10] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
     for texto in ("Lo corrijo en tu expediente.", "Entendido, la ignoro por completo.",
                   "Listo, la borro del diario."):
         chk(f"detecta claim: {texto!r}", bool(L._CLAIM_ACCION_RE.search(texto)))
@@ -182,6 +198,7 @@ def main() -> int:
         bloque_calendario()
         bloque_peso_corporal()
         bloque_sustitucion()
+        bloque_consulta_manana()
         bloque_claims()
     finally:
         while D.borrar_ultima_serie(NUM):

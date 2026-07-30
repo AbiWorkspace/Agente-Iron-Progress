@@ -324,9 +324,12 @@ BLOQUES: dict[str, list[Caso]] = {
 
     # ── Restricciones de material ──────────────────────────────────────────
     "equipo": [
+        # No existe ninguna tool de equipamiento en tools.json: la restricción la
+        # guarda Python en el expediente (EQUIPO-MATERIAL), que es lo que hace que
+        # el atleta no tenga que repetir "aquí no hay rack" cada sesión.
         Caso("en el gym al que voy no hay barra olímpica ni rack",
-             "registrar_equipamiento y adaptar; no seguir prescribiendo lo imposible",
-             tools_esperadas=("registrar_equipamiento", "sustituir_ejercicio"),
+             "anota la restricción en el expediente y adapta la sesión de hoy",
+             tools_esperadas=("guardar_en_expediente_personal",),
              regla="9 / equipamiento"),
         Caso("hoy solo tengo mancuernas, qué hago con la sesión?",
              "adapta la sesión de HOY con lo que hay",
@@ -507,7 +510,8 @@ _ACCIONES_PYTHON = {
     "CONSULTA-SEM": "consultar_rutina_futura",
     "CONSULTA-DIA": "consultar_rutina_futura",
     "CURSOR":       "consultar_rutina_futura",
-    "EQUIPO":       "registrar_equipamiento",
+    "EQUIPO":         "registrar_equipamiento",
+    "EQUIPO-MATERIAL": "guardar_en_expediente_personal",  # restricción de material
 }
 
 

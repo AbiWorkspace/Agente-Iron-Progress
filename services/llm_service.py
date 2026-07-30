@@ -392,6 +392,44 @@ def _registrar_equipamiento(numero_usuario: str, texto: str) -> float | None:
     return incremento
 
 
+# v13 — Restricciones de MATERIAL. El único equipamiento que se persistía era el
+# disco mínimo; "en el gym al que voy no hay barra olímpica ni rack" no se
+# guardaba en ninguna parte. El coach improvisaba una sesión alternativa —bien—
+# y al día siguiente volvía a prescribir barra, porque nadie se había enterado.
+# El atleta tenía que repetir su limitación cada sesión.
+_MATERIAL = {
+    "barra olímpica": ("barra ol[íi]mpica", "barra libre", "barra recta"),
+    "rack o jaula":   ("\\brack\\b", "jaula", "power\\s*rack", "squat\\s*rack"),
+    "banco":          ("\\bbanco\\b(?!\\s*plano\\s+con)", "banca plana"),
+    "mancuernas":     ("mancuerna", "dumbbell"),
+    "poleas":         ("polea", "cable"),
+    "máquinas":       ("m[áa]quinas?", "aparatos"),
+    "barra de dominadas": ("barra de dominadas", "dominadas"),
+    "prensa":         ("prensa", "leg\\s*press"),
+}
+_SIN_MATERIAL_RE = re.compile(
+    r"\b(?:no\s+(?:hay|tengo|tiene|cuento\s+con)|sin|carezco\s+de|"
+    r"se\s+(?:da[ñn][óo]|rompi[óo])|est[áa]\s+ocupad[oa])\b", re.IGNORECASE)
+_SOLO_MATERIAL_RE = re.compile(r"\b(?:solo|s[óo]lo|[úu]nicamente|nada\s+m[áa]s)\s+(?:tengo|hay|cuento\s+con)",
+                               re.IGNORECASE)
+
+
+def detectar_restriccion_material(texto: str) -> str:
+    """Frase lista para el expediente, o "" si no declara ninguna limitación."""
+    t = str(texto or "")
+    hay_falta = bool(_SIN_MATERIAL_RE.search(t))
+    hay_solo = bool(_SOLO_MATERIAL_RE.search(t))
+    if not (hay_falta or hay_solo):
+        return ""
+    presentes = [nombre for nombre, patrones in _MATERIAL.items()
+                 if any(re.search(pat, t, re.IGNORECASE) for pat in patrones)]
+    if not presentes:
+        return ""
+    if hay_solo and not hay_falta:
+        return "Solo dispone de: " + ", ".join(presentes) + "."
+    return "No dispone de: " + ", ".join(presentes) + "."
+
+
 _DIAS_NUM_RE = re.compile(r"(\d)\s*d[ií]as|\bd[ií]as\b\s*(?:a\s+)?(\d)", re.IGNORECASE)
 
 def _extraer_dias(texto: str):
@@ -3513,6 +3551,19 @@ _CR_DIA_SIGUIENTE_RE = re.compile(
     r'(siguiente|pr[óo]xim[oa])\s+(d[ií]a|entrenamiento|sesi[oó]n)|'
     r'd[ií]a\s+(siguiente|que\s+sigue)|\bqu[eé]\s+sigue\b|'
     r'\b(?:y\s+)?(?:el|la)\s+(?:que\s+)?sigue\b|\bel\s+siguiente\b')
+# v13 — "mañana" acababa clasificado como "ver_rutina", es decir: el atleta
+# preguntaba por MAÑANA y se le respondía con la sesión de HOY. Pasaba con
+# "cuál es mi rutina de mañana", "qué me toca mañana" y "mi rutina de mañana",
+# porque esos patrones llevaban (hoy|mañana) dentro. Y "y mañana?" a secas no
+# lo detectaba nadie. Se resuelve ANTES que ver_rutina, y solo cuando el
+# mensaje realmente PREGUNTA por el entrenamiento: "mañana no puedo ir al gym"
+# no es una consulta de rutina y no debe inyectar nada.
+_CR_MANANA_RE = re.compile(
+    r'^\s*[¿]?\s*(?:y\s+)?(?:para\s+|de\s+)?(?:pasado\s+)?ma[ñn]ana\s*[?.!]*\s*$'
+    r'|(?:qu[eé]\s+(?:me\s+toca|hago|entreno|har[ée]|toca)|rutina|plan|entrenamiento|'
+    r'sesi[óo]n|ejercicios|entreno)[^.\n]{0,25}\bma[ñn]ana\b'
+    r'|\bma[ñn]ana\b[^.\n]{0,18}(?:qu[eé]\s+(?:me\s+)?(?:toca|hago|entreno)|me\s+toca\b)',
+    re.IGNORECASE)
 _CR_SEMANA_COMPLETA_RE = re.compile(
     r'(tod[ao]|completa|entera)\s+(?:l?a\s+|esta\s+)?semana|'
     r'semana\s+(completa|entera)|'
@@ -3576,7 +3627,7 @@ def detectar_consulta_rutina(mensaje: str) -> dict | None:
     # v5.3 — día siguiente. El regex ya NO destruye los constraints del usuario:
     # "el siguiente día DE PIERNA" conserva el enfoque para que el cursor avance
     # hasta la próxima sesión que lo cumpla, en vez de entregar el día N+1 a ciegas.
-    if _CR_DIA_SIGUIENTE_RE.search(msg):
+    if _CR_DIA_SIGUIENTE_RE.search(msg) or _CR_MANANA_RE.search(msg):
         return {"tipo": "dia_siguiente", "enfoque": _detectar_enfoque(msg)}
 
     # v4.2 — semana completa ("toda esta semana", "cómo vamos a entrenar la semana")
@@ -3686,7 +3737,8 @@ def fecha_humana(fecha) -> str:
 
 def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql,
                          es_casual, estado_gen, semana_actual,
-                         bloque_onboarding: str = "", ficha_atleta: str = "") -> str:
+                         bloque_onboarding: str = "", ficha_atleta: str = "",
+                         mapa_semana: str = "") -> str:
     """v2: el onboarding ya no manda una lista de instrucciones genéricas;
     manda EXACTAMENTE lo que el sistema acaba de hacer y la ÚNICA pregunta siguiente."""
     if bloque_onboarding:
@@ -3722,6 +3774,9 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
             "RUTINA DEL DÍA (los *kg* ya vienen calculados y redondeados: transcríbelos "
             "literales, no los recalcules):")
         partes.append(f"{cabecera}\n{instruccion_de_hoy}")
+        if mapa_semana:
+            partes.append(f"ESTRUCTURA DE LA SEMANA {semana_actual}: {mapa_semana}. "
+                          "Úsala para no equivocarte de día al proponer cambios.")
         partes.append(f"ÚLTIMAS SERIES:\n{dashboard_sql}")
         # v13 — La ficha del atleta SOLO se inyectaba durante el onboarding y en
         # la regeneración. En conversación normal el coach no tenía delante ni la
@@ -3733,6 +3788,28 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
                           f"algo falta, pide SOLO eso): {ficha_atleta}")
 
     return TELEMETRIA_INICIO + "\n" + "\n\n".join(partes) + "\n" + TELEMETRIA_FIN
+
+def _mapa_semana(numero_usuario: str, semana, dia_actual) -> str:
+    """La semana de un vistazo: 'D1 Torso · D2 Pierna (hoy) · D3 Torso · D4 Pierna'.
+
+    El modelo solo tenía delante la sesión del día, así que cuando proponía algo
+    razonable —"si te duele la rodilla, adelantamos el día de Torso"— tenía que
+    adivinar qué número de día era y se equivocaba. Cuesta ~20 tokens y evita
+    una clase entera de imprecisiones sobre el propio plan del atleta.
+    """
+    try:
+        sesiones = _sesiones_semana_cache(str(numero_usuario), semana)
+        if not sesiones:
+            return ""
+        indice_hoy = _normalizar_dia_a_indice(dia_actual)
+        partes = []
+        for i, ses in enumerate(sesiones):
+            enfoque = str(ses.get("Enfoque") or ses.get("enfoque") or "").strip() or "sesión"
+            partes.append(f"D{i + 1} {enfoque}" + (" (el de hoy)" if i == indice_hoy else ""))
+        return " · ".join(partes)
+    except Exception:
+        return ""
+
 
 def _resumen_perfil_humano(numero_usuario: str) -> str:
     p = cargar_perfil(numero_usuario)
@@ -4612,7 +4689,9 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         fecha_actual, hora_actual, estatus, instruccion_de_hoy, dashboard_sql,
         es_casual, estado_gen, estado_hoy["semana"], bloque_onboarding,
         ficha_atleta=("" if (es_casual or onboarding_activo or bloque_onboarding)
-                      else _resumen_perfil_humano(numero_usuario))
+                      else _resumen_perfil_humano(numero_usuario)),
+        mapa_semana=("" if (es_casual or onboarding_activo or bloque_onboarding)
+                     else _mapa_semana(numero_usuario, estado_hoy["semana"], estado_hoy["dia"]))
     )
 
     system_prompt_estatico = cargar_system_prompt()
@@ -4928,6 +5007,27 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 f"de hoy al múltiplo de {incremento_nuevo:g} kg más cercano (hacia abajo si "
                 f"quedan a medio camino) y dile los kg exactos que debe montar. NO llames "
                 f"herramientas para esto.")
+
+        # Restricciones de material: van al expediente para que el RAG las
+        # devuelva en las próximas sesiones. Sin esto el atleta tenía que repetir
+        # "aquí no hay rack" cada vez que entrenaba.
+        restriccion = detectar_restriccion_material(mensaje_usuario)
+        if restriccion:
+            ya_constaba = restriccion.lower() in str(contexto_extra or "").lower()
+            await asyncio.to_thread(
+                guardar_dato_en_expediente, numero_usuario,
+                f"({fecha_actual}) EQUIPAMIENTO — {restriccion} "
+                f"Dicho por el atleta: \"{str(mensaje_usuario).strip()[:140]}\".")
+            equipo_registrado_python = True
+            accion_ejecutada = True
+            acciones_ok.append(f"equipamiento anotado en su expediente: {restriccion}")
+            contenido_mensaje += (
+                f"\n\n[SISTEMA — EQUIPAMIENTO ANOTADO]: {restriccion} Queda guardado en su "
+                "expediente, así que en las próximas sesiones ya se tendrá en cuenta y NO hace "
+                "falta que te lo repita. Adapta la sesión de hoy a lo que sí tiene, diciéndole "
+                "qué ejercicio sustituye a cuál. NO llames herramientas para esto.")
+            log(numero_usuario, "EQUIPO-MATERIAL",
+                restriccion + (" (ya constaba)" if ya_constaba else ""))
 
     # --- SUSTITUCIÓN DE EJERCICIO ---
     if (not onboarding_activo and not bloque_onboarding and not rutina_vacia
