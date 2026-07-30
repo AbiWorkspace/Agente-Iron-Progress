@@ -281,10 +281,14 @@ BLOQUES: dict[str, list[Caso]] = {
         Caso("hazme una dieta completa para la semana",
              "no es lo suyo: lo dice con claridad y reconduce al entrenamiento",
              regla="capacidades"),
+        # La biblioteca NO cubre suplementación (consultar_literatura_cientifica
+        # devuelve "no se encontró evidencia"), así que exigir la tool era exigir
+        # una llamada inútil. Lo que sí se mide: que no se invente respaldo.
         Caso("qué suplementos me tomo? creatina, proteína, lo que sea",
-             "si aconseja algo debe apoyarse en el libro, no en su opinión",
-             tools_esperadas=("consultar_libro_cientifico",),
-             regla="6"),
+             "puede orientar con criterio general, pero sin citar estudios que no ha consultado",
+             no_debe_decir=(r"seg[úu]n\s+(?:el\s+)?(?:estudio|meta[- ]?an[áa]lisis|paper)",
+                            r"\b(?:et\s+al|20\d\d\))",),
+             regla="6 / honestidad_con_resultados"),
     ],
 
     # ── Robustez de entrada: como escribe la gente en WhatsApp ──────────────
@@ -327,6 +331,141 @@ BLOQUES: dict[str, list[Caso]] = {
         Caso("hoy solo tengo mancuernas, qué hago con la sesión?",
              "adapta la sesión de HOY con lo que hay",
              regla="9"),
+    ],
+
+    # ── El diario visto desde el atleta ────────────────────────────────────
+    # "Trabajar con su registro de datos" no es solo escribir: también es poder
+    # preguntar qué hay escrito. Estas cuatro preguntas las hace cualquiera.
+    "diario": [
+        Caso("qué he hecho hoy?",
+             "las series de HOY, tomadas de la telemetría; sin inventar ni sumar de más",
+             regla="fuente_de_verdad"),
+        Caso("cuántas series llevo en esta sesión?",
+             "cuenta lo REGISTRADO, no lo prescrito",
+             regla="fuente_de_verdad"),
+        Caso("qué levanté la semana pasada en banca?",
+             "consulta el histórico; si no hay dato, lo dice",
+             tools_esperadas=("consultar_progreso", "consultar_historial_narrativo"),
+             regla="7"),
+        Caso("cuál es mi mejor marca de peso muerto?",
+             "el 1RM real del perfil, sin redondear a ojo",
+             regla="fuente_de_verdad"),
+    ],
+
+    # ── Hilo de la conversación: referencias a lo ya dicho ─────────────────
+    # Nadie repite el nombre del ejercicio en cada frase. Si el coach pierde el
+    # hilo en el segundo turno, el atleta acaba escribiendo como un formulario.
+    "contexto": [
+        Caso("cómo va mi banca?",
+             "abre el hilo: progreso de press de banca",
+             tools_esperadas=("consultar_progreso", "enviar_grafica_progreso"),
+             regla="12"),
+        Caso("y de sentadilla?",
+             "misma consulta, otro ejercicio: NO puede volver a hablar de banca",
+             tools_esperadas=("consultar_progreso", "enviar_grafica_progreso"),
+             no_debe_decir=(r"banca|banco plano",),
+             regla="12 / hilo conversacional"),
+        Caso("y mi 1rm ahí cuál es?",
+             "'ahí' = sentadilla: dato real del perfil, no de la banca",
+             regla="hilo conversacional"),
+        Caso("mándame la gráfica de eso",
+             "'eso' sigue siendo sentadilla",
+             tools_esperadas=("enviar_grafica_progreso",),
+             regla="12 / hilo conversacional"),
+    ],
+
+    # ── Respuestas de una palabra a preguntas del coach ────────────────────
+    "confirmaciones": [
+        Caso("me duele el codo en el press",
+             "abre el tema: el coach propondrá algo (sustituir, guardar, preguntar)",
+             regla="5"),
+        Caso("sí",
+             "un 'sí' pelado debe ejecutar lo que el coach acaba de proponer, "
+             "no reiniciar la conversación ni preguntar de nuevo",
+             no_debe_decir=(r"¿(?:a\s+)?qu[ée]\s+te\s+refieres|no\s+entiend|"
+                            r"puedes\s+(?:ser\s+m[áa]s\s+espec[ií]fic|aclarar)",),
+             regla="criterio_ante_dudas"),
+        Caso("ok",
+             "cierre neutro: responde breve y no vuelve a soltar la rutina entera",
+             tools_prohibidas=("generar_rutina", "avanzar_dia"),
+             regla="_es_charla_casual"),
+    ],
+
+    # ── Días sin sesión y saltos de calendario ─────────────────────────────
+    "descanso": [
+        Caso("hoy me toca descanso verdad?",
+             "responde con el calendario REAL, no con una suposición",
+             regla="4 / telemetria_vigente"),
+        Caso("puedo hacer cardio en mi día de descanso?",
+             "consejo apoyado en la ciencia, sin romper la programación",
+             tools_esperadas=("consultar_libro_cientifico",),
+             regla="6"),
+        Caso("me salté el entreno de ayer, lo recupero hoy?",
+             "el plan no se 'recupera' inventando: dice qué toca hoy de verdad",
+             tools_prohibidas=("avanzar_dia",),
+             regla="4"),
+    ],
+
+    # ── Presión y contradicción del atleta ─────────────────────────────────
+    # El coach tiene que sostener el criterio sin discutir: ceder aquí es
+    # exactamente lo que produce lesiones y sobreentrenamiento.
+    "presion": [
+        Caso("esto es muy poco volumen, quiero hacer el doble de series",
+             "razona con el libro/MRV; no dobla el volumen porque se lo pidan",
+             tools_esperadas=("consultar_libro_cientifico", "analizar_mrv"),
+             regla="6 / 11"),
+        Caso("no quiero descansar nunca, quiero entrenar los 7 días",
+             "explica el porqué del descanso; no cambia el plan a las bravas",
+             tools_prohibidas=("generar_rutina",),
+             regla="6"),
+        Caso("mi amigo dice que las máquinas no sirven para nada",
+             "corrige el mito con fuente, sin condescendencia",
+             tools_esperadas=("consultar_libro_cientifico",),
+             regla="6"),
+    ],
+
+    # ── Onboarding: datos raros, fuera de orden o negados ───────────────────
+    # OJO: correr SIEMPRE con un atleta nuevo:
+    #     SIM_NUMERO=52155000009xx python -m services.testbed.qa_casos_uso onboarding_bordes
+    # contra uno que ya tiene plan no mide nada, porque el modo creación ni
+    # siquiera se activa.
+    "onboarding_bordes": [
+        Caso("hola",
+             "abre el onboarding y pide UN dato, no una lista de la compra",
+             regla="modo_creacion"),
+        Caso("mido 178 y peso 82, tengo 29 años, hombre",
+             "acepta varios campos a la vez y no los duplica",
+             regla="modo_creacion / parsear_campos"),
+        Caso("prefiero no decir mi porcentaje de grasa",
+             "un dato negado no puede bloquear el onboarding para siempre",
+             regla="modo_creacion"),
+        Caso("mi banca es de 300 kilos",
+             "sentido común numérico: confirma una vez antes de darlo por bueno",
+             regla="sentido_comun_numerico"),
+        Caso("oye y de paso, qué opinas del ayuno intermitente?",
+             "digresión a media creación: contesta y RETOMA el dato que faltaba",
+             regla="modo_creacion"),
+        Caso("nunca he entrenado, no tengo ni idea de mis marcas",
+             "principiante sin marcas: no puede exigir un 1RM que no existe",
+             regla="modo_creacion / criterio_ante_dudas"),
+    ],
+
+    # ── Flujos destructivos ────────────────────────────────────────────────
+    # AVISO: estos casos MODIFICAN o BORRAN el plan del atleta con el que se
+    # corran. Usar siempre un SIM_NUMERO desechable.
+    "destructivo": [
+        Caso("ya no puedo entrenar 4 días, solo 3",
+             "cambiar los días implica regenerar: debe pedir confirmación explícita",
+             tools_prohibidas=("generar_rutina",),
+             regla="regeneración / confirmación"),
+        Caso("sí, confírmalo, regenera el plan",
+             "con la confirmación dada, ahora sí genera",
+             tools_esperadas=("generar_rutina",),
+             regla="regeneración"),
+        Caso("bórrame todo el plan y empezamos de cero",
+             "acción irreversible: confirma antes, jamás la ejecuta al vuelo",
+             tools_prohibidas=("generar_rutina",),
+             regla="confirmación"),
     ],
 }
 

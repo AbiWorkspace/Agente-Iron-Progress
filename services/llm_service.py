@@ -235,6 +235,30 @@ def _es_charla_casual(texto: str) -> bool:
     return len(t) <= 60
 
 
+# v13 — "sí", "dale", "hazlo" caían en charla casual, y casual APAGA las
+# herramientas del turno. Es decir: el coach ofrecía ("¿te lo sustituyo?"), el
+# atleta aceptaba... y justo en ese turno el sistema le quitaba la posibilidad de
+# ejecutar nada. O no pasaba nada, o el modelo afirmaba haberlo hecho — el peor
+# de los dos finales. Un asentimiento SOLO es trivial si nadie le ofreció nada.
+_OFERTA_COACH_RE = re.compile(
+    r"\?\s*$"                                            # terminó preguntando
+    r"|¿(?:quieres|te\s+(?:lo|la|los|las)|prefieres|hago|busco|lo\s+hago|"
+    r"te\s+parece|arranco|empezamos|seguimos|le\s+entramos)"
+    r"|\bdime\s+(?:y|si|cu[áa]l|cu[áa]nto)\b"
+    r"|\b(?:av[íi]same|conf[íi]rmame|me\s+dices)\b",
+    re.IGNORECASE)
+
+
+def _responde_a_una_oferta(numero_usuario: str, texto: str) -> bool:
+    """¿Es un 'sí' que contesta a algo que el coach acaba de ofrecer?"""
+    if not AFIRMACION_CORTA_RE.match(str(texto or "").strip()):
+        return False
+    for m in reversed(historial_memoria.get(numero_usuario) or []):
+        if m.get("role") == "assistant":
+            return bool(_OFERTA_COACH_RE.search(str(m.get("content") or "")[-400:]))
+    return False
+
+
 # v8 (Mandato 5) — CREACIÓN FUERTE: señal INEQUÍVOCA de que el atleta quiere un
 # plan nuevo. Los verbos débiles de EN_CREACION_RE ("quiero...rutina") ya no
 # bastan para amenazar con regenerar un plan activo: "¿qué peso uso para cumplir
@@ -383,15 +407,50 @@ def _extraer_dias(texto: str):
 # ==============================================================================
 # v7 — CONSTANTES PARA REGISTRO DETERMINISTA
 # ==============================================================================
+# v13 — Cubría tres formas rebuscadas ("amanecí en 84 kg", "peso corporal 84",
+# "pesé 84 kg hoy") y se le escapaban las que usa cualquiera: "ahora peso 84
+# kilos", "bajé a 82", "hoy me pesé 83.5", "mi peso es 84". El registro quedaba
+# a merced de que el modelo se acordara de llamar la herramienta, que es justo
+# lo que este interceptor existe para evitar.
 PESO_CORPORAL_RE = re.compile(
-    r"\b(?:amanec[íi]|estoy|hoy)\s+(?:pesando\s+|en\s+|peso\s+)?(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilos?)\b"
-    r"|\bpeso\s+corporal\s+(?:de\s+|es\s+)?(\d{2,3}(?:[.,]\d)?)\b"
-    r"|\bpes[oé]\s+(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilos?)\s+(?:hoy|corporal|ahora)\b",
+    r"\b(?:amanec[íi]|estoy|ando)\s+(?:pesando\s+|en\s+|con\s+)?(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilos?)\b"
+    r"|\bpeso\s+corporal\s*(?:de\s+|es\s+|:\s*)?(\d{2,3}(?:[.,]\d)?)\b"
+    r"|\bmi\s+peso\s+(?:actual\s+)?(?:es|de|est[áa]\s+en)?\s*(\d{2,3}(?:[.,]\d)?)\b"
+    r"|\b(?:me\s+)?pes[éo]\s*:?\s*(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilos?)?\b"
+    r"|\b(?:sub[íi]|baj[ée]|qued[ée])\s+(?:a|en)\s+(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilos?)\b",
+    re.IGNORECASE)
+# Un número con kilos NO es peso corporal si la frase habla de levantar algo.
+_PESO_ES_CARGA_RE = re.compile(
+    r"\d\s*[x×]\s*\d|\bpor\s+\d+\s*(?:reps?|repeticiones?)?\b|\brpe\b|\bserie|"
+    r"\b(?:banca|banco|sentadilla|squat|muerto|deadlift|dominad|remo|press|curl|jal[óo]n|"
+    r"prensa|hip\s*thrust|zancad|militar)\b",
     re.IGNORECASE)
 
+
+def detectar_peso_corporal(mensaje: str) -> float | None:
+    """Los kilos que pesa EL ATLETA, no los que levanta. None si no los dijo."""
+    texto = str(mensaje or "")
+    if _PESO_ES_CARGA_RE.search(texto):
+        return None                      # "peso muerto 180x2", "subí a 85 kg en banca"
+    m = PESO_CORPORAL_RE.search(texto)
+    if not m:
+        return None
+    valor = next((g for g in m.groups() if g), None)
+    try:
+        pc = float(str(valor).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    return pc if 35 <= pc <= 300 else None
+
+# v13 — "cámbiame el press militar por press con mancuernas" NO casaba: el
+# patrón empezaba en `cambi`, y "cámbiame" lleva tilde en la a. Tampoco entraban
+# "sustituye" ni "reemplaza". Justo las tres formas que usa un atleta con dolor
+# de hombro, que es cuando esto importa.
 SUSTITUIR_RE = re.compile(
-    r"\bcambi\w*\s+(?:el\s+|la\s+|mi\s+)?(.+?)\s+por\s+(?:el\s+|la\s+|un[ao]?\s+)?(.+?)"
-    r"(?:[.,;]|\s+(?:en\s+todo|porque|ya\s+que|me\s+|solo|s[oó]lo|por\s+hoy)|$)",
+    r"\b(?:c[aá]mbi\w*|sustitu\w*|reempla[cz]\w*|permut\w*)\s+"
+    r"(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+)?(.+?)\s+por\s+"
+    r"(?:el\s+|la\s+|un[ao]?\s+|unos\s+|unas\s+)?(.+?)"
+    r"(?:[.,;?!]|\s+(?:en\s+todo|porque|ya\s+que|me\s+|solo|s[oó]lo|por\s+hoy)|$)",
     re.IGNORECASE)
 # v7 — el coach afirma en 1ª persona haber COMPLETADO una acción de backend
 # v12 — el regex cubría MENOS de lo que parecía. Medido el 2026-07-29 contra
@@ -2781,26 +2840,42 @@ async def comprimir_historial_si_necesario(historial: list) -> list:
         if resumen_previo else "Conversación:\n"
     )
 
+    # v13 — El resumen se cortaba SIEMPRE a media frase (num_predict=220 y
+    # done_reason=length en todos los turnos), y lo que se perdía era el final:
+    # justo [ESTADO DE LA CHARLA], lo ÚNICO que no vive en ninguna otra parte.
+    # Encima gastaba ese presupuesto en repetir biometría y marcas que el sistema
+    # ya inyecta cada turno desde SQL — y las repetía MAL ("Edad: No
+    # especificado" cuando el perfil dice 29 años), que es peor que no repetirlas
+    # porque el modelo se cree el resumen y vuelve a pedirle al atleta datos que
+    # dio hace meses. Ahora: primero el hilo (lo irremplazable) y sin duplicar lo
+    # que Python ya sabe.
     prompt_compresion = (
             "ERES EL MOTOR DE COMPRESIÓN DE MEMORIA DE 'IRON PROGRESS'. "
-            "Tu única función es reducir el historial a un bloque compacto de hechos duros. "
-            "=== REGLAS GLOBALES (ANTI-AMNESIA) ===\n"
-            "1. ESCUDO BIOMÉTRICO (CRÍTICO): Tienes ESTRICTAMENTE PROHIBIDO omitir números físicos. Extrae EXACTAMENTE EDAD, PESO (kg/lb), ALTURA (m/cm), % GRASA o LESIONES si se mencionan.\n"
-            "2. ESCUDO DE RENDIMIENTO (CRÍTICO): Copia literalmente marcas, pesos levantados, repeticiones, RPE y nombres de ejercicios. No uses frases genéricas.\n"
-            "3. ESCUDO DE ENTORNO: Conserva el objetivo principal, días disponibles y equipo.\n"
-            "4. ESTADO DE LA CHARLA: Identifica con precisión la última intención del usuario (ej. 'el usuario insiste en que ya dio su altura').\n\n"
-            "=== FORMATO DE SALIDA OBLIGATORIO ===\n"
-            "Devuelve EXCLUSIVAMENTE este formato (escribe 'No especificado' si falta el dato):\n"
-            "[BIOMETRÍA Y PERFIL]: Edad: [X], Peso: [X], Altura: [X], Meta: [X], Equipo: [X], Días: [X], Lesiones: [X].\n"
-            "[MARCAS Y RENDIMIENTO]: [Lista exacta de ejercicios, kg y reps].\n"
-            "[ESTADO DE LA CHARLA]: [Breve resumen de la última interacción].\n\n"
+            "Reduces el historial a un bloque compacto de hechos duros.\n\n"
+            "=== NO REPITAS ESTO (el sistema ya se lo da al coach en cada turno) ===\n"
+            "Ficha del atleta (edad, peso, altura, % grasa, meta, días), 1RM actuales, "
+            "rutina del día y últimas series registradas. NO gastes espacio en ellos.\n\n"
+            "=== LO QUE SOLO VIVE AQUÍ (obligatorio, por orden de importancia) ===\n"
+            "1. ESTADO DE LA CHARLA: de qué se está hablando AHORA, qué preguntó el atleta y "
+            "qué quedó a medias (ej. 'pidió cambiar el press militar y falta que confirme').\n"
+            "2. ACUERDOS Y PREFERENCIAS: decisiones tomadas, sustituciones acordadas, equipo "
+            "que no tiene, cosas que dijo que no le gustan, molestias reportadas y si siguen "
+            "activas o ya se resolvieron.\n"
+            "3. DATOS SUELTOS: cifras o marcas que el atleta mencionó de pasada y que no "
+            "estaban en su ficha (PRs antiguos, sensaciones, cargas de otro gimnasio).\n\n"
+            "=== FORMATO DE SALIDA OBLIGATORIO (sé breve, una o dos frases por sección) ===\n"
+            "[ESTADO DE LA CHARLA]: [...]\n"
+            "[ACUERDOS Y PREFERENCIAS]: [...]\n"
+            "[DATOS SUELTOS]: [...]\n\n"
             + prefijo_previo + "\n".join(lineas) + "\n\nResumen compacto actualizado (formato obligatorio):"
     )
 
     try:
         resp = await chat_llm(
             [{"role": "user", "content": prompt_compresion}],
-            opciones={**OPCIONES_QWEN_32B, "num_predict": 220, "temperature": 0.1},
+            # 220 no daba ni para el formato: se truncaba en el 100 % de los
+            # turnos. Con 3 secciones breves, 400 sobra y solo cuesta ~4 s más.
+            opciones={**OPCIONES_QWEN_32B, "num_predict": 400, "temperature": 0.1},
             quien="compresor"
         )
         texto_resumen = resp.get("message", {}).get("content", "").strip()
@@ -2809,6 +2884,9 @@ async def comprimir_historial_si_necesario(historial: list) -> list:
         if not texto_resumen:
             raise ValueError("Resumen vacío")
 
+        if str(_campo_resp(resp, "done_reason", "")) == "length":
+            print("[COMPRESOR] ⚠ el resumen se truncó por límite de tokens: se está "
+                  "perdiendo el final. Sube num_predict o acorta el formato.")
         print(f"[COMPRESOR] ✅ {len(candidatos)} msgs → {len(texto_resumen)} chars de resumen")
         return [
             system,
@@ -2970,6 +3048,43 @@ _BLOQUE_SERIES_RE = re.compile(
     re.IGNORECASE)
 
 
+# v13 — PREGUNTA vs. REPORTE. "¿hago 4x8 con 60 kg?" trae una notación de serie
+# impecable, pero el atleta está PREGUNTANDO: sin este filtro entraban al diario
+# 4 series que nunca hizo (con la notación de marca era 1, por eso pasaba menos).
+#
+# EL VERBO MANDA SOBRE EL SIGNO, y ese es el punto delicado: "hice 4x8 con 60 kg,
+# está bien?" es un reporte CON una pregunta detrás, y descartarlo por el "?"
+# sería perder una serie real. Un falso negativo aquí (no registrar algo que sí
+# hizo) es peor que el bug que se arregla, así que solo se bloquea cuando NO hay
+# ninguna señal de ejecución Y sí la hay de pregunta.
+_EJECUCION_RE = re.compile(
+    r"\b(?:hice|hicimos|hac[ií]a|termin[ée]|acab[ée]|complet[ée]|met[ií]|saqu[ée]|"
+    r"levant[ée]|logr[ée]|consegu[ií]|jal[ée]|llev[oé]|ven[ií]a|hech[oa]s?)\b"
+    r"|\bacabo\s+de\b|\breci[ée]n\b|\bya\s+(?:voy|van|llevo)\b",
+    re.IGNORECASE)
+_PREGUNTA_SERIE_RE = re.compile(
+    r"^\s*¿"                                        # abre interrogación
+    r"|\?\s*$"                                      # cierra interrogación
+    r"|^\s*(?:qu[ée]|cu[áa]nt[oa]s?|cu[áa]l|c[óo]mo|debo|deber[íi]a|puedo|hago|"
+    r"har[ée]|hag[oa]|me\s+conviene|me\s+recomiendas|recomiendas|toca|pongo|subo|bajo)\b",
+    re.IGNORECASE)
+
+
+def es_pregunta_no_reporte(mensaje: str) -> bool:
+    """True si el mensaje trae notación de serie pero PREGUNTA en vez de reportar.
+
+    Conservadora a propósito: ante la duda devuelve False (registrar), porque
+    perder una serie real es peor que registrar una de más, que el atleta puede
+    retirar (ver `_rectificar_ultima_serie`).
+    """
+    t = str(mensaje or "").strip()
+    if not t:
+        return False
+    if _EJECUCION_RE.search(t):
+        return False              # dijo que lo hizo: es un reporte, pregunte o no
+    return bool(_PREGUNTA_SERIE_RE.search(t))
+
+
 def detectar_bloque_de_series(mensaje: str) -> list[dict]:
     """'3 series de 12 con 40 kilos' / '4x8 con 60 kg' → N series idénticas.
 
@@ -3073,22 +3188,45 @@ def _rectificar_ultima_serie(numero_usuario: str, mensaje: str) -> dict | None:
     equivalencias = {"peso_kg": ultima.get("peso_kg"),
                      "repeticiones": ultima.get("repeticiones"),
                      "rpe_reportado": ultima.get("rpe_reportado")}
+
+    # La pista que el atleta escribe ("el rpe", "kilos", "reps") MANDA sobre la
+    # deducción por valor, porque los valores COLISIONAN: reps 8 y RPE 8 son el
+    # mismo número. Consultándola solo como último recurso, "corrige el rpe, era
+    # 9 no 8" cambiaba las REPETICIONES a 9 y dejaba el RPE como estaba: una
+    # serie que el atleta nunca hizo, y encima el 1RM se recalcula desde ahí.
+    if re.search(r"\brpe\b", texto, re.I):
+        pista = "rpe_reportado"
+    elif re.search(r"\d+\s*(?:kgs?|kilos?)", texto, re.I):
+        pista = "peso_kg"
+    elif re.search(r"\breps?\b|repeticion", texto, re.I):
+        pista = "repeticiones"
+    else:
+        pista = None
+
     campo = None
     if erroneo is not None:
-        campo = next((c for c, v in equivalencias.items()
-                      if v is not None and abs(float(v) - erroneo) < 1e-6), None)
+        candidatos = [c for c, v in equivalencias.items()
+                      if v is not None and abs(float(v) - erroneo) < 1e-6]
+        # Empate sin pista: gana el orden peso > reps > rpe. El RPE casi siempre
+        # se nombra por su jerga, así que es el menos probable de los mudos.
+        campo = pista if pista in candidatos else (candidatos[0] if candidatos else None)
     if campo is None:
-        # Sin valor erróneo explícito solo se puede desambiguar por la unidad.
-        if re.search(r"\d+\s*(?:kgs?|kilos?)", texto, re.I):
-            campo = "peso_kg"
-        elif re.search(r"\brpe\b", texto, re.I):
-            campo = "rpe_reportado"
-        elif re.search(r"\breps?|repeticion", texto, re.I):
-            campo = "repeticiones"
+        # Sin valor erróneo que contrastar, la pista del texto es lo único que hay.
+        campo = pista
     if campo is None:
         return None
     if campo == "repeticiones":
         correcto = int(correcto)
+
+    # Mismos rangos que exige `tool_registrar_serie_completada`: esta ruta NO pasa
+    # por el handler, así que sin esto un "no eran 100 sino 900" mete 900 kg en el
+    # diario. Ante un valor imposible se prefiere no tocar nada.
+    rangos = {"peso_kg": (1.0, 500.0), "repeticiones": (1, 50), "rpe_reportado": (5.0, 10.0)}
+    lo, hi = rangos[campo]
+    if not (lo <= correcto <= hi):
+        log(numero_usuario, "SERIE-CORRECCION",
+            f"valor fuera de rango para {campo}: {correcto} (no se toca el diario)")
+        return None
 
     res = corregir_ultima_serie(numero_usuario, {campo: correcto})
     if not res:
@@ -3548,7 +3686,7 @@ def fecha_humana(fecha) -> str:
 
 def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql,
                          es_casual, estado_gen, semana_actual,
-                         bloque_onboarding: str = "") -> str:
+                         bloque_onboarding: str = "", ficha_atleta: str = "") -> str:
     """v2: el onboarding ya no manda una lista de instrucciones genéricas;
     manda EXACTAMENTE lo que el sistema acaba de hacer y la ÚNICA pregunta siguiente."""
     if bloque_onboarding:
@@ -3574,11 +3712,25 @@ def construir_telemetria(fecha, hora, estatus, instruccion_de_hoy, dashboard_sql
         # v4.4 — Timeline 01:24: el modelo afirmó "ya se está generando tu plan"
         # sin que nada se hubiera disparado. Ahora la verdad es explícita.
         partes.append("GENERACIÓN DE PLAN: ninguna en curso. PROHIBIDO decir que un plan "
-                      "'se está generando' o 'ya viene en camino': solo el sistema dispara "
-                      "generaciones y te lo informaría aquí.")
-        partes.append("RUTINA DEL DÍA (los *kg* ya vienen calculados y redondeados por el "
-                      f"sistema — transcríbelos literales):\n{instruccion_de_hoy}")
+                      "'se está generando' o 'ya viene en camino': si hubiera una en marcha "
+                      "lo verías escrito aquí.")
+        cabecera = (
+            "PRÓXIMA SESIÓN — hoy NO toca entrenar. No la presentes como el entrenamiento de "
+            "hoy; si el atleta quiere adelantarla, dile que puede y que el calendario se moverá. "
+            "Los *kg* ya vienen calculados: transcríbelos literales."
+            if str(estatus).startswith("DESCANSO") else
+            "RUTINA DEL DÍA (los *kg* ya vienen calculados y redondeados: transcríbelos "
+            "literales, no los recalcules):")
+        partes.append(f"{cabecera}\n{instruccion_de_hoy}")
         partes.append(f"ÚLTIMAS SERIES:\n{dashboard_sql}")
+        # v13 — La ficha del atleta SOLO se inyectaba durante el onboarding y en
+        # la regeneración. En conversación normal el coach no tenía delante ni la
+        # edad ni la altura de quien le hablaba, así que se las pedía otra vez
+        # ("dime tu edad y tu altura y te calculo las calorías") aunque llevaran
+        # meses guardadas. Para el atleta eso es un coach que no le conoce.
+        if ficha_atleta and ficha_atleta != "nada todavía":
+            partes.append(f"FICHA DEL ATLETA (YA la tienes: NO se la vuelvas a pedir; si "
+                          f"algo falta, pide SOLO eso): {ficha_atleta}")
 
     return TELEMETRIA_INICIO + "\n" + "\n\n".join(partes) + "\n" + TELEMETRIA_FIN
 
@@ -3945,6 +4097,14 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
     if ahora.date() < fecha_prog.date():
         estatus = f"DESCANSO: Próximo entreno el {fecha_humana(fecha_programada_str)}."
+        # La telemetría se contradecía a sí misma: CALENDARIO decía DESCANSO y dos
+        # líneas más abajo la rutina venía encabezada "*HOY — Día 2 · Pierna*". El
+        # modelo resolvía la contradicción a cara o cruz: en un turno anunciaba
+        # descanso y en el siguiente aconsejaba sobre "la sesión de hoy". Aquí se
+        # deja UNA sola verdad; la sesión sigue delante, pero etiquetada como lo
+        # que es.
+        instruccion_de_hoy = str(instruccion_de_hoy).replace(
+            "*HOY — ", "*PRÓXIMA SESIÓN (no es hoy) — ")
     elif ahora.date() == fecha_prog.date():
         estatus = f"AL DÍA: Hoy ({fecha_humana(fecha_actual)}) toca entrenamiento."
     else:
@@ -4397,6 +4557,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # así que no había forma de probar el clasificador sin levantar el orquestador
     # entero. Ver services/testbed/test_router_casual.py.
     es_casual = _es_charla_casual(texto_puro)
+    if es_casual and _responde_a_una_oferta(numero_usuario, texto_puro):
+        es_casual = False
+        log(numero_usuario, "MODO", "afirmación a una oferta del coach -> NO casual "
+                                    "(necesita herramientas para cumplirla)")
 
     # v5.2 — Reporte "okey espero": un mensaje de transición corto tras un turno
     # donde el coach habló de plan/generación NO debe apagar herramientas ni
@@ -4426,6 +4590,13 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     if not onboarding_activo and not bloque_onboarding:
         consulta_rutina = detectar_consulta_rutina(mensaje_usuario) if not rutina_vacia else None
         serie = detectar_serie_en_mensaje(mensaje_usuario)
+        # v13 — "¿hago 4x8 con 60 kg?" parsea como serie perfecta. Preguntar no es
+        # reportar: el registro determinista de más abajo la metería en el diario.
+        if serie and es_pregunta_no_reporte(mensaje_usuario):
+            log(numero_usuario, "SERIE-PREGUNTA",
+                f"notación de serie dentro de una PREGUNTA, no se registra: "
+                f"{_trunc(mensaje_usuario, 80)}")
+            serie = None
 
     # v8 (Mandato 4) — cinturón extra: si el interceptor de series SÍ ve una serie,
     # el turno jamás puede ser casual (necesita registro y confirmación honesta).
@@ -4439,7 +4610,9 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
     contexto_dinamico = construir_telemetria(
         fecha_actual, hora_actual, estatus, instruccion_de_hoy, dashboard_sql,
-        es_casual, estado_gen, estado_hoy["semana"], bloque_onboarding
+        es_casual, estado_gen, estado_hoy["semana"], bloque_onboarding,
+        ficha_atleta=("" if (es_casual or onboarding_activo or bloque_onboarding)
+                      else _resumen_perfil_humano(numero_usuario))
     )
 
     system_prompt_estatico = cargar_system_prompt()
@@ -4543,7 +4716,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             log(numero_usuario, "CONSULTA-SEM", f"semana {semana_obj} inexistente; disponibles={disponibles}")
         else:
             log(numero_usuario, "CONSULTA-SEM", f"semana {semana_obj} inyectada ({len(rutina_pedida)} chars)")
-        contenido_mensaje += ("\n\n[SISTEMA — RUTINA SOLICITADA, ya consultada por el sistema. "
+        contenido_mensaje += ("\n\n[SISTEMA — RUTINA SOLICITADA, ya consultada. "
                               "Transcríbela con los kg literales; NO llames herramientas para esto]:\n"
                               + rutina_pedida)
 
@@ -4644,7 +4817,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         elif registradas:
             serie_registrada_python = True
             accion_ejecutada = True
-            acciones_ok.append("series registradas por el sistema: " + "; ".join(registradas))
+            acciones_ok.append("series registradas: " + "; ".join(registradas))
             contenido_mensaje += ("\n\n[SISTEMA — SERIES YA REGISTRADAS]: " + "; ".join(registradas)
                                   + ". Ya quedaron guardadas. NO llames herramientas para esto; solo "
                                     "confírmaselo con tu tono y un comentario breve. Usa EXACTAMENTE esos números.")
@@ -4724,23 +4897,17 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
     # --- PESO CORPORAL ---
     if not onboarding_activo and not bloque_onboarding and not serie_registrada_python:
-        m_peso = PESO_CORPORAL_RE.search(texto_puro)
-        if m_peso:
-            valor = next((g for g in m_peso.groups() if g), None)
-            try:
-                pc = float(str(valor).replace(",", "."))
-            except (TypeError, ValueError):
-                pc = None
-            if pc and 35 <= pc <= 300:
-                await asyncio.to_thread(_registrar_peso_corporal, numero_usuario, pc)
-                actualizar_perfil(numero_usuario, peso_kg=round(pc, 1))
-                peso_registrado_python = True
-                accion_ejecutada = True
-                acciones_ok.append(f"peso corporal {pc:g} kg registrado por el sistema")
-                contenido_mensaje += (f"\n\n[SISTEMA — PESO YA REGISTRADO]: guardé su peso corporal "
-                                      f"de {pc:g} kg y actualicé su ficha. NO llames herramientas para esto; solo "
-                                      "confírmaselo brevemente.")
-                log(numero_usuario, "PESO-AUTO", f"{pc} kg")
+        pc = detectar_peso_corporal(texto_puro)
+        if pc:
+            await asyncio.to_thread(_registrar_peso_corporal, numero_usuario, pc)
+            actualizar_perfil(numero_usuario, peso_kg=round(pc, 1))
+            peso_registrado_python = True
+            accion_ejecutada = True
+            acciones_ok.append(f"peso corporal {pc:g} kg registrado")
+            contenido_mensaje += (f"\n\n[SISTEMA — PESO YA REGISTRADO]: guardé su peso corporal "
+                                  f"de {pc:g} kg y actualicé su ficha. NO llames herramientas para esto; solo "
+                                  "confírmaselo brevemente.")
+            log(numero_usuario, "PESO-AUTO", f"{pc} kg")
 
     # --- EQUIPAMIENTO (DISCOS DISPONIBLES) ---
     # Debe correr ANTES de construir la whitelist de kg: registra el incremento
@@ -4793,7 +4960,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                         f"El atleta sustituyó '{orig}' por '{nuevo}' (alcance: {alcance}).")
                 sustitucion_hecha_python = True
                 accion_ejecutada = True
-                acciones_ok.append(f"sustitución aplicada por el sistema: '{orig}' -> '{nuevo}' ({alcance})")
+                acciones_ok.append(f"sustitución aplicada: '{orig}' -> '{nuevo}' ({alcance})")
                 contenido_mensaje += (f"\n\n[SISTEMA — SUSTITUCIÓN YA APLICADA]: cambié '{orig}' por "
                                       f"'{nuevo}' ({'todo el plan' if alcance == 'permanente' else 'solo hoy'}), "
                                       "manteniendo series, reps y cargas. NO llames herramientas; solo confírmaselo.")
@@ -5020,7 +5187,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         if estado_hoy.get("plan_pausado"):
                             resultados_texto.append("[avanzar_dia]: el plan está PAUSADO; NO se avanzó. "
                                                     "El atleta debe reanudarlo primero.")
-                            acciones_fallidas.append("avanzar_dia: plan pausado, NO se avanzó")
+                            notas_turno.append("El plan sigue pausado, así que el día no avanzó; "
+                                               "hay que reanudarlo primero.")
                         else:
                             forzado = _bool_seguro(args.get("forzar"))
                             avance = avanzar_estado_usuario(numero_usuario, forzar=forzado)
@@ -5033,6 +5201,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                     f"Próximo entreno: {fecha_humana(avance['fecha_programada'])}.")
                                 acciones_ok.append(
                                     f"día avanzado a semana {avance['semana']}, día {avance['dia']}")
+                            elif avance.get("neutro"):
+                                # Ni éxito ni avería: hay que CONTÁRSELO, no pedir perdón.
+                                humano = ("Hoy ya cerraste tu sesión, así que el calendario no "
+                                          "se mueve otra vez: el siguiente día entra mañana."
+                                          if "CANDADO" in str(avance.get("motivo"))
+                                          else "Se acabaron las semanas generadas del plan: no "
+                                               "hay un día siguiente al que avanzar.")
+                                resultados_texto.append(f"[avanzar_dia]: {humano}")
+                                notas_turno.append(humano)
                             else:
                                 resultados_texto.append(f"[avanzar_dia]: {avance.get('motivo', 'no se pudo avanzar')}")
                                 acciones_fallidas.append(
@@ -5404,7 +5581,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                          "tool_calls": calls})
             mensajes_orquestador.append({
                 "role": "user",
-                "content": ("[TOOL-RESULT — datos REALES devueltos por el sistema. Redacta tu "
+                "content": ("[TOOL-RESULT — datos REALES ya calculados. Redacta tu "
                             "respuesta final para el atleta usando EXACTAMENTE estos datos, sin "
                             "inventar nada]:\n" + bloque_resultados)})
 
@@ -5488,7 +5665,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 else:
                     texto_final = ("Bro, prefiero no aventarte cifras al aire 🙏 Dime el ejercicio y "
                                    "a qué sesión te refieres, o pídeme *ver mi rutina* y te paso los "
-                                   "kg exactos que el sistema ya calculó.")
+                                   "kg exactos ya calculados.")
         else:
             log(numero_usuario, "KG-CHECK", "bypass: usuario sin cifras y salida sin forma de rutina")
 
@@ -5525,7 +5702,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         #     determinista construida en Python (cero LLM, cero bucle).
         # ======================================================================
         if (not acciones_ok and _CLAIM_ACCION_RE.search(texto_final)
-                and (serie or NOTACION_ENTRENO_RE.search(texto_puro) or acciones_fallidas)):
+                and (serie or NOTACION_ENTRENO_RE.search(texto_puro)
+                     or acciones_fallidas or notas_turno)):
             log(numero_usuario, "CLAIM-FALSO", "afirma una acción NO ejecutada; reescritura honesta")
             texto_honesto = await _forzar_respuesta_texto(
                 historial_memoria[numero_usuario],
@@ -5542,11 +5720,18 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 # del limpiado general, así que sin pasarla por el filtro el atleta
                 # leía el nombre de la función en WhatsApp — justo lo que prohíbe
                 # <secreto_profesional>.
+                # El consejo "mándame ejercicio + peso + reps" solo tiene sentido si
+                # lo que se quedó sin guardar era una SERIE. Puesto fijo, el atleta
+                # que decía "ya terminé el entreno" recibía una plantilla pidiéndole
+                # kilos que nadie le había preguntado.
                 detalle_f = (" Falló: " + "; ".join(acciones_fallidas[:2]) + ".") if acciones_fallidas else ""
+                era_serie = bool(serie or NOTACION_ENTRENO_RE.search(texto_puro))
+                cierre = ("Mándamelo así: *ejercicio + peso + reps* (ej: 'banca 100x10') "
+                          "y lo registro al toque 💪" if era_serie else
+                          "Dame un momento y lo intento otra vez; si sigue igual te aviso.")
                 texto_final = limpiar_texto_para_whatsapp(
-                    "Seré honesto contigo bro: eso todavía NO quedó guardado en el "
-                    f"sistema.{detalle_f} Mándamelo así: *ejercicio + peso + reps* "
-                    "(ej: 'banca 100x10') y lo registro al toque 💪")
+                    f"Seré honesto contigo bro: eso todavía NO quedó guardado en el "
+                    f"sistema.{detalle_f} {cierre}")
 
         # v12 — GUARDIA DE ESTADO DEL PLAN. Independiente del anterior: aquí no
         # importa si el turno ejecutó algo, sino si lo que el coach AFIRMA sobre
@@ -5892,6 +6077,30 @@ def obtener_estado_usuario(numero_usuario: str) -> dict:
     est.setdefault("ultima_fecha_completada", "")
     return est
 
+def _salto_hasta_siguiente_sesion(numero_usuario: str, est: dict) -> int:
+    """Días hasta el próximo entreno, repartiendo las sesiones dentro de la semana.
+
+    Antes era `round(7 / dias_semana)` para TODAS las sesiones, y ese número solo
+    cuadra con 1 o 7 días: con 4 días/semana daba saltos de 2 → microciclos de 8
+    días (el plan se retrasa 1 día por semana) y con 5 días saltos de 1 → 5 días
+    (se adelanta 2 por semana). A las pocas semanas la "Semana 3" del plan caía
+    en otra semana del calendario y la fecha que el coach anunciaba ("tu próximo
+    entreno es el sábado") dejaba de tener que ver con la realidad.
+
+    Ahora los saltos de una semana SUMAN 7 exactos: con 4 sesiones → 2,2,1,2.
+    """
+    total = _contar_sesiones_semana(numero_usuario, est.get("semana")) or 0
+    if not total:
+        total = int(cargar_perfil(numero_usuario).get("dias_semana") or 4)
+    total = max(1, min(7, int(total)))
+    try:
+        i = int(_num_seguro(est.get("dia", 1), 1) or 1) - 1      # sesión completada, 0-based
+    except (TypeError, ValueError):
+        i = 0
+    i %= total
+    return max(1, round((i + 1) * 7 / total) - round(i * 7 / total))
+
+
 def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> dict:
     """Avanza el calendario UN día real del plan. Candado: máx. un avance por fecha.
     `forzar` lo levanta SOLO cuando el atleta insiste tras habérsele avisado (es lo
@@ -5900,7 +6109,12 @@ def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> dict:
     est = obtener_estado_usuario(numero_usuario)
     hoy = datetime.now().strftime("%Y-%m-%d")
     if est.get("ultima_fecha_completada") == hoy and not forzar:
-        return {"ok": False,
+        # 'neutro': esto NO es una avería. Sin la marca, el orquestador lo metía
+        # en acciones_fallidas y el atleta recibía "eso todavía NO quedó guardado
+        # en el sistema. Falló: avanzar_dia: CANDADO del día..." por haber
+        # terminado su entrenamiento dos veces. Es un hecho que se le cuenta con
+        # naturalidad, no un error del que disculparse.
+        return {"ok": False, "neutro": True,
                 "motivo": ("CANDADO del día: hoy ya se marcó una sesión como completada; el "
                            "siguiente día se desbloquea mañana (evita avances dobles)."),
                 "semana": est.get("semana"), "dia": est.get("dia"),
@@ -5911,17 +6125,15 @@ def avanzar_estado_usuario(numero_usuario: str, forzar: bool = False) -> dict:
     if total and dia >= total:
         if not _contar_sesiones_semana(numero_usuario, semana + 1):
             _actualizar_estado_json(numero_usuario, ultima_fecha_completada=hoy)
-            return {"ok": False,
+            return {"ok": False, "neutro": True,
                     "motivo": "FIN DEL PLAN: no hay más semanas generadas después de esta.",
                     "semana": semana, "dia": dia,
                     "fecha_programada": est.get("fecha_programada")}
         semana, dia = semana + 1, 1
     else:
         dia += 1
-    perfil = cargar_perfil(numero_usuario)
-    dias_sem = int(perfil.get("dias_semana") or 4)
-    salto = max(1, round(7 / max(1, dias_sem)))
-    fecha_prox = (datetime.now() + timedelta(days=salto)).strftime("%Y-%m-%d")
+    fecha_prox = (datetime.now() + timedelta(
+        days=_salto_hasta_siguiente_sesion(numero_usuario, est))).strftime("%Y-%m-%d")
     _actualizar_estado_json(numero_usuario, semana=semana, dia=dia,
                             fecha_programada=fecha_prox, ultima_fecha_completada=hoy,
                             cursor_semana=semana, cursor_dia=0)

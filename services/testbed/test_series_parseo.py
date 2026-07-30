@@ -118,8 +118,51 @@ def bloque_retiro():
         bool(r) and "NO HAY SERIE" in r["bloque"], f"{r}")
 
 
+def bloque_calendario():
+    print("\n[6] El microciclo dura 7 días: los saltos entre sesiones suman una semana")
+    import services.llm_service as LL
+    original = LL.cargar_perfil
+    try:
+        for dias in range(1, 8):
+            LL.cargar_perfil = lambda u, _d=dias: {"dias_semana": _d}
+            saltos = [LL._salto_hasta_siguiente_sesion("nadie", {"semana": 99999, "dia": i + 1})
+                      for i in range(dias)]
+            chk(f"{dias} día(s)/semana → {saltos} = 7", sum(saltos) == 7, f"suma {sum(saltos)}")
+            chk(f"  y ningún salto de 0 días con {dias}", all(x >= 1 for x in saltos), f"{saltos}")
+    finally:
+        LL.cargar_perfil = original
+
+
+def bloque_peso_corporal():
+    print("\n[7] Peso corporal: se reconoce como habla la gente, sin tragarse las cargas")
+    for texto, esperado in [("ahora peso 84 kilos", 84.0), ("bajé a 82 kg", 82.0),
+                            ("hoy me pesé: 83.5 kg", 83.5), ("subí a 85 kilos", 85.0),
+                            ("mi peso es 84", 84.0), ("amanecí en 83,2 kg", 83.2),
+                            ("peso corporal 84", 84.0), ("estoy en 84 kg", 84.0)]:
+        chk(f"{texto!r} → {esperado} kg", L.detectar_peso_corporal(texto) == esperado,
+            f"{L.detectar_peso_corporal(texto)}")
+    for texto in ("peso muerto 180x2", "subí a 85 kilos en sentadilla", "hice 100x5 en banca",
+                  "la barra pesa 20 kg", "cuánto peso debo usar?"):
+        chk(f"NO es peso corporal: {texto!r}", L.detectar_peso_corporal(texto) is None,
+            f"{L.detectar_peso_corporal(texto)}")
+
+
+def bloque_sustitucion():
+    print("\n[8] Pedir un cambio de ejercicio, dicho de las cinco formas normales")
+    casos = [("cámbiame el press militar por press con mancuernas", "press militar", "press con mancuernas"),
+             ("sustituye las dominadas por jalón al pecho", "dominadas", "jalón al pecho"),
+             ("reemplaza el peso muerto por rumano", "peso muerto", "rumano"),
+             ("me cambias la banca por mancuernas?", "banca", "mancuernas"),
+             ("cámbiame las sentadillas por prensa porque me duele la rodilla", "sentadillas", "prensa")]
+    for texto, orig, nuevo in casos:
+        m = L.SUSTITUIR_RE.search(texto)
+        chk(f"{texto[:38]!r} → {orig} ▸ {nuevo}",
+            bool(m) and m.group(1).strip() == orig and m.group(2).strip() == nuevo,
+            f"{(m.group(1), m.group(2)) if m else None}")
+
+
 def bloque_claims():
-    print("\n[6] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
+    print("\n[9] El guardia de claims cubre el presente ('lo corrijo', 'la ignoro')")
     for texto in ("Lo corrijo en tu expediente.", "Entendido, la ignoro por completo.",
                   "Listo, la borro del diario."):
         chk(f"detecta claim: {texto!r}", bool(L._CLAIM_ACCION_RE.search(texto)))
@@ -136,6 +179,9 @@ def main() -> int:
         bloque_notacion()
         bloque_correccion()
         bloque_retiro()
+        bloque_calendario()
+        bloque_peso_corporal()
+        bloque_sustitucion()
         bloque_claims()
     finally:
         while D.borrar_ultima_serie(NUM):
