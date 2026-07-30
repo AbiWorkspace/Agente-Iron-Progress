@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
@@ -13,9 +14,11 @@ from core.config import settings
 # Importaciones de tu arquitectura
 from api.rutas_whatsapp import router as whatsapp_router
 from api.rutas_whatsapp import limpiar_cache_videos, cerrar_cliente_http
+from api.cola_mensajes import cancelar_todo, drenar, estado as estado_cola
 
 # V9: Importamos el motor proactivo desde el nuevo archivo
 from services.proactividad import iniciar_scheduler
+from services.llm_service import cargar_perfil
 
 VERSION = "9.1.0"
 
@@ -42,6 +45,7 @@ def mis_usuarios_activos():
     if not isinstance(estados, dict):
         return activos
 
+    hoy = datetime.now().strftime("%Y-%m-%d")
     for numero, estado in estados.items():
         if not isinstance(estado, dict):
             continue
@@ -50,8 +54,21 @@ def mis_usuarios_activos():
             continue
         if estado.get("onboarding_activo"):
             continue
-        # Agregamos al atleta con un nombre por defecto (el bot lo usará en la plantilla)
-        activos.append((numero, "campeón"))
+        # v13 — Y, sobre todo, no le escribimos a quien HOY no entrena. El
+        # cuestionario de readiness salía a las 6:30 para todos los atletas
+        # activos: quien entrena 3 días a la semana recibía cuatro mensajes no
+        # solicitados de madrugada en sus días de descanso. Se le escribe a quien
+        # tiene sesión hoy o la lleva atrasada, que es justo a quien le sirve.
+        fecha_prog = str(estado.get("fecha_programada") or "")[:10]
+        if fecha_prog and fecha_prog > hoy:
+            continue
+        # El vocativo sale del perfil: "campeón" a una atleta mujer es un
+        # descuido que se nota en el primer mensaje del día.
+        try:
+            genero = str((cargar_perfil(numero) or {}).get("genero") or "").lower()
+        except Exception:
+            genero = ""
+        activos.append((numero, "campeona" if genero.startswith("mujer") else "campeón"))
     return activos
 
 
@@ -89,6 +106,19 @@ async def lifespan(app: FastAPI):
 
     # [SHUTDOWN]: Todo lo que pongas después del yield se ejecuta al apagar
     print("[SISTEMA]: Limpiando recursos y apagando orquestador...")
+
+    # PRIMERO la cola: sus mensajes ya fueron aceptados con un 200, así que Meta
+    # NO los va a reintentar. Si se cortara aquí sin más, el atleta se quedaría
+    # esperando una respuesta que nadie va a escribir. Se le da un margen para
+    # terminar lo que tiene entre manos antes de tirar del cable.
+    try:
+        quedaron = await drenar(timeout=45.0)
+        if quedaron:
+            print(f"[SISTEMA]: ⚠ se apaga con {quedaron} mensaje(s) sin atender; "
+                  "esos atletas no recibirán respuesta.")
+        await cancelar_todo()
+    except Exception as e:
+        print(f"[SISTEMA]: fallo al drenar la cola de mensajes -> {e}")
 
     # Apagamos el motor de proactividad de forma segura
     if scheduler:
@@ -147,6 +177,10 @@ def health_check():
         "entorno": settings.ENTORNO,
         "config_incompleta": settings.faltantes(),
         "firma_webhook": "activa" if settings.APP_SECRET else "desactivada",
+        # Con varios atletas esto es lo primero que hay que mirar cuando alguien
+        # dice "el coach no me contesta": si su número aparece aquí, no se perdió
+        # el mensaje, está esperando su turno del modelo.
+        "cola": estado_cola(),
     }
 
 
