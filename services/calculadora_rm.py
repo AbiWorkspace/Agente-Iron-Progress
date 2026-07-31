@@ -47,6 +47,25 @@ def wathan(peso: float, reps: int) -> float:
 # =========================
 
 def estimacion_hibrida(peso: float, reps: int) -> float:
+    """Ensamble de las seis fórmulas, garantizado MONÓTONO en repeticiones.
+
+    Los tramos de ponderación cambian de fórmulas en sus fronteras (en 11 entra
+    Lombardi y sale Mayhew; en 16 desaparece Wathan), y esos saltos hacían que
+    con el MISMO peso 11 reps estimaran menos 1RM que 10, y 16 reps hasta 2,8 kg
+    menos que 15. Para el atleta eso es mejorar y que el coach le diga que ha
+    retrocedido, así que el resultado se acota por el del tramo anterior: un
+    estimador de 1RM puede ser impreciso, pero no puede contradecirse a sí mismo.
+    """
+    reps = int(reps)
+    if reps <= 1:
+        return peso
+    mejor = _hibrida_cruda(peso, 1)
+    for r in range(2, reps + 1):
+        mejor = max(mejor, _hibrida_cruda(peso, r))
+    return mejor
+
+
+def _hibrida_cruda(peso: float, reps: int) -> float:
 
     if reps == 1:
         return peso
@@ -127,6 +146,25 @@ def factor_tipo_ejercicio(tipo: TipoEjercicio) -> float:
     return factores[tipo]
 
 
+def _aplicar_factor(estimacion: float, peso_movido: float, factor: float) -> float:
+    """Corrige la EXTRAPOLACIÓN, nunca el dato duro.
+
+    El factor multiplicaba el 1RM entero, y eso empujaba el resultado por DEBAJO
+    del peso que el atleta acababa de levantar: una dominada con 20 kg de lastre
+    devolvía un 1RM de lastre de 18,95 kg, y una sola dominada a peso corporal
+    (85 kg) devolvía 80,75 kg de fuerza total. Un 1RM menor que una repetición ya
+    ejecutada es físicamente imposible, y de ahí salen todos los porcentajes del
+    plan.
+
+    Lo que el factor corrige es la parte ESTIMADA (cuánto más de lo levantado se
+    le supone al atleta), no lo que ya demostró. Con peso libre (factor 1.00) el
+    resultado es idéntico al de antes.
+    """
+    peso_movido = max(0.0, float(peso_movido))
+    ganancia = max(0.0, float(estimacion) - peso_movido)
+    return peso_movido + ganancia * float(factor)
+
+
 # =========================
 # API PRINCIPAL
 # =========================
@@ -155,7 +193,8 @@ def calcular_1rm(
             repeticiones
         )
 
-        rm *= factor_tipo_ejercicio(tipo_ejercicio)
+        rm = _aplicar_factor(rm, peso_levantado,
+                             factor_tipo_ejercicio(tipo_ejercicio))
 
         return round(rm, 2)
 
@@ -172,7 +211,8 @@ def calcular_1rm(
             repeticiones
         )
 
-        rm_total *= factor_tipo_ejercicio(tipo_ejercicio)
+        rm_total = _aplicar_factor(rm_total, peso_total,
+                                   factor_tipo_ejercicio(tipo_ejercicio))
 
         return {
             "1rm_absoluto_kg": round(rm_total, 2),
@@ -193,7 +233,8 @@ def calcular_1rm(
             repeticiones
         )
 
-        rm_total *= factor_tipo_ejercicio(tipo_ejercicio)
+        rm_total = _aplicar_factor(rm_total, peso_corporal,
+                                   factor_tipo_ejercicio(tipo_ejercicio))
 
         lastre = max(0.0, rm_total - peso_corporal)
 

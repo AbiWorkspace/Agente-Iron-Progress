@@ -99,9 +99,23 @@ async def cerrar_cliente_http() -> None:
 
 
 if not settings.APP_SECRET:
+    # En producción NO se arranca sin firma. Un webhook abierto no es un aviso
+    # que se pueda ignorar: cualquiera que conozca la URL puede hacerse pasar
+    # por un atleta e inyectar mensajes, y el coach le escribirá por WhatsApp a
+    # una persona real. El aviso llevaba meses imprimiéndose sin que nadie lo
+    # viera entre el resto del arranque, que es exactamente cómo un pendiente de
+    # seguridad llega a producción.
+    if settings.es_produccion:
+        raise RuntimeError(
+            "META_APP_SECRET no está definido y ENTORNO=prod. El webhook "
+            "aceptaría CUALQUIER petición sin comprobar que viene de Meta. "
+            "Cópialo de developers.facebook.com > tu app > Configuración > "
+            "Básica > 'Clave secreta de la app' y ponlo en el .env. Para "
+            "desarrollo local, usa ENTORNO=dev.")
     print("[SEGURIDAD]: META_APP_SECRET no está definido en el .env. El webhook "
           "aceptará CUALQUIER petición sin verificar que venga de Meta. Defínelo "
-          "para activar la validación de firma (X-Hub-Signature-256).")
+          "para activar la validación de firma (X-Hub-Signature-256). "
+          "(Con ENTORNO=prod esto aborta el arranque.)")
 
 
 def firma_valida(cuerpo_crudo: bytes, cabecera_firma: str | None) -> bool:
@@ -109,8 +123,9 @@ def firma_valida(cuerpo_crudo: bytes, cabecera_firma: str | None) -> bool:
 
     Sin esta comprobación, cualquiera que conozca la URL puede inyectar mensajes
     falsos y hacer que el coach escriba por WhatsApp a un atleta real. Si
-    META_APP_SECRET no está configurado se acepta la petición (con el aviso de
-    arriba) para no romper despliegues existentes.
+    META_APP_SECRET no está configurado se acepta la petición para no romper el
+    desarrollo local — pero con ENTORNO=prod el proceso ni siquiera arranca, así
+    que ese camino no existe en producción.
     """
     if not settings.APP_SECRET:
         return True
@@ -619,6 +634,37 @@ async def _encolar_y_avisar(trabajo: Trabajo) -> None:
         await enviar_whatsapp(trabajo.numero, TEXTO_AVISO_EN_COLA)
 
 
+def _lanzar_escribiendo(mensaje_id: str) -> None:
+    """Enciende el 'escribiendo…' sin bloquear el webhook.
+
+    La tarea suelta el guardia heredado antes de nada: `asyncio.create_task`
+    COPIA los ContextVar, así que sin esto una tarea de fondo creada dentro de un
+    turno se creería dueña del semáforo del LLM y provocaría un `release()` de
+    más al cerrarse el turno padre — dos inferencias a la vez y vuelta al
+    thrashing de VRAM, sin ningún error visible. Ver la nota de EXCLUSIÓN POR
+    TURNO en llm_service y el test 7 de test_turno_exclusivo.
+    """
+    if not mensaje_id:
+        return
+
+    async def _tarea():
+        try:
+            from services.llm_service import _soltar_guardia_heredado
+            _soltar_guardia_heredado()
+        except Exception:
+            pass
+        try:
+            from services import proactividad
+            await proactividad.marcar_leido_y_escribiendo(mensaje_id)
+        except Exception as e:
+            print(f"[TYPING] fallo al lanzar el indicador: {e}")
+
+    try:
+        asyncio.create_task(_tarea())
+    except RuntimeError:
+        pass          # sin event loop (tests sincronos): el indicador es opcional
+
+
 async def _procesar_mensaje(mensaje: dict) -> None:
     """Encola UN mensaje entrante. Cualquier `return` descarta solo este mensaje;
     los demás del mismo lote se siguen procesando."""
@@ -640,6 +686,16 @@ async def _procesar_mensaje(mensaje: dict) -> None:
         return
 
     numero_usuario = normalizar_numero_mexicano(numero_crudo)
+
+    # Fase 4 — 'escribiendo…' ANTES de ponerse a trabajar. Va aquí y no más
+    # abajo porque a partir de este punto el mensaje ya se va a atender seguro
+    # (es nuevo, reciente y de un número válido), y cada segundo que se retrase
+    # es un segundo de silencio para el atleta.
+    #
+    # Fire-and-forget a propósito: el webhook tiene que devolverle 200 a Meta
+    # cuanto antes o reintenta la entrega, así que esperar a la Graph API aquí
+    # sería cambiar un problema de percepción por uno real.
+    _lanzar_escribiendo(mensaje_id)
 
     # =========================================================
     # GANCHO V9 (1/2): INTERCEPTOR DE BOTONES (READINESS)

@@ -573,6 +573,46 @@ _CLAIM_AVANCE_RE = re.compile(
     r"|\b(?:d[íi]a|sesi[óo]n)\s+(?:marcad[oa]\s+como\s+)?complet(?:ad[oa]|o)\b"
     r"|\bsesi[óo]n\s+cerrada\b",
     re.IGNORECASE)
+# v13 — "te lo paso cuando esté listo" es la mentira MÁS CARA de todas: no se
+# descubre en el turno, se descubre al día siguiente cuando el plan nunca llegó.
+# Medida en el QA del 2026-07-30 ante "sí, confírmalo, regenera el plan": el
+# coach contestó "el sistema está reconstruyendo tu mesociclo ahora mismo, dame
+# unos minutos", con estado_generacion='lista' y CERO herramientas ejecutadas.
+_CLAIM_REGENERANDO_RE = re.compile(
+    r"\b(?:est(?:oy|amos|[áa])|se\s+est[áa])\s+(?:re)?(?:generand|construyend|reconstruyend|"
+    r"rehaciend|armand|prepar[áa]nd)"
+    r"|\bte\s+(?:lo\s+|la\s+)?(?:paso|mando|env[íi]o|aviso)\s+[^.\n]{0,40}"
+    r"(?:cuando\s+est[ée]|en\s+cuanto\s+est[ée]|est[ée]\s+list)"
+    r"|\b(?:plan|mesociclo|rutina)\s+[^.\n]{0,25}\b(?:en\s+construcci[óo]n|"
+    r"list[oa]\s+en\s+(?:unos\s+)?(?:minutos|momentos))",
+    re.IGNORECASE)
+# "pasamos a 3 días semanales" dicho como hecho consumado cuando su ficha sigue
+# con otra frecuencia. Cambiar los días REHACE el plan entero, así que darlo por
+# aplicado sin que lo esté descoloca todo el calendario del atleta.
+_CLAIM_CAMBIO_DIAS_RE = re.compile(
+    r"\b(?:cambio\s+de\s+(?:frecuencia|d[íi]as)|nueva\s+frecuencia)[^.\n]{0,30}"
+    r"\b(?:anotad|confirmad|aplicad|hech|list)[oa]\b"
+    r"|\bpasamos\s+a\s+\*?\s*(\d+)\s*\*?\s*d[íi]as?\b"
+    r"|\b(?:cambi[éó]|actualic[éó]|ajust[éó])\s+(?:tu|la)\s+frecuencia\b",
+    re.IGNORECASE)
+# "Hecho, plan eliminado" con el plan intacto en disco. Sale del mismo turno que
+# la promesa de regeneración: el modelo da por ejecutada la confirmación que en
+# realidad procesa Python. Si el atleta se lo cree, entrena creyendo que su plan
+# ya no vale — o espera uno nuevo que nadie ha pedido.
+_CLAIM_BORRADO_RE = re.compile(
+    # "plan eliminado", pero también "tu rutina QUEDÓ eliminada" / "YA ESTÁ borrado":
+    # el verbo copulativo en medio hacía que la forma más natural se escapara.
+    r"\b(?:plan|rutina|mesociclo)\s+(?:ya\s+)?(?:qued[óo]\s+|est[áa]\s+|fue\s+)?"
+    r"(?:eliminad|borrad|resetead|destruid|reiniciad)[oa]\b"
+    r"|\b(?:elimin[éó]|borr[éó]|resete[éo]|tir[éó])\s+(?:tu|el|todo\s+(?:tu|el))\s+"
+    r"(?:plan|rutina|mesociclo)"
+    r"|\bempezamos\s+de\s+cero\s*[:,]?\s*(?:plan|rutina)\s+(?:fuera|eliminad[oa])",
+    re.IGNORECASE)
+
+# v14 — Cuánto tiempo sigue siendo cierta la frase "te lo estoy armando" después
+# de que la generación haya TERMINADO. El coach promete "2-3 minutos", así que 5
+# cubre el desfase con holgura sin dar por buena una promesa de hace media hora.
+VENTANA_GENERACION_RECIENTE = 300.0
 
 
 def _claims_plan_desmentidos(numero_usuario: str, texto: str, semana: int,
@@ -616,7 +656,122 @@ def _claims_plan_desmentidos(numero_usuario: str, texto: str, semana: int,
             f"calendario NO se movió: su próximo entreno sigue siendo el "
             f"{fecha_humana(fecha_prog_inicial)}")
 
+    # Una generación prometida y no disparada deja al atleta esperando un plan
+    # que nadie está construyendo.
+    #
+    # v14 — 'generando' NO es la única prueba de que la promesa era cierta, y
+    # exigirla creaba una CARRERA que el guardia perdía siempre. La generación
+    # tarda ~10-45 s y la inferencia del modelo 20-130 s, así que lo normal es que
+    # el plan esté LISTO antes de que el coach termine de escribir. Medido el
+    # 2026-07-30:
+    #
+    #   16:27:37 [GEN] pipeline lanzado en background
+    #   16:27:55 [GEN-BG] terminó en 17.7s
+    #   16:27:57 [CLAIM-ESTADO] "...pero NO hay ninguna generación en marcha"
+    #   16:28:00 [OUT] "¿Te parece bien si genero la rutina ahora mismo?"
+    #
+    # El plan ya existía. El guardia desmintió una promesa CUMPLIDA y le hizo
+    # ofrecer generar lo que ya estaba generado: de ahí arrancó el bucle de
+    # regeneración que acabó con tres planes creados y el atleta convencido de
+    # que le habían borrado el suyo tres veces.
+    #
+    # `generacion_ts` lo escribe _handle_generar_rutina, por donde pasan TODAS
+    # las vías (pipeline de onboarding, regeneración y la tool del modelo), así
+    # que sirve de fuente única para saber si de verdad se disparó algo.
+    if _CLAIM_REGENERANDO_RE.search(texto):
+        gen = str(estado.get("estado_generacion", "")).lower()
+        try:
+            desde = time.time() - float(estado.get("generacion_ts") or 0)
+        except (TypeError, ValueError):
+            desde = float("inf")
+        reciente = desde <= VENTANA_GENERACION_RECIENTE
+        if gen == "generando" or (gen == "lista" and reciente):
+            pass          # en marcha, o terminada dentro del propio turno: es cierto
+        elif gen == "error" and reciente:
+            desmentidos.append(
+                "dice que le está construyendo el plan, pero esa generación FALLÓ "
+                "hace un momento: NO hay ningún plan nuevo en camino. Díselo con "
+                "honestidad y ofrécele reintentarlo")
+        else:
+            desmentidos.append(
+                "dice que le está construyendo o rehaciendo el plan y que se lo pasará "
+                "en unos minutos, pero NO hay ninguna generación en marcha: si se queda "
+                "así, el atleta esperará un plan que nunca va a llegar. Dile qué falta "
+                "para lanzarla en vez de prometerla")
+
+    # El borrado lo ejecuta Python tras la confirmación; el modelo lo da por
+    # hecho en el mismo turno en que se lo confirman. Si los archivos del plan
+    # siguen ahí, no se borró nada.
+    if _CLAIM_BORRADO_RE.search(texto) and _plan_files_existen(numero_usuario):
+        desmentidos.append(
+            "dice que borró o reinició su plan, pero el plan SIGUE INTACTO: no se "
+            "ha eliminado nada. Si hace falta confirmación, pídesela en vez de "
+            "darlo por hecho")
+
+    if _CLAIM_CAMBIO_DIAS_RE.search(texto):
+        pedidos = re.findall(r"(\d+)\s*\*?\s*d[íi]as?", texto, re.I)
+        try:
+            actual = str(cargar_perfil(numero_usuario).get("dias_semana", "") or "")
+        except Exception:
+            actual = ""
+        if actual and pedidos and actual not in pedidos:
+            desmentidos.append(
+                f"da por hecho un cambio de frecuencia que NO está aplicado: en su "
+                f"ficha sigue entrenando {actual} días por semana")
+
     return desmentidos
+
+
+def _accion_ya_constaba(numero_usuario: str, mensaje: str) -> str:
+    """Lo que el atleta reporta, ¿ESTÁ ya guardado aunque este turno no escribiera?
+
+    El guardia CLAIM-FALSO decide mirando solo las escrituras del turno en curso,
+    y eso convierte una verdad en mentira en el caso más normal del mundo: el
+    atleta repite algo que ya había mandado. El 2026-07-30 a las 16:55 el diario
+    tenía 'Press Banca 45.0kg x 10' de tres minutos antes, el coach dijo que la
+    tenía apuntada —cierto— y el guardia le hizo responder "esa serie NO me quedó
+    apuntada". El atleta la mandó una tercera vez y acabó duplicada en el diario.
+
+    Es el mismo criterio que ya usa `_claims_plan_desmentidos`: lo que decide no
+    es qué corrió en el turno, sino qué hay de verdad guardado.
+
+    Devuelve una frase describiendo lo que ya consta, o "" si no hay nada.
+    """
+    marca = _parsear_marca(mensaje)
+    if not marca:
+        return ""
+    try:
+        peso, reps = float(marca[0]), int(marca[1])
+    except (TypeError, ValueError):
+        return ""
+    hoy = datetime.now().strftime("%Y-%m-%d")
+
+    # 1) El diario de entrenamiento de hoy.
+    try:
+        from services.motor_predictivo import leer_series
+        for s in leer_series(numero_usuario, None, 1) or []:
+            if str(s.get("f") or "")[:10] != hoy:
+                continue
+            if abs(float(s.get("w") or 0) - peso) <= 0.5 and int(s.get("r") or 0) == reps:
+                ejercicio = str(s.get("e") or "ese ejercicio").title()
+                return (f"esa serie ({peso:g} kg x {reps} de {ejercicio}) YA consta "
+                        f"apuntada hoy en su diario")
+    except Exception as e:
+        print(f"[YA-CONSTA] diario ilegible: {e}")
+
+    # 2) Las marcas de 1RM guardadas hoy. El onboarding y las marcas de las que
+    #    el atleta PRESUME no pasan por el diario (no son series de hoy), así que
+    #    sin este segundo frente el caso de las 16:26 seguiría desmintiéndose.
+    try:
+        for h in reversed(_leer_json_cacheado(_ruta_historial_rm(numero_usuario), []) or []):
+            if not isinstance(h, dict) or not str(h.get("fecha") or "").startswith(hoy):
+                continue
+            if abs(float(h.get("peso_origen") or 0) - peso) <= 0.5:
+                return (f"su marca de {h.get('ejercicio') or 'ese ejercicio'} "
+                        f"({peso:g} kg x {reps}) YA quedó guardada hoy")
+    except Exception as e:
+        print(f"[YA-CONSTA] historial de marcas ilegible: {e}")
+    return ""
 
 # ==============================================================================
 # CATÁLOGO V9: DICCIONARIO MAESTRO DE EJERCICIOS
@@ -635,9 +790,15 @@ _CATALOGO_EJERCICIOS = {
     "Remo en Maquina": ["remo maquina", "remo en maquina", "remo sentado"],
     "Jalon en Maquina": ["jalon", "jalón", "lat pulldown", "jalones"],
     "Extension de Triceps Katana": ["katana", "triceps katana", "extensión katana"],
-    "Curl de Biceps con Barra": ["curl con barra", "curl barra", "biceps barra"],
-    "Curl de Biceps con Mancuernas": ["curl con mancuernas", "curl mancuernas", "biceps mancuernas"],
-    "Curl de Biceps en Polea": ["curl polea", "curl en polea", "biceps polea"],
+    # v14 — "curl de biceps con barra" no matcheaba NINGUNA de las tres variantes
+    # (la búsqueda es de subcadena literal), así que caía hasta "barra" -> Dominadas.
+    "Curl de Biceps con Barra": ["curl con barra", "curl barra", "biceps barra",
+                                 "biceps con barra", "curl de biceps con barra",
+                                 "curl de biceps barra"],
+    "Curl de Biceps con Mancuernas": ["curl con mancuernas", "curl mancuernas", "biceps mancuernas",
+                                      "biceps con mancuernas", "curl de biceps con mancuernas"],
+    "Curl de Biceps en Polea": ["curl polea", "curl en polea", "biceps polea",
+                                "biceps en polea", "curl de biceps en polea"],
     "Curl Martillo": ["martillo", "curl martillo", "biceps martillo"],
     "Sentadilla Copa con Mancuerna": ["sentadilla copa", "copa mancuerna", "goblet"],
     "Sentadilla en Maquina Hack": ["hack", "sentadilla hack", "maquina hack"],
@@ -660,7 +821,14 @@ _CATALOGO_EJERCICIOS = {
     "Abductor de Piernas": ["abductor", "abductores"],
     "Aductor de Piernas": ["aductor", "aductores"],
     "Extension de Tobillo": ["pantorrilla", "gemelos", "gemelo", "tobillo", "elevacion de talones", "costureras"],
-    "Dominadas": ["dominadas", "dominada", "pull up", "pull-up", "barra"]
+    # v14 — "barra" FUERA de aquí. Era el sinónimo más tóxico del catálogo: como
+    # la búsqueda es de subcadena y esta entrada es la última, TODO ejercicio
+    # nombrado "con barra" que no matcheara antes acababa registrado como
+    # dominadas. Medido el 2026-07-30: "Curl de biceps con barra con 40kg hice 12
+    # reps" -> Dominadas. Y "remo con barra" igual. Se conservan las formas que sí
+    # significan la barra fija y solo eso.
+    "Dominadas": ["dominadas", "dominada", "pull up", "pull-up",
+                  "barra fija", "en la barra", "colgado de la barra"]
 }
 
 
@@ -935,6 +1103,19 @@ _HEREDA_RM = [
     (re.compile(r"^peso\s+muerto$"), "peso muerto"),
     (re.compile(r"^dominadas?(\s+lastradas?)?$"), "dominadas"),
 ]
+
+
+def _rm_guardado_de(rms: dict, base: str):
+    """1RM guardado de un ejercicio, aceptando sus alias canónicos ('Sentadillas'
+    en el plan -> 'sentadilla' en el repositorio). Devuelve None si no hay marca;
+    OJO: 0 es un valor legítimo (dominadas a peso corporal, lastre 0)."""
+    for patron, canon in _HEREDA_RM:
+        if patron.match(base):
+            v = rms.get(canon)
+            if v is not None:
+                return v
+            break
+    return rms.get(base)
 
 # ==============================================================================
 # RUTAS
@@ -1286,7 +1467,17 @@ OPCIONES_QWEN_32B = {
     # OJO: este valor debe seguir igual al de scripts/resources/
     # Entrenamiento_llm_peticion.py; si difieren, Ollama RECARGA el modelo cada vez
     # que se alternan y vuelve el thrashing de recargas.
-    "num_ctx": 32768,
+    # v13 — 32768 -> 40960. NO es por capricho de memoria: medido en el QA de
+    # 74 turnos del 2026-07-30, el prompt real llegaba a 32.699 tok de los
+    # 32.768 disponibles. Quedaban 69 TOKENS para responder, y de ahí salían
+    # 5 de las 7 respuestas cortadas a media frase (done_reason=length). Ese
+    # truncamiento NO se arregla subiendo num_predict: no había sitio.
+    # Peor todavía: rozando el techo, Ollama marca truncated=1 y descarta
+    # tokens del PROMPT con n_keep=4, o sea que se come el system prompt en
+    # silencio. Con 40960 quedan ~8.000 tok de margen para generar.
+    # Coste: ~512 MiB más de KV (solo 16 de las 64 capas lo llevan). Medido
+    # antes del cambio: 4,6 GB de VRAM libres.
+    "num_ctx": 40960,
     "num_predict": 2048,
 }
 
@@ -1481,6 +1672,18 @@ def _volcar_huella_prompt(mensajes, quien):
         print(f"[PROMPT-DUMP] fallo al volcar: {e}")
 
 
+# v14 — Firmas del 500 de Ollama que vienen de un tool call que el modelo escribió
+# mal, no de un problema del servidor (modelo caído, OOM, contexto excedido). Solo
+# estas se reintentan sin herramientas; el resto tiene que subir tal cual.
+_ERRORES_PLANTILLA = ("xml syntax error", "template", "unmarshal", "invalid character",
+                      "cannot unmarshal", "parsing tool call", "tool call")
+
+
+def _es_error_de_plantilla(e: Exception) -> bool:
+    txt = str(e).lower()
+    return any(f in txt for f in _ERRORES_PLANTILLA)
+
+
 async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=False,
                    timeout=None):
     """Único punto de entrada al LLM: serializado, con timeout, log y thinking opcional.
@@ -1510,8 +1713,36 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
                       options=opciones or OPCIONES_QWEN_32B)
         if tools:
             kwargs["tools"] = tools
-        resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
-                                      timeout=timeout or TIMEOUT_CHAT)
+        try:
+            resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
+                                          timeout=timeout or TIMEOUT_CHAT)
+        except ollama.ResponseError as e:
+            # v14 — EL TOOL CALL QUE REVIENTA EL SERVIDOR. Ollama parsea la salida
+            # del modelo contra la plantilla de Qwen; si el modelo emite un bloque
+            # de función mal cerrado, el parser (Go) muere con un 500 antes de
+            # devolver nada:
+            #   ResponseError: XML syntax error on line 8: element <function>
+            #   closed by </parameter> (status code: 500)
+            # Eso no es un fallo de nuestra lógica ni se arregla reintentando igual,
+            # pero tampoco puede costar el turno entero: hasta ahora la excepción
+            # subía hasta el except del orquestador ([ERROR-FATAL]) y el atleta se
+            # quedaba sin respuesta, con su mensaje ya consumido. Se reintenta una
+            # vez sin herramientas: sin tool calls que emitir no hay nada que
+            # parsear mal, y el modelo responde en texto.
+            if not _es_error_de_plantilla(e) or not tools:
+                raise
+            print(f"[LLM] '{quien}' ERROR DE PLANTILLA de Ollama ({_trunc(str(e), 120)}); "
+                  f"reintento SIN herramientas")
+            log_tools_rotas = kwargs.pop("tools", None) is not None
+            kwargs["think"] = False
+            kwargs["messages"] = list(mensajes) + [{
+                "role": "user",
+                "content": ("[SISTEMA]: responde al atleta SOLO con texto natural, en 1-3 "
+                            "frases. NO escribas llamadas a funciones, JSON ni etiquetas.")}]
+            resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
+                                          timeout=timeout or TIMEOUT_CHAT)
+            print(f"[LLM] '{quien}' recuperado sin herramientas "
+                  f"(tools desactivadas={log_tools_rotas})")
         msg = resp.get("message", {}) or {}
         razonamiento = msg.get("thinking") or ""
         contenido = msg.get("content") or ""
@@ -1540,7 +1771,13 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
             print(f"[LLM] '{quien}' TRUNCADO por presupuesto (contenido={len(contenido)} chars); "
                   f"reintento sin thinking, reusando {len(razonamiento)} chars de razonamiento")
             kwargs["think"] = False
-            kwargs["options"] = {**(opciones or OPCIONES_QWEN_32B), "num_predict": 1536}
+            # v14 — 1536 era fijo: un turno que pedía 2048 (semana completa) se
+            # rescataba con MENOS presupuesto del que necesitaba y volvía a salir
+            # cortado, ahora sin razonamiento y sin segunda red. Sin thinking los
+            # tokens son todos para el contenido, así que el techo del turno basta.
+            kwargs["options"] = {**(opciones or OPCIONES_QWEN_32B),
+                                 "num_predict": max(1536, int((opciones or {}).get(
+                                     "num_predict", 0) or 0) // 2)}
             if razonamiento.strip():
                 # Mensaje aparte y NO persistido: igual que el resto de rescates
                 # (_forzar_respuesta_texto), esta llamada es excepcional y su
@@ -1552,11 +1789,19 @@ async def chat_llm(mensajes, tools=None, opciones=None, quien="chat", pensar=Fal
                                 + "\n\n[SISTEMA]: se agotó el presupuesto de análisis. DECIDE YA: "
                                   "emite la herramienta que corresponda o responde en corto. "
                                   "No sigas razonando.")}]
-            resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
-                                          timeout=timeout or TIMEOUT_CHAT)
-            print(f"[LLM] '{quien}' reintento sin thinking listo en {time.monotonic()-t0:.1f}s "
-                  f"(done_reason={_campo_resp(resp, 'done_reason', '?')}, "
-                  f"tools={bool((resp.get('message') or {}).get('tool_calls'))})")
+            try:
+                resp = await asyncio.wait_for(cliente_ollama.chat(**kwargs),
+                                              timeout=timeout or TIMEOUT_CHAT)
+                print(f"[LLM] '{quien}' reintento sin thinking listo en {time.monotonic()-t0:.1f}s "
+                      f"(done_reason={_campo_resp(resp, 'done_reason', '?')}, "
+                      f"tools={bool((resp.get('message') or {}).get('tool_calls'))})")
+            except (ollama.ResponseError, asyncio.TimeoutError) as e:
+                # Este rescate es un extra: si falla, se devuelve lo que hubiera
+                # llegado en el primer intento y decide el orquestador. Dejarlo
+                # propagar convertiría un truncamiento (recuperable) en un turno
+                # perdido.
+                print(f"[LLM] '{quien}' el reintento también falló ({type(e).__name__}); "
+                      f"se devuelve la respuesta truncada original")
         return resp
 
 # ==============================================================================
@@ -1692,17 +1937,42 @@ def _ejercicios_del_plan(numero_usuario: str) -> list[str]:
     return list(vistos.values())
 
 
-def _resolver_ejercicio_del_plan(numero_usuario: str, nombre: str) -> str | None:
+def _sustituto_vigente(numero_usuario: str, nombre: str) -> str | None:
+    """Si `nombre` es un ejercicio del plan que YA está sustituido, devuelve el
+    nombre por el que se cambió; si no, None."""
+    base = _norm_ej(nombre)
+    for o_orig, o_datos in (_cargar_overrides(numero_usuario).get("ejercicios") or {}).items():
+        if _norm_ej(o_orig) != base:
+            continue
+        nuevo = o_datos.get("nuevo") if isinstance(o_datos, dict) else o_datos
+        return str(nuevo) if nuevo else None
+    return None
+
+
+def _resolver_ejercicio_del_plan(numero_usuario: str, nombre: str,
+                                 vigente: bool = True) -> str | None:
     """Traduce como lo dice el atleta ('el militar') al nombre EXACTO del plan
     ('Press Militar con Barra'), o None si ese movimiento no está en su plan.
 
     Devolver el nombre exacto no es cosmético: el override se guarda con esa
     clave y `obtener_rutina_del_json` la compara con `_norm_ej`, así que un
-    nombre aproximado se guardaría sin llegar a aplicarse nunca."""
+    nombre aproximado se guardaría sin llegar a aplicarse nunca.
+
+    `vigente=True` (por defecto) aplica las sustituciones: lo que devuelve es el
+    ejercicio que el atleta ENTRENA HOY. Sin esto, el 2026-07-30 el atleta reportó
+    45 kg x 10 en su 'Press Pecho con Mancuernas' (que sustituye al Press Banco
+    Plano), el modelo emitió "press banca plano", esto lo resolvió por coincidencia
+    parcial al nombre CRUDO del plan y la serie de mancuernas se guardó como banca
+    con barra: su 1RM cayó de 157 kg a 59,3 y con él todas las cargas del plan.
+    `vigente=False` es para quien necesita la clave del plan sin sustituir (el
+    handler de sustituir_ejercicio, que escribe justo esa clave)."""
     buscado = _norm_ej(re.sub(r"^\s*(?:el|la|los|las|mi|mis)\s+", "", str(nombre or ""),
                               flags=re.IGNORECASE))
     if not buscado:
         return None
+    if vigente:
+        crudo = _resolver_ejercicio_del_plan(numero_usuario, nombre, vigente=False)
+        return (_sustituto_vigente(numero_usuario, crudo) or crudo) if crudo else None
     catalogo = _ejercicios_del_plan(numero_usuario)
     sin_plural = lambda t: t[:-1] if t.endswith("s") else t   # noqa: E731
 
@@ -1732,9 +2002,24 @@ def _resolver_ejercicio_del_plan(numero_usuario: str, nombre: str) -> str | None
 
 
 def _guardar_override_ejercicio(numero_usuario: str, original: str, nuevo: str, alcance: str) -> None:
+    """v14 — La clave SIEMPRE es el ejercicio CRUDO del plan.
+
+    `obtener_rutina_del_json` recorre el plan tal y como lo escribió el generador y
+    busca un override para cada nombre, así que una clave que no exista en el plan
+    no se aplica jamás. Al sustituir por segunda vez el mismo hueco (A->B y luego
+    B->C) se escribía la clave 'b', que no está en el plan: el override quedaba
+    guardado, el coach confirmaba el cambio y la rutina seguía mostrando B. Aquí se
+    sigue la cadena hasta el nombre original y se reescribe ESA entrada.
+    """
     ov = _cargar_overrides(numero_usuario)
     ov.setdefault("ejercicios", {})
-    ov["ejercicios"][_norm_ej(original)] = {
+    clave = _norm_ej(original)
+    for o_orig, o_datos in list(ov["ejercicios"].items()):
+        o_new = o_datos.get("nuevo") if isinstance(o_datos, dict) else o_datos
+        if o_new and _norm_ej(o_new) == clave:
+            clave = _norm_ej(o_orig)   # 'press banco plano', no 'press pecho con mancuernas'
+            break
+    ov["ejercicios"][clave] = {
         "nuevo": nuevo, "alcance": alcance,
         "fecha": datetime.now().strftime("%Y-%m-%d")}
     _guardar_overrides(numero_usuario, ov)
@@ -1860,8 +2145,63 @@ def _ejecutar_borrado_plan(numero_usuario: str) -> int:
     log(numero_usuario, "BORRAR", f"{borrados} archivos de plan borrados")
     return borrados
 
+# v14 — Un 1RM es la REFERENCIA con la que se calcula todo el plan: si cae, caen
+# todas las cargas de todas las semanas. Por debajo de este factor, una estimación
+# automática no pisa la marca vigente a la primera. Medido el 2026-07-30: una serie
+# de 45 kg x 10 con MANCUERNAS entró como 'Press Banco Plano' por un fallo de
+# nombres y tiró su 1RM de banca de 157,1 a 59,3 kg (-62 %) sin un solo aviso; el
+# plan entero pasó a prescribirle un tercio de su carga real.
+_CAIDA_RM_SOSPECHOSA = 0.75
+# El atleta declara la marca a mano: si dice que ahora levanta menos, se le cree.
+_FUENTES_RM_DECLARADAS = {"onboarding", "onboarding_default", "manual"}
+
+
 def guardar_rm(numero_usuario: str, ejercicio: str, rm,
-               peso_origen=None, reps_origen=None, fuente: str = "chat") -> None:
+               peso_origen=None, reps_origen=None, fuente: str = "chat",
+               forzar: bool = False) -> str:
+    """Persiste el 1RM de referencia. Devuelve "" si quedó guardado, o el motivo si
+    se CONSERVÓ la marca vigente por ser el descenso implausible — en ese caso el
+    caller tiene que contárselo al atleta en vez de confirmar un guardado que no fue.
+
+    La caída se acepta a la SEGUNDA observación: dos estimaciones bajas seguidas del
+    mismo ejercicio ya no son un error de nombre, son un atleta que perdió fuerza.
+    """
+    aviso = ""
+    clave = _norm_ej(ejercicio)
+    try:
+        vigente = cargar_rms(numero_usuario).get(clave)
+    except Exception:
+        vigente = None
+    try:
+        sospechoso = (not forzar and fuente not in _FUENTES_RM_DECLARADAS
+                      and vigente and rm
+                      and float(rm) < float(vigente) * _CAIDA_RM_SOSPECHOSA)
+    except (TypeError, ValueError):
+        sospechoso = False
+    if sospechoso:
+        pendientes = dict(obtener_estado_usuario(numero_usuario).get("rm_a_la_baja") or {})
+        previo = pendientes.get(clave)
+        if previo is not None and float(rm) <= float(previo) * 1.15:
+            # Segunda vez y en el mismo rango: se acepta y se limpia la espera.
+            pendientes.pop(clave, None)
+            _actualizar_estado_json(numero_usuario, rm_a_la_baja=pendientes)
+            log(numero_usuario, "RM-BAJADA",
+                f"{ejercicio}: {float(vigente):g} -> {float(rm):g} kg confirmado a la segunda")
+        else:
+            caida = 100.0 * (1.0 - float(rm) / float(vigente))
+            pendientes[clave] = float(rm)
+            _actualizar_estado_json(numero_usuario, rm_a_la_baja=pendientes)
+            aviso = (f"su marca guardada de {ejercicio} es {float(vigente):g} kg y lo que acaba "
+                     f"de reportar estima {float(rm):g} kg ({caida:.0f}% menos). NO se cambió su "
+                     f"marca: pregúntale si esa serie era de ESE ejercicio y con esa carga, o si "
+                     f"fue una variante/serie ligera. Si te lo confirma, se actualiza sola.")
+            log(numero_usuario, "RM-BAJADA",
+                f"{ejercicio}: {float(rm):g} kg es -{caida:.0f}% de {float(vigente):g}; "
+                f"se conserva la vigente y se pide confirmación")
+            # La trayectoria SÍ se anota: el dato existe, solo no manda sobre el plan.
+            try: _append_historial_rm(numero_usuario, ejercicio, rm, peso_origen=peso_origen)
+            except Exception as e: print(f"[HIST-RM] {e}")
+            return aviso
     try:
         repositorio.guardar_rm(numero_usuario, ejercicio, rm,
                                peso_origen=peso_origen, reps_origen=reps_origen,
@@ -1871,6 +2211,7 @@ def guardar_rm(numero_usuario: str, ejercicio: str, rm,
     # Hook del log propio (v8: con peso_origen para la whitelist de kilajes)
     try: _append_historial_rm(numero_usuario, ejercicio, rm, peso_origen=peso_origen)
     except Exception as e: print(f"[HIST-RM] {e}")
+    return aviso
 
 def cargar_perfil(u) -> dict:
     return repositorio.obtener_perfil(u)
@@ -2542,6 +2883,26 @@ async def _disparar_pipeline_generacion(numero_usuario: str) -> str:
 # estado en 'generando' hasta que salte el self-heal de 15 minutos.
 _tareas_generacion: set[asyncio.Task] = set()
 
+# Tope de espera de una notificación de fondo: pasado esto se envía igual. Un turno
+# normal dura 5-40 s; 90 s cubre de sobra el peor caso con reintento, y si algo se
+# quedó colgado el atleta prefiere el aviso duplicado a no enterarse nunca.
+ESPERA_MAX_TURNO_LIBRE = 90.0
+
+
+async def _esperar_turno_libre(numero_usuario: str, tope: float = ESPERA_MAX_TURNO_LIBRE) -> None:
+    """Espera a que el atleta NO tenga un turno en vuelo, para que un mensaje
+    proactivo no se solape con la respuesta que el coach está a punto de mandarle."""
+    lock = locks_usuario.get(numero_usuario)
+    if lock is None or not lock.locked():
+        return
+    t0 = time.monotonic()
+    while lock.locked() and (time.monotonic() - t0) < tope:
+        await asyncio.sleep(0.5)
+    espera = time.monotonic() - t0
+    log(numero_usuario, "AVISO-BG",
+        f"esperó {espera:.1f}s a que cerrara el turno"
+        + ("" if not lock.locked() else " (tope alcanzado; se envía igual)"))
+
 
 async def _generar_rutina_background(datos: dict, numero_usuario: str):
     t0 = time.monotonic()
@@ -2586,6 +2947,12 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
         )
 
         try:
+            # v14 — La notificación esperaba a NADA: salía en cuanto el generador
+            # terminaba, y si eso caía a mitad del turno del atleta llegaba pegada
+            # a la respuesta del coach ("ya disparé la regeneración" + "🔥 ¡Listo
+            # bro!" con segundos de diferencia). Para el atleta son dos coaches
+            # hablando a la vez. Se espera a que su turno cierre.
+            await _esperar_turno_libre(numero_usuario)
             # enviar_mensaje_whatsapp es SÍNCRONA (requests) y devuelve None:
             # el 'await' anterior lanzaba "object NoneType can't be used in
             # 'await' expression". Va a un hilo para no bloquear el event loop.
@@ -2617,6 +2984,7 @@ async def _generar_rutina_background(datos: dict, numero_usuario: str):
         # esperando un mensaje que no iba a llegar nunca. Callarse un fallo es
         # peor que el fallo.
         try:
+            await _esperar_turno_libre(numero_usuario)
             from api.rutas_whatsapp import enviar_mensaje_whatsapp
             await asyncio.to_thread(
                 enviar_mensaje_whatsapp,
@@ -2898,9 +3266,141 @@ def _extraer_tool(tool) -> tuple[str, dict]:
     except Exception:
         return "", {}
 
+
+def _tool_calls_planos(calls) -> list[dict]:
+    """v14 — `tool_calls` como JSON puro, apto para ir a disco.
+
+    Ollama los devuelve como modelos pydantic (`ollama._types.Message.ToolCall`),
+    que `json.dumps` NO sabe serializar. El turno que llamaba herramientas moría
+    en `_persistir_historial` con "Object of type ToolCall is not JSON
+    serializable", y ahí se encadenaban tres desastres:
+
+      1. El turno ENTERO no llegaba a disco. El historial se quedaba congelado en
+         el último turno sin herramientas (medido el 2026-07-30: el JSON del
+         atleta acaba a las 19:16 y el turno de las 19:29 no existe).
+      2. El `except` hacía `_firmas_historial.pop()`, así que el turno siguiente
+         veía la firma cambiada y RECARGABA del disco esa versión vieja: lo que
+         acababa de pasar se borraba de la memoria también.
+      3. Con el historial saltando adelante y atrás, el prompt del turno N dejaba
+         de ser prefijo del N+1 y la caché de Ollama fallaba: 28,7 s de prefill a
+         790 tok/s frente a los 4,1 s (6.376 tok/s) de un turno con caché. Es
+         justo lo que arreglaba PERSISTIR EL ORQUESTADOR, deshecho por un
+         TypeError silencioso.
+
+    Se construye la forma mínima —`{"function": {"name", "arguments"}}`— en vez de
+    volcar el modelo entero: es la que la plantilla de Qwen renderiza y la que
+    pydantic revalida al recargar, y no se mueve si la librería añade campos.
+    """
+    planos = []
+    for c in calls or []:
+        nombre, args = _extraer_tool(c)
+        if not nombre:
+            continue
+        planos.append({"function": {"name": nombre, "arguments": args}})
+    return planos
+
 # ==============================================================================
 # COMPRESOR ASÍNCRONO DE HISTORIAL
 # ==============================================================================
+# ------------------------------------------------------------------------------
+# COMPRESIÓN DIFERIDA — fuera del camino crítico del turno.
+#
+# Un lock POR ATLETA, distinto del de `generar_respuesta_coach`: aquel rechaza el
+# mensaje si está tomado ("Dame unos segundos bro"), y aplicarlo aquí convertiría
+# cada compresión en un rechazo visible. Este solo hace ESPERAR al turno
+# siguiente, que es lo correcto: la compresión dura ~8 s y el atleta casi nunca
+# escribe otra vez en esa ventana.
+# ------------------------------------------------------------------------------
+_locks_compresion: dict[str, asyncio.Lock] = {}
+
+
+async def _persistir_historial(numero_usuario: str, historial: list,
+                               ruta_historial: str) -> list:
+    """Escribe el historial a disco y devuelve la versión normalizada.
+
+    `tool_calls` viaja al disco: sin esa clave, un assistant que llamó
+    herramientas se recargaría como texto pelado y la plantilla del modelo lo
+    renderizaría distinto de como se envió, rompiendo el prefijo de caché. Se
+    copia solo si existe, para no meter `"tool_calls": null` en los mensajes
+    normales (cambiaría su serialización y, otra vez, el prefijo).
+    """
+    # v14 — el aplanado se hace AQUÍ, no solo en el orquestador: este es el único
+    # embudo por el que pasa todo lo que va a disco (turno normal, compresor,
+    # rescates), y un solo ToolCall sin convertir costaba el turno entero.
+    hist_disco = [{**{"role": m.get("role"), "content": m.get("content", "")},
+                   **({"tool_calls": _tool_calls_planos(m["tool_calls"])}
+                      if m.get("tool_calls") else {})}
+                  for m in historial]
+    tmp_hist = f"{ruta_historial}.tmp"
+    try:
+        # Atómica: si el proceso muere a media escritura, el fichero anterior
+        # sigue entero. Escribiendo encima, un corte deja un JSON truncado y
+        # el turno siguiente descarta la conversación completa.
+        # `default=str` es el cinturón: ningún objeto inesperado puede volver a
+        # tirar la escritura completa. Perder la forma exacta de un campo raro es
+        # malo; perder el turno del atleta y la caché del prompt es mucho peor.
+        crudo = json.dumps(hist_disco, indent=2, ensure_ascii=False, default=str)
+        async with aiofiles.open(tmp_hist, mode="w", encoding="utf-8") as f:
+            await f.write(crudo)
+        os.replace(tmp_hist, ruta_historial)
+        # Firma del archivo que ACABAMOS de escribir: sin esto el turno
+        # siguiente vería un mtime distinto y releería el JSON entero.
+        _firmas_historial[numero_usuario] = _firma_archivo(ruta_historial)
+    except Exception as e_hist:
+        # Sin limpiarlo quedaba un .tmp de 0 bytes por cada fallo (json.dumps
+        # revienta DESPUÉS de que aiofiles haya creado el archivo vacío).
+        try:
+            os.unlink(tmp_hist)
+        except OSError:
+            pass
+        log(numero_usuario, "HIST-ERROR",
+            f"no se pudo persistir: {e_hist}. El turno NO quedó en disco y la "
+            f"memoria se recargará del último estado guardado.")
+        _firmas_historial.pop(numero_usuario, None)
+    return hist_disco
+
+
+async def _esperar_compresion_en_curso(numero_usuario: str) -> None:
+    """Bloquea si hay una compresión de ESTE atleta reescribiendo su historial."""
+    lock = _locks_compresion.get(numero_usuario)
+    if lock is None or not lock.locked():
+        return
+    log(numero_usuario, "COMPRESOR", "turno en espera: hay una compresión en vuelo")
+    async with lock:
+        pass
+
+
+def _lanzar_compresion_diferida(numero_usuario: str, ruta_historial: str) -> None:
+    """Comprime DESPUÉS de responder, si el historial ya pasó el umbral."""
+    if len(historial_memoria.get(numero_usuario) or []) - 1 < UMBRAL_COMPRESION:
+        return
+
+    async def _tarea():
+        # Obligatorio en toda tarea de fondo: `create_task` copia los ContextVar
+        # y sin esto la tarea se creería dueña del turno del LLM, provocando un
+        # release() de más en SEM_LLM (ver EXCLUSIÓN POR TURNO).
+        _soltar_guardia_heredado()
+        lock = _locks_compresion.setdefault(numero_usuario, asyncio.Lock())
+        if lock.locked():
+            return                       # ya hay una en vuelo; no encadenar otra
+        async with lock:
+            try:
+                comprimido = await comprimir_historial_si_necesario(
+                    historial_memoria[numero_usuario])
+                if comprimido is historial_memoria[numero_usuario]:
+                    return               # no había nada que comprimir
+                historial_memoria[numero_usuario] = comprimido
+                await _persistir_historial(numero_usuario, comprimido, ruta_historial)
+                log(numero_usuario, "COMPRESOR", "historial comprimido en diferido")
+            except Exception as e:
+                log(numero_usuario, "COMPRESOR", f"falló en diferido: {e}")
+
+    try:
+        asyncio.create_task(_tarea())
+    except RuntimeError:
+        pass                             # sin event loop: se comprimirá el turno siguiente
+
+
 async def comprimir_historial_si_necesario(historial: list) -> list:
     system = historial[0]
     resto  = historial[1:]
@@ -2919,11 +3419,21 @@ async def comprimir_historial_si_necesario(historial: list) -> list:
     if not candidatos:
         return historial
 
+    # v13 — los mensajes del orquestador ya se persisten (ver PERSISTIR EL
+    # ORQUESTADOR), así que ahora llegan hasta aquí. Fuera del resumen: el
+    # [TOOL-RESULT] va con role 'user' y se etiquetaría como "Atleta: [TOOL-RESULT
+    # — datos REALES...]", metiendo en la memoria a largo plazo palabras que el
+    # atleta nunca dijo. Su contenido son datos que Python vuelve a inyectar cada
+    # turno, así que no se pierde nada.
     lineas = []
     for m in candidatos:
+        contenido = m.get("content", "") or ""
+        if contenido.startswith("[TOOL-RESULT") or m.get("tool_calls"):
+            continue
         rol   = "Atleta" if m.get("role") == "user" else "Coach"
-        texto = m.get("content", "")[:300]
-        lineas.append(f"{rol}: {texto}")
+        lineas.append(f"{rol}: {contenido[:300]}")
+    if not lineas:
+        return historial
 
     prefijo_previo = (
         f"Resumen previo de sesiones:\n{resumen_previo}\n\nNueva conversación a incorporar:\n"
@@ -3604,6 +4114,20 @@ _NOMBRES_TOOLS_RE = re.compile(
     r"explicar_tecnica_ejercicio|registrar_peso_corporal|pausar_plan|"
     r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm|consultar_volumen_plan)[`'\"]?",
     re.IGNORECASE)
+# v13 — "el sistema" es la palabra que más se le escapa al modelo pese a estar
+# PROHIBIDA en <secreto_profesional>: 5 veces en los 74 turnos del QA del
+# 2026-07-30 ("lo actualizo en el sistema", "el sistema está reconstruyendo tu
+# mesociclo"). Delata el andamiaje y rompe la ilusión de estar hablando con un
+# entrenador. Solo se tocan las formas que se pueden reescribir SIN romper la
+# gramática; el resto sigue dependiendo del prompt.
+# OJO: 'sistema nervioso' / 'inmune' son términos legítimos de entrenamiento y
+# quedan excluidos con un lookahead.
+_JERGA_SISTEMA = (
+    (re.compile(r"\b(?:en|dentro\s+de)\s+el\s+sistema\b(?!\s+(?:nervios|inmun|endocrin|card))",
+                re.IGNORECASE), "en tu expediente"),
+    (re.compile(r"\bel\s+sistema\s+est[áa]\b(?!\s+(?:nervios|inmun))", re.IGNORECASE), "se está"),
+    (re.compile(r"\bpor\s+el\s+sistema\b(?!\s+(?:nervios|inmun))", re.IGNORECASE), "por mí"),
+)
 
 
 def limpiar_texto_para_whatsapp(texto: str) -> str:
@@ -3614,6 +4138,13 @@ def limpiar_texto_para_whatsapp(texto: str) -> str:
     texto = texto.replace("**", "*").replace("#", "")
     texto = _SALTOS_EXTRA_RE.sub("\n\n", texto)
     texto = _NOMBRES_TOOLS_RE.sub("mis métodos de coach", texto)
+    for patron, reemplazo in _JERGA_SISTEMA:
+        # La mayúscula inicial del original se conserva: sin esto, "El sistema
+        # está reconstruyendo…" quedaba como "se está reconstruyendo…" abriendo
+        # la frase en minúscula.
+        texto = patron.sub(
+            lambda m, r=reemplazo: r[0].upper() + r[1:] if m.group(0)[:1].isupper() else r,
+            texto)
     return texto.strip()
 
 def _detectar_enfoque(msg: str) -> str | None:
@@ -4252,6 +4783,30 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     fecha_prog_al_entrar = str(fecha_programada_str)
     estado_gen           = estado_hoy.get("estado_generacion", "")
 
+    # ==========================================================================
+    # v14 — CONTABILIDAD DEL TURNO. Se declara AQUÍ, antes de que nada escriba.
+    #
+    # Estas tres listas nacían a mitad de la función, justo antes del registro
+    # determinista, así que TODO lo que el onboarding guardaba (las marcas del
+    # atleta, su peso, sus días) quedaba fuera de la contabilidad. Y el guardia
+    # CLAIM-FALSO decide sobre `acciones_ok`. El 2026-07-30, tres veces:
+    #
+    #   [RM-GUARDADO] press banco plano: 145.0kg x 3 -> 1RM 157.13
+    #   [ONB-PARSE]   campo='rm_banca' exito=True
+    #   [CLAIM-FALSO] afirma una acción NO ejecutada; reescritura honesta
+    #   [OUT] -> "Seré honesto contigo bro: esa serie NO me quedó apuntada."
+    #
+    # El guardia contra la mentira produciendo la mentira: el dato SÍ estaba
+    # guardado. El atleta reenvió su marca de banca creyendo que se había
+    # perdido, y para entonces el onboarding ya iba por la sentadilla — así se
+    # guardaron 145x3 como sentadilla y empezó la cadena de datos corruptos.
+    # ==========================================================================
+    acciones_ok: list[str] = []          # escrituras COMPLETADAS de verdad
+    acciones_fallidas: list[str] = []    # errores/candados/timeouts del turno
+    # Hechos del turno que NO son ni éxito ni fallo (p. ej. "faltan datos para el
+    # análisis") y que los fallbacks necesitan para no inventarse la causa.
+    notas_turno: list[str] = []
+
     # v3.1 — SELF-HEAL: si el proceso murió a media generación, 'generando' quedaba
     # pegado para siempre y bloqueaba crear/rehacer planes eternamente.
     if estado_gen == "generando":
@@ -4447,6 +5002,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             else:
                 log(numero_usuario, "REGEN", "reemplazo del plan CONFIRMADO por el atleta")
             en_creacion = False
+            # El flag existía desde v4.2 y NO se asignaba en ninguna parte: la
+            # protección de más abajo dependía en exclusiva de `en_creacion`, que
+            # se recalcula en media docena de sitios. Aquí se dice explícitamente
+            # que este turno YA resolvió la regeneración.
+            regen_confirmada = True
             # v4.4 — LECCIÓN DE LA LÍNEA DE TIEMPO: el atleta confirma primero y
             # manda sus marcas nuevas DESPUÉS. Si disparáramos aquí, el plan se
             # regeneraría con las marcas viejas y sus datos frescos llegarían
@@ -4466,6 +5026,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         elif NEGACION_CORTA_RE.match(texto_puro):
             _actualizar_estado_json(numero_usuario, confirmar_regeneracion=0)
             en_creacion = False
+            regen_confirmada = True
             bloque_onboarding = ("El atleta decidió CONSERVAR su plan actual. Confírmaselo en "
                                  "una línea, sin drama, y sigue la conversación normal.")
             log(numero_usuario, "REGEN", "reemplazo rechazado; conserva plan")
@@ -4497,11 +5058,29 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # "sí/dale/genera" dispara la regeneración; "cancélalo" conserva el plan viejo.
     if (not onboarding_activo and not bloque_onboarding
             and estado_hoy.get("confirmar_datos_regen")):
+        intentos_datos = int(estado_hoy.get("intentos_datos_regen") or 0)
         if CANCELAR_ONBOARDING_RE.search(texto_puro):
-            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0)
+            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0,
+                                    intentos_datos_regen=0)
             log(numero_usuario, "REGEN", "verificación cancelada; conserva su plan actual")
             bloque_onboarding = ("El atleta canceló el cambio de plan: conserva el actual y sus "
                                  "datos quedan guardados. Confírmalo en una línea y sigue normal.")
+        elif detectar_consulta_rutina(texto_puro) or ("?" in texto_puro and len(texto_puro) > 8):
+            # v14 — ESCAPE DEL JAIL, el que sí tenía `confirmar_regeneracion` desde
+            # v8 (Mandato 5) y a este paso se le olvidó poner. Este flag no tenía NI
+            # escape NI caducidad: una vez dentro, todo turno que no fuera "dale" o
+            # "cancélalo" volvía a soltarle "¿genero el plan con esos datos?", daba
+            # igual lo que preguntara. El 2026-07-30 el atleta se quedó atrapado ahí
+            # y acabó pidiendo ver su plan a gritos.
+            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0,
+                                    intentos_datos_regen=0)
+            log(numero_usuario, "REGEN",
+                "el atleta preguntó otra cosa durante la verificación; se cancela y se atiende")
+        elif intentos_datos >= 2:
+            _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0,
+                                    intentos_datos_regen=0)
+            log(numero_usuario, "REGEN",
+                "verificación abandonada tras 2 intentos sin respuesta útil; flujo normal")
         else:
             extras_regen = _parsear_campos_anclados(
                 numero_usuario, mensaje_usuario, [c for c, _t, _d in CAMPOS_ONBOARDING])
@@ -4514,7 +5093,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                    r"as[ií]\s+est[aá]\s+bien|est[aá]n?\s+bien|correcto|dale|"
                                    r"adelante|hazlo)\b", texto_puro))
             if listo:
-                _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0)
+                _actualizar_estado_json(numero_usuario, confirmar_datos_regen=0,
+                                        intentos_datos_regen=0)
                 resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
                 log(numero_usuario, "REGEN", f"datos verificados -> pipeline: {resultado_pipeline!r}")
                 extra_txt = (f"ACTUALIZADO al vuelo: {'; '.join(extras_regen)}. "
@@ -4529,6 +5109,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         "avisarás. NO describas ejercicios, NO muestres el plan viejo, NO "
                         "preguntes nada más.")
             elif extras_regen:
+                # Datos nuevos = sigue colaborando: el contador se reinicia.
+                _actualizar_estado_json(numero_usuario, intentos_datos_regen=0)
                 log(numero_usuario, "REGEN", f"datos actualizados en verificación: {extras_regen}")
                 bloque_onboarding = (
                     f"ACTUALIZADO EN SU FICHA: {'; '.join(extras_regen)}.\n"
@@ -4537,6 +5119,9 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     "cambia algo más. Si dio una marca SIN decir de qué ejercicio, pregúntale "
                     "a cuál corresponde. NO llames herramientas; el sistema captura todo.")
             else:
+                _actualizar_estado_json(numero_usuario, intentos_datos_regen=intentos_datos + 1)
+                log(numero_usuario, "REGEN",
+                    f"verificación sin dato ni confirmación; re-pregunta ({intentos_datos + 1}/2)")
                 bloque_onboarding = (
                     "SIGUE EN VERIFICACIÓN DE DATOS PRE-REGENERACIÓN. Su mensaje no trajo un "
                     "dato reconocible ni una confirmación: responde a lo que dijo y vuelve a "
@@ -4551,9 +5136,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                              "(sus datos quedan guardados para cuando quiera retomar) y sigue "
                              "la conversación normal.")
 
-    elif not onboarding_activo and en_creacion and estado_gen != "generando" \
-            and not rutina_vacia and not regen_confirmada:
+    elif not onboarding_activo and not bloque_onboarding and en_creacion \
+            and estado_gen != "generando" and not rutina_vacia and not regen_confirmada:
         # v4.2 — ya tiene un plan activo: confirmar antes de reemplazarlo
+        # v14 — `not bloque_onboarding`: es el guard que llevan TODOS los demás
+        # bloques del orquestador y a estos dos les faltaba. Sin él, un turno que
+        # otro flujo ya había resuelto (verificación de datos, promesa incumplida,
+        # borrado) volvía a caer aquí y su instrucción se sobrescribía con
+        # "pregúntale si quiere reemplazar su plan": el atleta acababa de confirmar
+        # y el coach le preguntaba lo mismo otra vez.
         _actualizar_estado_json(numero_usuario, confirmar_regeneracion=1)
         meta_disparo = _detectar_meta(texto_puro)
         if meta_disparo:
@@ -4568,7 +5159,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             "y que si alguna marca cambió te la diga junto con su confirmación. "
             "NO afirmes que algo se está generando todavía.")
 
-    elif not onboarding_activo and en_creacion and estado_gen != "generando":
+    elif not onboarding_activo and not bloque_onboarding and en_creacion \
+            and estado_gen != "generando":
         # v3.1 — FIX: el mensaje que dispara puede TRAER datos
         # ("hazme una rutina, peso 82kg, mido 1.73, entreno 5 días..."). Antes se
         # ignoraban y el coach pedía el peso recién dado -> "me vuelve a pedir todo".
@@ -4652,6 +5244,14 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         faltantes = calcular_faltantes(numero_usuario)
         log(numero_usuario, "ONB-PARSE",
             f"campo='{campo_pendiente}' exito={exito} feedback={feedback!r} faltan={faltantes}")
+
+        # v14 — El onboarding ESCRIBE en el repositorio (marcas, peso, días), y
+        # hasta ahora no se lo contaba a nadie: el guardia CLAIM-FALSO leía
+        # acciones_ok vacío y desmentía guardados que sí habían ocurrido.
+        if exito and feedback:
+            acciones_ok.append(f"datos del atleta guardados en su ficha: {feedback}")
+        elif rechazo:
+            acciones_fallidas.append(f"dato de onboarding no interpretable: {_trunc(rechazo, 90)}")
 
         if not faltantes:
             resultado_pipeline = await _disparar_pipeline_generacion(numero_usuario)
@@ -4830,9 +5430,15 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             historial_memoria[numero_usuario][0].get("role") != "system":
         historial_memoria[numero_usuario].insert(0, {"role": "system", "content": system_prompt_estatico})
 
-    msgs_sin_system = len(historial_memoria[numero_usuario]) - 1
-    if msgs_sin_system >= UMBRAL_COMPRESION:
-        historial_memoria[numero_usuario] = await comprimir_historial_si_necesario(historial_memoria[numero_usuario])
+    # v13 — La compresión ya NO se hace aquí: costaba 8,4 s (medido en 19 de 74
+    # turnos del QA del 2026-07-30) que el atleta esperaba ANTES de recibir su
+    # respuesta, y encima reescribe el historial, así que el turno siguiente
+    # perdía el prefijo de caché. Ahora se dispara al cerrar el turno, cuando la
+    # respuesta ya viaja hacia WhatsApp (ver COMPRESIÓN DIFERIDA).
+    #
+    # Si hay una compresión de este atleta en vuelo, se espera aquí: sin eso, el
+    # turno leería un historial que la tarea de fondo está reescribiendo.
+    await _esperar_compresion_en_curso(numero_usuario)
 
     # v2: RAG solo en modo normal no-casual (era la causa del loro de la rodilla)
     contexto_extra = ""
@@ -4943,12 +5549,30 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     peso_registrado_python = False
     sustitucion_hecha_python = False
     equipo_registrado_python = False
-    acciones_ok: list[str] = []          # v8: escrituras COMPLETADAS de verdad
-    acciones_fallidas: list[str] = []    # v8: errores/candados/timeouts del turno
-    # v12: hechos del turno que NO son ni éxito ni fallo (p. ej. "faltan datos
-    # para el análisis") y que los fallbacks necesitan para no inventarse la causa.
-    notas_turno: list[str] = []
+    # v14: acciones_ok / acciones_fallidas / notas_turno se declaran al ABRIR el
+    # turno (ver CONTABILIDAD DEL TURNO); redeclararlas aquí borraba todo lo que
+    # el onboarding y los flujos de plan hubieran apuntado.
     texto_tools_acumulado = ""           # v8: payloads de tools -> whitelist de kg
+
+    # --- EL ATLETA MANDA SOBRE EL SELLO (v14) ---
+    # El sello de "ejercicio confirmado" existe para que el modelo no desvíe una
+    # serie hacia el ejercicio de la rutina del día. Pero si el atleta NOMBRA el
+    # movimiento en su propio mensaje, no hay nada que proteger: él es la fuente.
+    # Sin esto, el sello de la serie anterior seguía mandando y las series del
+    # ejercicio nuevo se apilaban en el viejo (el curl que acabó en press
+    # inclinado el 2026-07-30). Se exige que el mensaje reporte de verdad una
+    # serie: nombrar un ejercicio en una pregunta ("¿cómo se hace el remo?") no
+    # cambia lo que está haciendo ahora mismo.
+    if (not onboarding_activo and not bloque_onboarding
+            and (serie or NOTACION_ENTRENO_RE.search(texto_puro))):
+        ej_nombrado = _inferir_ejercicio_serie(texto_puro)
+        if ej_nombrado:
+            del_plan = _resolver_ejercicio_del_plan(numero_usuario, ej_nombrado)
+            ej_sello = del_plan or ej_nombrado
+            if _norm_ej(ej_sello) != _norm_ej(leer_ejercicio_confirmado(numero_usuario) or ""):
+                log(numero_usuario, "EJ-SELLO",
+                    f"el atleta nombró '{ej_nombrado}' -> la serie va a '{ej_sello}'")
+            fijar_ejercicio_confirmado(numero_usuario, ej_sello)
 
     # --- RECTIFICACIÓN DE LA ÚLTIMA SERIE (v13) ---
     # Antes de intentar registrar nada: si el atleta viene a corregirse o a
@@ -4973,6 +5597,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                              "ejercicio": ej_turno}]
         registradas, pendientes = [], []
         heredadas = []
+        avisos_rm: list[str] = []      # marcas a la baja que NO pisaron la vigente
         for s in series_todas:
             ej = s.get("ejercicio") or ej_turno
             if ej and not s.get("ejercicio") and ej_heredado:
@@ -4998,10 +5623,16 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
                 if 1 <= int(s["reps"]) <= 15:
                     rm_val = _e1rm_de_serie(s["peso"], int(s["reps"]), s.get("rpe"))
-                    await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm_val,
-                                            peso_origen=s["peso"], reps_origen=int(s["reps"]),
-                                            fuente="auto_serie")
-                    detalle += f" (1RM estimado {rm_val:g} kg)"
+                    aviso_rm = await asyncio.to_thread(
+                        guardar_rm, numero_usuario, ej, rm_val,
+                        peso_origen=s["peso"], reps_origen=int(s["reps"]),
+                        fuente="auto_serie")
+                    if aviso_rm:
+                        # La serie SÍ entró en el diario; lo que no se tocó es la marca.
+                        avisos_rm.append(aviso_rm)
+                        notas_turno.append(aviso_rm)
+                    else:
+                        detalle += f" (1RM estimado {rm_val:g} kg)"
                 registradas.append(detalle)
                 # Sella el ejercicio en curso (TTL 30 min). Esta guarda existía en
                 # handlers_v9 desde v9 pero NADIE la llamaba, así que
@@ -5031,6 +5662,11 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             contenido_mensaje += ("\n\n[SISTEMA — SERIES YA REGISTRADAS]: " + "; ".join(registradas)
                                   + ". Ya quedaron guardadas. NO llames herramientas para esto; solo "
                                     "confírmaselo con tu tono y un comentario breve. Usa EXACTAMENTE esos números.")
+            if avisos_rm:
+                contenido_mensaje += (
+                    "\n\n[SISTEMA — MARCA NO ACTUALIZADA]: " + " ".join(avisos_rm)
+                    + " La serie sí quedó en su diario; lo que NO cambió es su marca de "
+                      "referencia. Dilo con naturalidad y sin tecnicismos.")
             if heredadas:
                 # El atleta no dijo el ejercicio: se dio por hecho que seguía con
                 # el anterior. Se registra igual (perder el dato es peor), pero el
@@ -5331,13 +5967,17 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 pensar=pensar_turno,
                 quien="principal"
             )
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, ollama.ResponseError) as e_ppal:
             # v5.2 — el modelo se colgó: un reintento en frío (sin thinking, presupuesto
             # corto) casi siempre sale en <15s y evita el silencio total hacia WhatsApp.
-            log(numero_usuario, "TIMEOUT", "llamada principal; reintento sin thinking")
+            # v14 — también entra aquí el 500 de plantilla de Ollama que chat_llm no
+            # pudo rescatar. Sin tools el modelo no puede volver a emitir el bloque
+            # malformado, así que este reintento es la última red antes del fallback.
+            log(numero_usuario, "TIMEOUT" if isinstance(e_ppal, asyncio.TimeoutError)
+                else "LLM-ERROR", f"llamada principal ({type(e_ppal).__name__}); reintento en frío")
             respuesta = await chat_llm(
                 historial_memoria[numero_usuario],
-                tools=tools_de_turno,
+                tools=None if isinstance(e_ppal, ollama.ResponseError) else tools_de_turno,
                 opciones={**OPCIONES_QWEN_32B, "num_predict": 768},
                 pensar=False,
                 quien="principal-retry"
@@ -5353,6 +5993,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         loop_count = 0
         firmas_ejecutadas: set[str] = set()
         mensajes_orquestador = list(historial_memoria[numero_usuario])
+        # Marca desde dónde son mensajes NUEVOS de este turno (los tool_calls y
+        # los [TOOL-RESULT]). Al cerrar el turno se persisten: ver PERSISTIR EL
+        # ORQUESTADOR más abajo.
+        n_hist_al_abrir = len(mensajes_orquestador)
 
         # v8 (Mandato 6) — la síntesis post-tools va SIN thinking (PENSAR_POST_TOOLS):
         # con think=True el razonamiento consumía casi todo num_predict a ~30 tok/s
@@ -5413,12 +6057,61 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
                 try:
                     if nombre == "generar_rutina":
-                        res = await _handle_generar_rutina(args, numero_usuario, texto_puro)
-                        resultados_texto.append(f"[generar_rutina]: {res}")
-                        if "[ERROR" in res or "Faltan" in res or "Ya hay" in res:
-                            acciones_fallidas.append(f"generar_rutina: {_trunc(res, 110)}")
+                        # ==========================================================
+                        # v14 — REHACER EL PLAN NO ES DECISIÓN DEL MODELO.
+                        #
+                        # Python protege la regeneración con un flujo de dos pasos
+                        # (confirmar_regeneracion -> confirmar_datos_regen) porque
+                        # reemplazar un plan es irreversible. Ese flujo cubría la
+                        # intención detectada por regex... y dejaba abierta la
+                        # puerta grande: el modelo podía llamar a la herramienta y
+                        # saltárselo entero. Medido el 2026-07-30:
+                        #
+                        #   19:04 IN: 'Pero yo te dije powerbuilding'
+                        #   19:07 [TOOL] generar_rutina({"meta": "powerbuilding", ...})
+                        #   19:07 [GEN] pipeline lanzado en background
+                        #
+                        # Una queja sobre la meta le costó al atleta su plan entero,
+                        # sin que nadie le preguntara. Y se rehízo con el 1RM de
+                        # banca corrupto (59,3 kg), así que el motor lo bajó de
+                        # 'avanzado' a 'intermedio' y le dio MENOS volumen — justo
+                        # lo contrario de lo que estaba pidiendo.
+                        #
+                        # Sin plan que destruir (rutina_vacia) o con la verificación
+                        # ya confirmada, generar es correcto y pasa igual que antes.
+                        # ==========================================================
+                        if not rutina_vacia and not estado_hoy.get("confirmar_datos_regen"):
+                            # El cambio de meta SÍ es legítimo y lo pidió él: se
+                            # guarda. Lo que espera confirmación es rehacer el plan.
+                            meta_pedida = (_clasificar_meta(str(args.get("meta") or ""))
+                                           or _detectar_meta(texto_puro))
+                            nota_meta = ""
+                            if meta_pedida and meta_pedida != (cargar_perfil(numero_usuario).get("meta") or ""):
+                                actualizar_perfil(numero_usuario, meta=meta_pedida)
+                                acciones_ok.append(f"meta actualizada a {meta_pedida}")
+                                nota_meta = (f" Su meta SÍ quedó actualizada a {meta_pedida} en la "
+                                             f"ficha; eso puedes confirmárselo.")
+                            _actualizar_estado_json(numero_usuario, confirmar_regeneracion=1)
+                            log(numero_usuario, "REGEN",
+                                "el modelo intentó regenerar con plan activo; se pide confirmación primero")
+                            resultados_texto.append(
+                                f"[generar_rutina]: NO se generó nada y su plan sigue INTACTO."
+                                f"{nota_meta} Rehacer el plan desde cero es IRREVERSIBLE y la "
+                                f"decisión es suya: va por la semana {estado_hoy.get('semana', 1)}. "
+                                f"Pregúntale en UNA línea, con tu tono, si quiere que se lo rehagas "
+                                f"con sus datos actuales. PROHIBIDO decir que ya se está generando "
+                                f"o describir un plan nuevo.")
+                            # En lenguaje humano: notas_turno puede acabar delante
+                            # del atleta si salta un fallback.
+                            notas_turno.append(
+                                "Su plan sigue intacto; rehacerlo desde cero necesita que él lo confirme.")
                         else:
-                            acciones_ok.append("generación de plan disparada en segundo plano")
+                            res = await _handle_generar_rutina(args, numero_usuario, texto_puro)
+                            resultados_texto.append(f"[generar_rutina]: {res}")
+                            if "[ERROR" in res or "Faltan" in res or "Ya hay" in res:
+                                acciones_fallidas.append(f"generar_rutina: {_trunc(res, 110)}")
+                            else:
+                                acciones_ok.append("generación de plan disparada en segundo plano")
                         necesita_reinvocacion = True
 
                     elif nombre == "consultar_rutina_futura":
@@ -5468,8 +6161,20 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     elif nombre == "calcular_rm_exacto":
                         peso = _num_seguro(args.get("peso_levantado"))
                         reps = _num_seguro(args.get("repeticiones"))
+                        # v14 — El default era "press banco plano": cuando no se sabía de
+                        # qué ejercicio hablaba, la marca se escribía sobre la banca. Es
+                        # el peor sitio posible para adivinar (es el 1RM del que cuelgan
+                        # todas las cargas de empuje del plan). Ahora, sin ejercicio, se
+                        # pregunta. Y el nombre pasa por el catálogo del plan, igual que
+                        # en la rama de DISPATCHER_V9: sin eso, esta ruta guardaba con el
+                        # nombre crudo del modelo y partía el historial en dos.
                         ej = (str(args.get("nombre_ejercicio") or "").strip()
-                              or _inferir_ejercicio_serie(texto_puro) or "press banco plano")
+                              or _inferir_ejercicio_serie(texto_puro) or "")
+                        if ej:
+                            del_plan = _resolver_ejercicio_del_plan(numero_usuario, ej)
+                            if del_plan and _norm_ej(del_plan) != _norm_ej(ej):
+                                log(numero_usuario, "EJ-CANON", f"'{ej}' -> '{del_plan}'")
+                                ej = del_plan
                         # v11 — 'tipo_ejercicio' lleva desde siempre en el schema con
                         # sus 4 valores y se descartaba: TODO se calculaba como peso
                         # libre. Unas dominadas con 30 kg de lastre daban un 1RM de
@@ -5484,6 +6189,8 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         if es_calistenia and peso is None:
                             peso = 0.0          # solo peso corporal: no hay lastre que reportar
                         motivos = []
+                        if not ej:
+                            motivos.append("no se sabe de QUÉ EJERCICIO es la marca")
                         if peso is None or (peso <= 0 and not es_calistenia):
                             motivos.append(f"peso={args.get('peso_levantado')!r}")
                         if not reps or not (1 <= int(reps) <= 15):
@@ -5504,19 +6211,35 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                                                      bruto.get("lastre_sugerido_para_1rm_kg", 0.0)))
                                 absoluto = bruto.get("1rm_absoluto_kg",
                                                      bruto.get("1rm_fuerza_total_kg"))
-                                detalle = (f" [fuerza total con su peso corporal de {float(pc):g} kg: "
-                                           f"{float(absoluto):g} kg]")
+                                # Un atleta que hace 1-2 dominadas a peso corporal tiene
+                                # lastre sugerido 0: correcto como lastre, ABSURDO como
+                                # 1RM del ejercicio. Guardar ese 0 dejaba su fuerza en
+                                # cero y hundía todos los % del plan que salen de ahí.
+                                if rm <= 0:
+                                    rm = float(absoluto or 0.0)
+                                    detalle = (f" [aún no mueve lastre: se registra su fuerza "
+                                               f"total, peso corporal {float(pc):g} kg incluido]")
+                                else:
+                                    detalle = (f" [fuerza total con su peso corporal de {float(pc):g} kg: "
+                                               f"{float(absoluto):g} kg]")
                             else:
                                 rm, detalle = float(bruto), ""
                             # v8 (Mandato 2): escritura fuera del event loop
-                            await asyncio.to_thread(guardar_rm, numero_usuario, ej, rm,
-                                                    peso_origen=float(peso), reps_origen=int(reps),
-                                                    fuente="tool")
-                            resultados_texto.append(
-                                f"[calcular_rm_exacto]: {ej} ({tipo.value}) -> 1RM estimado "
-                                f"{rm:g} kg (a partir de {float(peso):g} kg x {int(reps)})"
-                                f"{detalle}. Ya quedó guardado.")
-                            acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
+                            aviso_rm = await asyncio.to_thread(
+                                guardar_rm, numero_usuario, ej, rm,
+                                peso_origen=float(peso), reps_origen=int(reps),
+                                fuente="tool")
+                            if aviso_rm:
+                                resultados_texto.append(
+                                    f"[calcular_rm_exacto]: el cálculo da {rm:g} kg, pero {aviso_rm} "
+                                    "NO le digas que su marca quedó actualizada.")
+                                notas_turno.append(aviso_rm)
+                            else:
+                                resultados_texto.append(
+                                    f"[calcular_rm_exacto]: {ej} ({tipo.value}) -> 1RM estimado "
+                                    f"{rm:g} kg (a partir de {float(peso):g} kg x {int(reps)})"
+                                    f"{detalle}. Ya quedó guardado.")
+                                acciones_ok.append(f"1RM de {ej} guardado: {rm:g} kg")
                         necesita_reinvocacion = True
 
 
@@ -5843,9 +6566,13 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             # de kilajes del turno (antes 135 kg de 'semana 2' se marcaba inventado).
             texto_tools_acumulado += "\n" + bloque_resultados
 
+            # v14 — los tool_calls entran al historial YA aplanados: este mensaje
+            # acaba en historial_memoria y de ahí a disco, y los objetos ToolCall
+            # de Ollama reventaban la escritura (ver _tool_calls_planos). Los
+            # dicts se revalidan igual al reenviarse, así que el prompt no cambia.
             mensajes_orquestador.append({"role": "assistant",
                                          "content": texto_final or "",
-                                         "tool_calls": calls})
+                                         "tool_calls": _tool_calls_planos(calls)})
             mensajes_orquestador.append({
                 "role": "user",
                 "content": ("[TOOL-RESULT — datos REALES ya calculados. Redacta tu "
@@ -5863,10 +6590,17 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                     pensar=PENSAR_POST_TOOLS,   # v8 (Mandato 6): False por defecto
                     quien=f"post-tools-{loop_count}"
                 )
-            except asyncio.TimeoutError:
-                # v8 (Mandato 3): el timeout deja huella para el fallback honesto
-                acciones_fallidas.append("síntesis post-herramientas: timeout del modelo")
-                log(numero_usuario, "TOOL-LOOP", "timeout en síntesis; se sale a fallback honesto")
+            except (asyncio.TimeoutError, ollama.ResponseError) as e_post:
+                # v8 (Mandato 3): el timeout deja huella para el fallback honesto.
+                # v14 — el 500 de plantilla de Ollama sale por la misma puerta: las
+                # herramientas de este turno YA se ejecutaron y sus resultados están
+                # en acciones_ok, así que el fallback puede redactar la verdad. Antes
+                # esta excepción reventaba el turno y el atleta no recibía nada, con
+                # las escrituras hechas y sin enterarse.
+                acciones_fallidas.append(
+                    f"síntesis post-herramientas: {type(e_post).__name__.lower()} del modelo")
+                log(numero_usuario, "TOOL-LOOP",
+                    f"{type(e_post).__name__} en síntesis; se sale a fallback honesto")
                 texto_final = ""
                 break
             mensaje_salida = respuesta2.get("message", {}) or {}
@@ -5879,7 +6613,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             if n_esc:
                 log(numero_usuario, "TOOL-ESCAPADA", f"'{n_esc}' con tools apagadas; se fuerza redacción")
                 texto_final = await _forzar_respuesta_texto(
-                    historial_memoria[numero_usuario],
+                    mensajes_orquestador,
                     "Responde al atleta SOLO con texto natural. Las herramientas están desactivadas "
                     "en este turno: NO escribas JSON ni llamadas a funciones.")
 
@@ -5889,7 +6623,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         if not texto_final.strip():
             log(numero_usuario, "FALLBACK", "respuesta vacía tras el loop")
             texto_final = await _forzar_respuesta_texto(
-                historial_memoria[numero_usuario],
+                mensajes_orquestador,
                 _instruccion_fallback("Tu respuesta anterior llegó vacía.",
                                       acciones_ok, acciones_fallidas, notas_turno))
         if not texto_final.strip():
@@ -5909,32 +6643,59 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         whitelist_kgs = _construir_whitelist_kgs(numero_usuario, fuentes_turno,
                                                  historial_memoria[numero_usuario],
                                                  texto_tools_acumulado)
-        usuario_trae_cifras = bool(re.search(r"\d", str(mensaje_usuario)))
-        # v8 — bypass ACOTADO (pedido del Mandato 1, con cinturón): si el usuario no
-        # trae cifras Y la salida no tiene forma de rutina prescrita, el riesgo real
-        # es un falso positivo de memoria, no una rutina alucinada -> no se bloquea.
-        # Con rutina vacía o salida con forma de prescripción, el chequeo SIEMPRE corre.
-        aplicar_chequeo = (usuario_trae_cifras or rutina_vacia
-                           or _parece_rutina_inventada(texto_final) >= 2)
-        if aplicar_chequeo:
-            inventados = _verificar_kgs_salida(texto_final, whitelist_kgs)
-            if inventados:
-                log(numero_usuario, "KG-INVENTADOS", f"{inventados} no existen en las fuentes")
-                texto_re = await _forzar_respuesta_texto(
-                    historial_memoria[numero_usuario],
-                    f"Tu borrador incluía kilajes que NO existen en ninguna fuente del sistema: "
-                    f"{inventados}. Reescríbelo usando SOLO números presentes en la rutina "
-                    "calculada, la telemetría, sus marcas guardadas o lo que el atleta escribió. "
-                    "Si el dato no existe, dilo con honestidad y pídele el contexto que falte.")
-                texto_re = limpiar_texto_para_whatsapp(texto_re)
-                if texto_re and not _verificar_kgs_salida(texto_re, whitelist_kgs):
-                    texto_final = texto_re
+        # v14 — EL BYPASS SE VA. Decidía con dos señales que no dicen NADA sobre si
+        # la respuesta trae kilos inventados: si el mensaje del ATLETA traía cifras,
+        # y si la salida "parecía rutina" según un contador de líneas con series o
+        # reps. Medido el 2026-07-30:
+        #
+        #   IN  : "¿Cómo no vas a tener mis datos si te los di al inicio?"  (sin cifras)
+        #   OUT : "Aquí tienes los pesos calculados... ~55 kg ... ~60 kg ... ~95 kg"
+        #   LOG : [KG-CHECK] bypass: usuario sin cifras y salida sin forma de rutina
+        #
+        # Tres kilajes inventados directos al atleta, y en el formato más peligroso
+        # que hay: una lista de pesos que se va a cargar a la espalda. La tabla
+        # puntuaba 1 en _parece_rutina_inventada (solo una línea decía "reps") y el
+        # umbral era 2. Mientras tanto el mismo validador bloqueaba los 110 kg que
+        # SÍ venían de una herramienta.
+        #
+        # El criterio ahora es el único que importa: si la respuesta contiene kilos,
+        # esos kilos tienen que existir en alguna fuente. Sin kilos, _verificar_kgs_
+        # salida devuelve [] y esto no cuesta nada. El riesgo de falso positivo lo
+        # cubre la whitelist dinámica, que ya incluye mensaje, rutina, dashboard,
+        # payloads de tools, historial completo, perfil, RMs y peso corporal.
+        inventados = _verificar_kgs_salida(texto_final, whitelist_kgs)
+        if inventados:
+            log(numero_usuario, "KG-INVENTADOS", f"{inventados} no existen en las fuentes")
+            texto_re = await _forzar_respuesta_texto(
+                mensajes_orquestador,
+                f"Tu borrador incluía kilajes que NO existen en ninguna fuente del sistema: "
+                f"{inventados}. Reescríbelo usando SOLO números presentes en la rutina "
+                "calculada, la telemetría, sus marcas guardadas o lo que el atleta escribió. "
+                "Si el dato no existe, dilo con honestidad y pídele el contexto que falte.")
+            texto_re = limpiar_texto_para_whatsapp(texto_re)
+            if texto_re and not _verificar_kgs_salida(texto_re, whitelist_kgs):
+                texto_final = texto_re
+            else:
+                # v14 — La plantilla anterior ("dime el ejercicio y a qué sesión te
+                # refieres, o pídeme ver mi rutina") era inútil justo cuando más
+                # falta hacía: el atleta acababa de decir las dos cosas y de pedir
+                # su rutina. Salió tres veces seguidas el 2026-07-30 y es lo que
+                # terminó en "Te odio con toda mi alma". Ahora se le dice lo que de
+                # verdad pasa —no hay marca de ese movimiento— y cómo resolverlo.
+                sin_marca = re.search(
+                    r"SIN MARCA REGISTRADA\]: no hay 1RM guardado de ([^.]+)\.",
+                    str(instruccion_de_hoy or ""))
+                if sin_marca:
+                    texto_final = limpiar_texto_para_whatsapp(
+                        f"Bro, de {_trunc(sin_marca.group(1).strip(), 110)} todavía no tengo "
+                        "una marca tuya, y prefiero no inventarte el peso 🙏 Dime con cuánto "
+                        "sueles moverlo (peso y reps) o calibramos con la primera serie al RPE "
+                        "que marca tu plan, y de ahí te paso el número exacto.")
                 else:
-                    texto_final = ("Bro, prefiero no aventarte cifras al aire 🙏 Dime el ejercicio y "
-                                   "a qué sesión te refieres, o pídeme *ver mi rutina* y te paso los "
-                                   "kg exactos ya calculados.")
-        else:
-            log(numero_usuario, "KG-CHECK", "bypass: usuario sin cifras y salida sin forma de rutina")
+                    texto_final = limpiar_texto_para_whatsapp(
+                        "Bro, esos kilos no me cuadran con lo que tengo guardado tuyo y no te "
+                        "los voy a inventar 🙏 Pásame tu marca en ese ejercicio (peso y reps) "
+                        "y te doy la carga exacta al toque.")
 
         # v4.4 — RED ANTI-RUTINA-FANTASMA: salida con forma de plan sin plan real.
         estado_gen_actual = obtener_estado_usuario(numero_usuario).get("estado_generacion", "")
@@ -5950,7 +6711,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                               "inventes ejercicios. Sus datos están completos: el plan real lo "
                               "genera el sistema en 2-3 minutos cuando se dispare.")
             texto_final = limpiar_texto_para_whatsapp(
-                await _forzar_respuesta_texto(historial_memoria[numero_usuario], instr_fant)) \
+                await _forzar_respuesta_texto(mensajes_orquestador, instr_fant)) \
                 or "Todavía no tengo tu plan real generado bro; en cuanto esté, te aviso yo 🙏"
 
         # v3.1 — el coach NUNCA se sale del guion durante el onboarding
@@ -5968,12 +6729,22 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         #     falló, y (3) si el modelo REINCIDE, responde una plantilla honesta
         #     determinista construida en Python (cero LLM, cero bucle).
         # ======================================================================
-        if (not acciones_ok and _CLAIM_ACCION_RE.search(texto_final)
+        # v14 — Antes de desmentir, comprobar si es VERDAD. El guardia miraba solo
+        # las escrituras del turno, así que le hacía negar al atleta datos suyos
+        # que estaban guardados desde hacía minutos (ver _accion_ya_constaba).
+        ya_constaba = ""
+        if not acciones_ok and _CLAIM_ACCION_RE.search(texto_final):
+            ya_constaba = await asyncio.to_thread(
+                _accion_ya_constaba, numero_usuario, texto_puro)
+            if ya_constaba:
+                log(numero_usuario, "CLAIM-OK", f"la afirmación es cierta: {ya_constaba}")
+
+        if (not acciones_ok and not ya_constaba and _CLAIM_ACCION_RE.search(texto_final)
                 and (serie or NOTACION_ENTRENO_RE.search(texto_puro)
                      or acciones_fallidas or notas_turno)):
             log(numero_usuario, "CLAIM-FALSO", "afirma una acción NO ejecutada; reescritura honesta")
             texto_honesto = await _forzar_respuesta_texto(
-                historial_memoria[numero_usuario],
+                mensajes_orquestador,
                 _instruccion_fallback(
                     "Tu borrador AFIRMABA haber guardado/registrado/actualizado algo, pero ninguna "
                     "escritura se completó en este turno.",
@@ -5991,14 +6762,26 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 # lo que se quedó sin guardar era una SERIE. Puesto fijo, el atleta
                 # que decía "ya terminé el entreno" recibía una plantilla pidiéndole
                 # kilos que nadie le había preguntado.
-                detalle_f = (" Falló: " + "; ".join(acciones_fallidas[:2]) + ".") if acciones_fallidas else ""
+                # v13 — la plantilla daba por hecho que lo pendiente era un
+                # GUARDADO y prometía un reintento que nadie hace. Medido en el
+                # QA del 2026-07-30: ante "mándame la gráfica de sentadilla" (que
+                # falló por falta de datos, no por un guardado) el atleta leía
+                # "eso todavía NO quedó guardado en el sistema. Dame un momento y
+                # lo intento otra vez" — una causa falsa, la palabra prohibida
+                # 'sistema', y una espera que jamás se resuelve.
+                detalle_f = (" " + "; ".join(acciones_fallidas[:2]) + ".") if acciones_fallidas else ""
+                causa = (" " + notas_turno[0].rstrip(".") + ".") if notas_turno else detalle_f
                 era_serie = bool(serie or NOTACION_ENTRENO_RE.search(texto_puro))
-                cierre = ("Mándamelo así: *ejercicio + peso + reps* (ej: 'banca 100x10') "
-                          "y lo registro al toque 💪" if era_serie else
-                          "Dame un momento y lo intento otra vez; si sigue igual te aviso.")
-                texto_final = limpiar_texto_para_whatsapp(
-                    f"Seré honesto contigo bro: eso todavía NO quedó guardado en el "
-                    f"sistema.{detalle_f} {cierre}")
+                if era_serie:
+                    texto_final = limpiar_texto_para_whatsapp(
+                        f"Seré honesto contigo bro: esa serie NO me quedó apuntada.{causa} "
+                        "Mándamelo así: *ejercicio + peso + reps* (ej: 'banca 100x10') "
+                        "y la registro al toque 💪")
+                else:
+                    texto_final = limpiar_texto_para_whatsapp(
+                        f"Seré honesto contigo bro: eso no te lo puedo dar por hecho "
+                        f"todavía.{causa} Dime si quieres que lo intentemos de otra "
+                        "forma y le entro.")
 
         # v12 — GUARDIA DE ESTADO DEL PLAN. Independiente del anterior: aquí no
         # importa si el turno ejecutó algo, sino si lo que el coach AFIRMA sobre
@@ -6016,7 +6799,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 "una pausa o un ajuste, PROPÓNSELO y pregúntale si lo aplicas — nunca lo "
                 "des por aplicado. Mantén tu tono de coach y no menciones nada técnico.")
             texto_estado = limpiar_texto_para_whatsapp(
-                await _forzar_respuesta_texto(historial_memoria[numero_usuario], instr_estado))
+                await _forzar_respuesta_texto(mensajes_orquestador, instr_estado))
             if texto_estado and not _claims_plan_desmentidos(
                     numero_usuario, texto_estado, estado_hoy.get("semana", 1),
                     fecha_prog_al_entrar):
@@ -6037,6 +6820,31 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             log(numero_usuario, "DUPLICADO", "respuesta idéntica a la previa; se añade variación")
             texto_final += "\n\n¿Seguimos bro? 💪"
 
+        # ======================================================================
+        # v13 — PERSISTIR EL ORQUESTADOR. Último caso residual de la opción B.
+        #
+        # Los mensajes que el orquestador fabrica dentro del turno (el assistant
+        # con `tool_calls` y el [TOOL-RESULT]) SE ENVIABAN pero no se guardaban.
+        # Como llama.cpp graba un solo checkpoint por petición y lo pone AL FINAL
+        # del prompt, ese checkpoint incluía esos dos mensajes; el turno
+        # siguiente los reconstruía sin ellos, divergía por debajo del punto
+        # grabado y el checkpoint quedaba inservible: reprefill COMPLETO.
+        #
+        # Medido en el QA de 74 turnos del 2026-07-30: la caché acertaba en el
+        # 46 % de las llamadas 'principal'; el 54 % restante reprocesaba ~30.000
+        # tokens a ~800 tok/s, unos 37 s por turno. El prefill era el 58 % del
+        # tiempo total del modelo.
+        #
+        # Guardando lo mismo que se envió, el prompt del turno N vuelve a ser
+        # prefijo EXACTO del N+1. Es la misma regla que arregló la telemetría; el
+        # coste es historial más largo, y por eso sube num_ctx (ver
+        # OPCIONES_QWEN_32B) y el compresor los recoge al pasar UMBRAL_COMPRESION.
+        if len(mensajes_orquestador) > n_hist_al_abrir:
+            nuevos = mensajes_orquestador[n_hist_al_abrir:]
+            historial_memoria[numero_usuario].extend(nuevos)
+            log(numero_usuario, "HIST-ORQ",
+                f"{len(nuevos)} mensajes del orquestador persistidos (prefijo de caché intacto)")
+
         historial_memoria[numero_usuario].append({"role": "assistant", "content": texto_final})
 
         # v11 (Opción B) — LA TELEMETRÍA YA NO SE PODA. Antes se recortaba aquí, y
@@ -6056,23 +6864,20 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         #
         # NO volver a podar aquí "para limpiar el historial" sin releer esto:
         # es exactamente el cambio que costaba 17,6 s por turno.
-        hist_disco = [{"role": m.get("role"), "content": m.get("content", "")}
-                      for m in historial_memoria[numero_usuario]]
+        # `tool_calls` viaja al disco: sin él, un assistant que llamó herramientas
+        # se recargaría como texto pelado y la plantilla del modelo lo renderizaría
+        # DISTINTO de como se envió — el prefijo volvería a romperse justo en el
+        # turno que se acaba de arreglar. Se copia la clave solo si existe, para
+        # no meter `"tool_calls": null` en los mensajes normales (cambiaría su
+        # serialización y, otra vez, el prefijo).
+        hist_disco = await _persistir_historial(
+            numero_usuario, historial_memoria[numero_usuario], ruta_historial)
         historial_memoria[numero_usuario] = hist_disco
-        try:
-            # Atómica: si el proceso muere a media escritura, el fichero anterior
-            # sigue entero. Escribiendo encima, un corte deja un JSON truncado y
-            # el turno siguiente descarta la conversación completa.
-            tmp_hist = f"{ruta_historial}.tmp"
-            async with aiofiles.open(tmp_hist, mode="w", encoding="utf-8") as f:
-                await f.write(json.dumps(hist_disco, indent=2, ensure_ascii=False))
-            os.replace(tmp_hist, ruta_historial)
-            # Firma del archivo que ACABAMOS de escribir: sin esto el turno
-            # siguiente vería un mtime distinto y releería el JSON entero.
-            _firmas_historial[numero_usuario] = _firma_archivo(ruta_historial)
-        except Exception as e_hist:
-            log(numero_usuario, "HIST-ERROR", f"no se pudo persistir: {e_hist}")
-            _firmas_historial.pop(numero_usuario, None)
+
+        # COMPRESIÓN DIFERIDA: la respuesta ya está lista y sale de aquí hacia
+        # WhatsApp, así que los ~8 s del compresor dejan de estar en la espera
+        # del atleta. Si el historial no llegó al umbral, no hace nada.
+        _lanzar_compresion_diferida(numero_usuario, ruta_historial)
 
         _limpiar_overrides_solo_hoy(numero_usuario)
         log(numero_usuario, "OUT", f"{time.monotonic() - t_inicio:.1f}s -> {_trunc(texto_final, 150)}")
@@ -6259,6 +7064,8 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
 
     indice_hoy = _normalizar_dia_a_indice(dia_actual)
     lineas = []
+    por_calibrar: list[str] = []      # ejercicios del bloque que salen sin kilos
+    estimados: list[str] = []         # sustituidos cuya carga hereda del original
     for i, ses in enumerate(sesiones, start=1):
         if solo_hoy and indice_hoy is not None and (i - 1) != indice_hoy:
             continue
@@ -6272,7 +7079,7 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
                          or ej.get("Nombre")
                          or ej.get("nombre")
                          or "?")
-            base = _norm_ej(nombre)
+            base = base_plan = _norm_ej(nombre)
             # _cargar_overrides devuelve el JSON completo ({"ejercicios": {...},
             # "descargas": {...}}): iterarlo directo comparaba el nombre del ejercicio
             # contra las claves de primer nivel, así que la sustitución NUNCA se
@@ -6299,13 +7106,28 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
             rpe = ej.get("RPE")
             carga_txt = ""
             if pct not in (None, ""):
-                rm_base = None
-                for patron, canon in _HEREDA_RM:
-                    if patron.match(base):
-                        rm_base = rms.get(canon)
-                        break
-                if rm_base is None:
-                    rm_base = rms.get(base)
+                # v14 — EL PORCENTAJE SOLO NO ES UNA CARGA. Aquí faltaban dos cosas:
+                #
+                # 1) El 1RM se buscaba con `base`, que unas líneas más arriba se
+                #    REASIGNA al nombre de la sustitución. La marca vive bajo el
+                #    nombre ORIGINAL del plan, así que en cuanto el atleta sustituía
+                #    un ejercicio su carga desaparecía del plan para siempre.
+                # 2) Sin marca, la línea salía "— 70% RM" a secas. Eso NO es una
+                #    prescripción: es una multiplicación pendiente, y el modelo tiene
+                #    prohibido hacerla. Medido el 2026-07-30: 7 de los 9 ejercicios
+                #    del día salían así, el modelo multiplicaba igual, el validador
+                #    de kilajes lo cazaba ([KG-INVENTADOS]) y el atleta acababa
+                #    haciendo la cuenta a mano ("41kg es el 70%").
+                #
+                # Ahora: la marca se busca también por el nombre del plan, y cuando
+                # de verdad no hay ninguna se dice "peso por calibrar" — la fórmula
+                # que <fuente_de_verdad> del prompt ya sabe manejar (dilo tal cual y
+                # pídele su marca o calibra con el RPE).
+                rm_base = _rm_guardado_de(rms, base)
+                rm_heredado = False
+                if rm_base is None and base != base_plan:
+                    rm_base = _rm_guardado_de(rms, base_plan)
+                    rm_heredado = rm_base is not None
                 try:
                     pct_f = float(str(pct).replace("%", "").replace(",", "."))
                     if red_int:
@@ -6313,8 +7135,14 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
                     if rm_base:
                         carga_txt = (f" — *{_redondear_carga(float(rm_base) * pct_f / 100.0, incremento):g} kg* "
                                      f"({pct_f:g}% RM)")
+                        if rm_heredado:
+                            estimados.append(nombre)
+                    elif rm_base is not None:
+                        # Marca registrada en 0: dominadas/fondos a peso corporal.
+                        carga_txt = " — *a peso corporal* (sin lastre)"
                     else:
-                        carga_txt = f" — {pct_f:g}% RM"
+                        carga_txt = f" — *peso por calibrar* ({pct_f:g}% RM)"
+                        por_calibrar.append(nombre)
                 except (TypeError, ValueError):
                     pass
             rpe_txt = f" @RPE {rpe}" if rpe not in (None, "") else ""
@@ -6324,6 +7152,29 @@ def obtener_rutina_del_json(numero_usuario, semana, dia_actual, solo_hoy: bool =
         return "ESTADO DE RUTINA: Vacío (ese día no existe en la semana)."
     if red_int or red_ser:
         lineas.append(f"_Semana con DESCARGA: -{red_int:g}% intensidad, -{red_ser} serie(s)._")
+    if por_calibrar:
+        # Sin esta nota el modelo lee "peso por calibrar", no sabe qué hacer con
+        # ello y acaba rellenando el hueco con una cifra suya. Aquí se le dice
+        # exactamente qué se espera, y se le recuerda que la cuenta NO la hace él.
+        unicos = list(dict.fromkeys(por_calibrar))
+        lineas.append(
+            "[SISTEMA — SIN MARCA REGISTRADA]: no hay 1RM guardado de "
+            + ", ".join(unicos)
+            + ". Esos van SIN kilos a propósito. Dile 'peso por calibrar' tal cual y, al final "
+              "del mensaje, pídele su marca (peso + repeticiones) en UNO de ellos o proponle "
+              "calibrarlo con la primera serie usando el RPE indicado. PROHIBIDO calcular el "
+              "porcentaje tú: no tienes con qué multiplicar y cualquier cifra que escribas "
+              "sería inventada.")
+    if estimados:
+        # La carga sale del 1RM del ejercicio que SUSTITUYÓ, no de una marca suya en
+        # este movimiento. Entre una barra y unas mancuernas ese número puede quedarse
+        # corto o largo, y el atleta tiene derecho a saberlo antes de cargar el peso.
+        lineas.append(
+            "[SISTEMA — CARGA ESTIMADA]: los kilos de "
+            + ", ".join(dict.fromkeys(estimados))
+            + " salen del 1RM del ejercicio al que sustituyen, no de una marca suya en ese "
+              "movimiento. Dáselos como punto de partida y dile que mande el RPE de la primera "
+              "serie para afinarlo; el RPE de la ficha manda sobre el número.")
     return "\n".join(lineas).strip()
 
 # ==============================================================================

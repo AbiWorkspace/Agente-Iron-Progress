@@ -32,6 +32,7 @@ Uso:  python -m services.testbed.test_turno_exclusivo     (0 = ok, 1 = roto)
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import re
 import sys
@@ -268,15 +269,22 @@ async def prueba_toda_tarea_de_fondo_se_desvincula() -> None:
     check(bool(lanzadas), "se encontraron tareas de fondo que revisar",
           "el patrón create_task(nombre(...)) ya no casa: revisa este test")
 
+    # El cuerpo se localiza con `ast`, no con regex: la corrutina de fondo suele
+    # definirse ANIDADA dentro del lanzador (`_lanzar_compresion_diferida` tiene
+    # su `async def _tarea()` dentro), y buscando `^async def` a nivel 0 no
+    # aparecía — el test la marcaba como "no encontrada" y daba un fallo que no
+    # era tal. ast las encuentra a cualquier profundidad.
+    arbol = ast.parse(fuente)
+    definiciones = {n.name: n for n in ast.walk(arbol)
+                    if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))}
+
     sin_desvincular = []
     for nombre in set(lanzadas):
-        # Cuerpo de la corrutina: de su 'async def' al siguiente def de nivel 0.
-        m = re.search(rf"^async def {re.escape(nombre)}\(.*?(?=^\S)",
-                      fuente, re.DOTALL | re.MULTILINE)
-        if not m:
+        nodo = definiciones.get(nombre)
+        if nodo is None:
             sin_desvincular.append(f"{nombre} (no se encontró su definición)")
             continue
-        if "_soltar_guardia_heredado()" not in m.group(0):
+        if "_soltar_guardia_heredado()" not in (ast.get_source_segment(fuente, nodo) or ""):
             sin_desvincular.append(nombre)
 
     check(not sin_desvincular,

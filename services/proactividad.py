@@ -120,6 +120,40 @@ async def _post_graph(ruta: str, **kwargs) -> dict:
             await cli.aclose()
 
 
+async def marcar_leido_y_escribiendo(mensaje_id: str) -> bool:
+    """Doble palomita azul + 'escribiendo…' en el chat del atleta.
+
+    El turno del coach tarda ~48 s de mediana (medido en el QA del 2026-07-30) y
+    hasta ahora el atleta no veía absolutamente NADA durante ese tiempo: ni que
+    le habían leído. En WhatsApp ese silencio se lee como "no me va a contestar",
+    y es lo que más pesaba en la experiencia sin ser un fallo de contenido.
+
+    LÍMITE DE META, importante para no prometer de más: el indicador se apaga
+    solo a los **25 segundos**, o antes si ya se envió la respuesta. No se puede
+    refrescar — la API lo asocia al mensaje entrante y este ya queda marcado como
+    leído. Así que cubre la primera mitad de un turno medio, no el turno entero.
+
+    Devuelve True si Meta lo aceptó. Nunca lanza: que falle el indicador jamás
+    puede impedir que el mensaje del atleta se procese.
+    """
+    if not (mensaje_id and TOKEN and PHONE_ID):
+        return False
+    try:
+        await _post_graph("messages", json={
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": str(mensaje_id),
+            "typing_indicator": {"type": "text"},
+        })
+        return True
+    except Exception as e:
+        # Un 400 aquí es normal y esperable: el mensaje pudo marcarse como leído
+        # en otra entrega del mismo lote, o llegar fuera de la ventana de Meta.
+        print(f"[TYPING] no se pudo marcar 'escribiendo' en {mensaje_id}: "
+              f"{type(e).__name__}: {str(e)[:120]}")
+        return False
+
+
 async def enviar_readiness(numero: str, nombre: str = "campeón") -> dict:
     """Dispara la plantilla matutina a UN usuario."""
     return await _post_graph("messages", json={
@@ -350,6 +384,40 @@ _UNIDADES = {"cero": 0, "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3,
 _CENTENAS = {"cien": 100, "ciento": 100, "doscientos": 200, "trescientos": 300,
              "cuatrocientos": 400, "quinientos": 500}
 
+# v14 — En español estas tres palabras son ARTÍCULO mucho más a menudo que
+# número, y convertirlas a ciegas metía dígitos falsos en el mensaje que luego
+# leen todos los parsers. Medido el 2026-07-30 sobre audios reales:
+#
+#   "chance en un 20%"        -> "chance en 1 20%"        <- el peor
+#   "tienes un error"         -> "tienes 1 error"
+#   "es un press de pecho"    -> "es 1 press de pecho"
+#
+# El primero costó un turno entero del onboarding: con campo_pendiente=
+# 'porcentaje_grasa', el parser cogió el 1, quedó fuera del rango 3-60 y el
+# atleta tuvo que repetir su dato ("ya te dije, 20%").
+_ARTICULOS_AMBIGUOS = {"un", "uno", "una"}
+
+# Solo se convierten cuando lo que sigue es algo CONTABLE. "un kilo" y "una
+# repetición" son números; "un error" y "un 20%" no.
+_UNIDAD_CONTABLE_RE = re.compile(
+    r"^(?:kilos?|kgs?|kilogramos?"
+    r"|reps?|repetici[oó]n(?:es)?|repes?"
+    r"|vez|veces"
+    r"|series?|sets?"
+    r"|minutos?|segundos?"
+    r"|discos?|placas?)\b",
+    re.IGNORECASE)
+
+
+def _siguiente_palabra(tokens: list[str], desde: int) -> str:
+    """Primera palabra con contenido a partir de `desde` (el split conserva los
+    separadores, así que hay que saltarse los blancos)."""
+    for k in range(desde, len(tokens)):
+        t = tokens[k].strip(" .,;:¿?¡!()")
+        if t:
+            return t.lower()
+    return ""
+
 
 def normalizar_numeros_es(texto: str) -> str:
     """'ciento dos y medio kilos por ocho' → '102.5 kilos por 8'. Whisper en
@@ -395,6 +463,15 @@ def normalizar_numeros_es(texto: str) -> str:
                     break
                 j += 1
             if consumidos and val > 0:
+                # Si quien ABRE el número es "un/una/uno", solo es número cuando
+                # va seguido de algo contable. La restricción se aplica al token
+                # inicial a propósito: en "ciento un kilos" el que abre es
+                # "ciento", así que el 101 se sigue formando igual.
+                if tk in _ARTICULOS_AMBIGUOS and not _UNIDAD_CONTABLE_RE.match(
+                        _siguiente_palabra(tokens, i + consumidos)):
+                    out.append(tokens[i])
+                    i += 1
+                    continue
                 out.append(f"{val:g}")
                 i += consumidos
                 continue
@@ -452,7 +529,12 @@ async def extraer_triada_audio(transcript: str, contexto_dia: str, chat_llm,
                 if datos.get(k) is not None and resultado.get(k) in (None, 0.0):
                     resultado[k] = datos[k]
         except Exception as e:
-            print(f"[AUDIO] extractor LLM falló ({e}); queda lo determinista")
+            # v14 — El mensaje salía vacío ("extractor LLM falló ()") porque un
+            # TimeoutError de asyncio no lleva texto: imposible saber si el modelo
+            # tardó, si devolvió un JSON roto o si no estaba cargado. Con el tipo
+            # delante se distingue de un vistazo.
+            print(f"[AUDIO] extractor LLM falló ({type(e).__name__}: {e or 'sin detalle'}); "
+                  f"queda lo determinista")
 
     faltantes = [k for k in ("ejercicio", "peso_kg", "repeticiones", "rpe")
                  if resultado.get(k) in (None, "")]

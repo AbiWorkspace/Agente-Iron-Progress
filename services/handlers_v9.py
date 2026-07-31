@@ -42,8 +42,23 @@ from services import motor_predictivo as mp
 #
 # Reforzar el prompt reduce la probabilidad; esta guarda la elimina. El dato
 # confirmado se registra aquí antes de invocar al LLM y el handler lo impone.
-# Caduca por TTL para no contaminar series posteriores del mismo atleta.
-_TTL_CONFIRMADO_S = 30 * 60
+#
+# v14 — DOS USOS, DOS VENTANAS. El sello se usaba para dos cosas opuestas con un
+# único TTL de 30 minutos:
+#
+#   HEREDAR  — el atleta manda "otra igual, 100x4" sin decir el ejercicio. Aquí
+#              una ventana larga es justo lo que se quiere: la sesión sigue.
+#   IMPONER  — el modelo trae OTRO nombre y el sello lo pisa. Esto solo tiene
+#              sentido durante los minutos que siguen a la confirmación, porque
+#              corrige una deriva puntual del modelo.
+#
+# Con 30 minutos para ambos, imponer se comía la sesión entera: en un entreno se
+# cambia de ejercicio cada 5-10 minutos. Medido el 2026-07-30 — el atleta reporta
+# "Curl de biceps con barra con 40kg hice 12 reps", el modelo emite correctamente
+# `{"ejercicio": "Curl Biceps Barra"}`, y el sello de "Press Inclinado" puesto 7
+# minutos antes lo sobrescribe: el curl quedó en su diario como press inclinado.
+_TTL_CONFIRMADO_S = 30 * 60      # ventana de HERENCIA
+_TTL_IMPONER_S = 3 * 60          # ventana de IMPOSICIÓN sobre lo que trae el modelo
 _ejercicio_confirmado: dict[str, tuple[str, float]] = {}
 
 
@@ -54,15 +69,22 @@ def fijar_ejercicio_confirmado(numero: str, ejercicio: str | None) -> None:
     _ejercicio_confirmado[str(numero)] = (str(ejercicio), time.time())
 
 
-def leer_ejercicio_confirmado(numero: str) -> str | None:
+def leer_ejercicio_confirmado(numero: str, max_edad_s: float | None = None) -> str | None:
     """Devuelve el ejercicio confirmado vigente, o None si no hay o ya caducó.
-    No lo consume: el LLM puede reinvocar la tool dentro del mismo turno."""
+
+    `max_edad_s` acota la ventana para quien necesita una garantía más fuerte que
+    la herencia (ver la nota de DOS USOS, DOS VENTANAS). No lo consume: el LLM
+    puede reinvocar la tool dentro del mismo turno.
+    """
     dato = _ejercicio_confirmado.get(str(numero))
     if not dato:
         return None
     ejercicio, sellado = dato
-    if (time.time() - sellado) > _TTL_CONFIRMADO_S:
+    edad = time.time() - sellado
+    if edad > _TTL_CONFIRMADO_S:
         _ejercicio_confirmado.pop(str(numero), None)
+        return None
+    if max_edad_s is not None and edad > max_edad_s:
         return None
     return ejercicio
 
@@ -91,12 +113,19 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
     # GUARDA: si el atleta confirmó el ejercicio de esta serie, manda ese dato.
     # El LLM puede desviarse hacia el nombre de la rutina del día o hacia la
     # detección de visión que el propio atleta ya corrigió.
-    confirmado = leer_ejercicio_confirmado(numero)
+    #
+    # v14 — Pisar lo que trae el modelo solo se admite dentro de _TTL_IMPONER_S;
+    # pasada esa ventana el sello sigue sirviendo para HEREDAR (el atleta no dijo
+    # el ejercicio) pero ya no para sobrescribir un nombre explícito, que es como
+    # una serie de curl acababa apuntada en el press inclinado de siete minutos
+    # antes.
     corregido_desde = None
-    if confirmado and not mismo_ejercicio(ejercicio, confirmado):
-        corregido_desde, ejercicio = ejercicio, confirmado
-    elif confirmado and not ejercicio:
-        ejercicio = confirmado
+    if not ejercicio:
+        ejercicio = leer_ejercicio_confirmado(numero) or ""
+    else:
+        confirmado = leer_ejercicio_confirmado(numero, max_edad_s=_TTL_IMPONER_S)
+        if confirmado and not mismo_ejercicio(ejercicio, confirmado):
+            corregido_desde, ejercicio = ejercicio, confirmado
 
     peso = _f(args.get("peso_kg"))
     reps = args.get("repeticiones")

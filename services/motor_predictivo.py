@@ -435,15 +435,48 @@ def predecir_carga_optima(numero: str, ejercicio: str, repeticiones_objetivo: in
     # eso mezclaba peras con manzanas: tras un día de 3x3 pesadas, la
     # recomendación para 12 reps se veía forzada al 93 % de aquella carga y, con
     # el techo del e1RM encima, la función devolvía el MISMO kilaje para 3, 8 o
-    # 12 repeticiones. Se compara con la última carga usada en un objetivo de
-    # reps parecido (±3); si no hay ninguna, no se clampa y manda el e1RM.
-    ref_top = next((float(s["w"]) for s in reversed(series)
-                    if abs(int(s["r"]) - reps) <= 3), None)
+    # 12 repeticiones. Se compara con las cargas usadas en un objetivo de reps
+    # parecido (±3); si no hay ninguna, no se clampa y manda el e1RM.
+    #
+    # Y se toma la MÁS PESADA de ese último día, no la última registrada: un
+    # back-off ligero al cierre de la sesión (105 kg x8 y luego 70 kg x10, que es
+    # práctica estándar) se convertía en la referencia y el clamp ataba la
+    # prescripción a él — 72.5 kg para un atleta que mueve 105.
+    comparables = [s for s in series if abs(int(s["r"]) - reps) <= 3]
+    ref_top = rpe_ref = None
+    if comparables:
+        dia_ref = _fecha(comparables[-1]["f"])
+        del_dia = [s for s in comparables if _fecha(s["f"]) == dia_ref]
+        ref_top = max(float(s["w"]) for s in del_dia)
+        rpe_ref = min(float(s["rpe"]) for s in del_dia if float(s["w"]) == ref_top)
     if ref_top:
         carga = max(ref_top * CLAMP_BAJO, min(carga, ref_top * CLAMP_ALTO))
     carga = min(carga, e1_hat)                      # nadie prescribe > e1RM
+
+    # PISO DE PROGRESIÓN. El e1RM va por EWMA de halflife 4 sesiones, o sea que
+    # persigue al atleta con retraso: con una progresión lineal limpia
+    # (100 → 102.5 → 105 → 107.5 kg x5 @RPE8) el EWMA se quedaba en 126 kg de
+    # e1RM y la recomendación salía 100 kg — mandarle MENOS de lo que acababa de
+    # levantar. Si ya completó esa carga a un RPE igual o menor que el objetivo,
+    # está demostrada y repetirla es el suelo, no el techo. Se desactiva si viene
+    # molido: ahí bajar la carga es la decisión correcta.
+    if ref_top and rpe_ref is not None and rpe_ref <= rpe_obj and readiness_val >= 0.6:
+        carga = max(carga, ref_top)
+
     inc = incremento_barra(numero)                  # discos reales del atleta
-    carga = max(20.0, redondear_carga(carga, inc))  # barra vacía como piso
+    # 'Barra vacía' como piso SOLO si el ejercicio se hace con barra. Aplicado a
+    # todo, prescribía 20 kg de curl a quien mueve 12 (y 20 kg de lastre a quien
+    # hace dominadas a peso corporal).
+    tope_historico = max((float(s["w"]) for s in series), default=0.0)
+    piso = 20.0 if tope_historico >= 20.0 else inc
+    carga_bruta = carga
+    carga = max(piso, redondear_carga(carga, inc))
+    # El redondeo se aplica DESPUÉS del clamp y puede sacarlo de él: con un
+    # accesorio de 12 kg, el suelo del clamp (11.16) redondeaba a 10.0, un 17 %
+    # por debajo de lo que el atleta mueve. Cuando eso pasa se redondea hacia
+    # arriba, que es el lado seguro (el RPE objetivo lo corrige en la serie).
+    if ref_top and carga < ref_top * CLAMP_BAJO:
+        carga = max(carga, redondear_carga(carga_bruta + inc / 2.0, inc))
 
     pend_sem = 0.0
     if len(ses) >= 3:

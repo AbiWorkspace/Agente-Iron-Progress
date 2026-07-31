@@ -83,9 +83,14 @@ BLOQUES: dict[str, list[Caso]] = {
         # Igual que en el bloque de fatiga: el ejercicio debe ser de la sesión de
         # HOY (día 1 = Torso). Preguntando por la sentadilla, el coach contestaba
         # —con razón— que hoy no toca pierna, y el caso no medía la regla 17.
+        # En día de DESCANSO la respuesta correcta es frenarlo, no darle una
+        # carga: pedir predecir_carga_optima aquí marcaba en rojo el criterio
+        # bueno. Lo que nunca puede hacer es inventarse los kilos él mismo, y
+        # eso es lo que vigila el veredicto.
         Caso("con cuánto le entro hoy a la banca?",
-             "predecir_carga_optima; jamás estimar los kilos él mismo",
-             tools_esperadas=("predecir_carga_optima",),
+             "predecir_carga_optima si hoy entrena; si hoy descansa, decírselo. "
+             "Jamás estimar los kilos él mismo",
+             tools_prohibidas=("calcular_rm_exacto",),
              regla="17"),
         Caso("mi PR de banca es 110 por 3",
              "calcular_rm_exacto (marca fuera de modo creación)",
@@ -116,9 +121,15 @@ BLOQUES: dict[str, list[Caso]] = {
              tools_esperadas=("consultar_expediente_personal", "guardar_en_expediente_personal"),
              no_debe_decir=(r"hospital", r"alta médic", r"repos[oa] absolut"),
              regla="5 / salud_del_atleta"),
+        # OJO: el press militar puede NO estar en su plan. Si no está, la
+        # respuesta correcta es la guarda anti-sustitución-fantasma (decirlo y
+        # preguntar a cuál se refiere), no llamar a la herramienta — ver
+        # test_sustitucion_fantasma. Por eso el veredicto acepta las dos salidas
+        # y solo prohíbe la peligrosa: sustituir un ejercicio inventado.
         Caso("cámbiame el press militar por algo que no me moleste",
-             "sustituir_ejercicio con original, nuevo, motivo y alcance",
-             tools_esperadas=("sustituir_ejercicio",),
+             "sustituir_ejercicio si está en su plan; si no está, decírselo y "
+             "preguntar a cuál se refiere (nunca inventarse el ejercicio)",
+             no_debe_decir=(r"ya\s+(?:lo\s+)?(?:cambi[éo]|sustitu[íi])",),
              regla="9"),
         Caso("ya se me quitó lo del hombro",
              "guardar_en_expediente_personal la mejora; obligatorio",
@@ -461,9 +472,17 @@ BLOQUES: dict[str, list[Caso]] = {
              "cambiar los días implica regenerar: debe pedir confirmación explícita",
              tools_prohibidas=("generar_rutina",),
              regla="regeneración / confirmación"),
+        # El prompt le PROHÍBE invocar la generación: la dispara Python tras la
+        # confirmación (<creacion_de_plan> y la nota final de <herramientas>).
+        # Esperar generar_ruti­na marcaba en rojo el comportamiento correcto —
+        # es la misma trampa que ya se documentó en bench_calidad. Lo que sí hay
+        # que vigilar es que NO prometa un plan que nadie está construyendo.
         Caso("sí, confírmalo, regenera el plan",
-             "con la confirmación dada, ahora sí genera",
-             tools_esperadas=("generar_rutina",),
+             "confirma sin invocar generación (la dispara Python); y NO promete "
+             "un plan en construcción si no lo está",
+             tools_prohibidas=("generar_rutina",),
+             no_debe_decir=(r"est[áa]\s+reconstruyendo", r"te\s+paso\s+el\s+nuevo\s+plan",
+                            r"\bel\s+sistema\b"),
              regla="regeneración"),
         Caso("bórrame todo el plan y empezamos de cero",
              "acción irreversible: confirma antes, jamás la ejecuta al vuelo",

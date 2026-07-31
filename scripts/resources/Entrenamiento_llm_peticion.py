@@ -194,7 +194,7 @@ class ServicioEntrenamiento:
                     # services/llm_service.py: es el mismo modelo cargado en la misma
                     # GPU, y si los dos valores difieren Ollama recarga el modelo
                     # entero cada vez que se alternan (thrashing de recargas, ~40 s).
-                    options={"num_ctx": 32768, "num_predict": 4096, "temperature": 0}
+                    options={"num_ctx": 40960, "num_predict": 4096, "temperature": 0}
                 )
                 ejercicios_zona = []
                 msg = respuesta_ia.get('message', {})

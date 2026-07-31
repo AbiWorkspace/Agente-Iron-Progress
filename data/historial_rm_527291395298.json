@@ -236,5 +236,59 @@
     "ejercicio": "press banco plano",
     "rm": 211.3,
     "peso_origen": 195.0
+  },
+  {
+    "fecha": "2026-07-30 16:26",
+    "ejercicio": "press banco plano",
+    "rm": 157.1,
+    "peso_origen": 145.0
+  },
+  {
+    "fecha": "2026-07-30 16:26",
+    "ejercicio": "sentadilla",
+    "rm": 157.1,
+    "peso_origen": 145.0
+  },
+  {
+    "fecha": "2026-07-30 16:27",
+    "ejercicio": "peso muerto",
+    "rm": 258.1,
+    "peso_origen": 205.0
+  },
+  {
+    "fecha": "2026-07-30 16:27",
+    "ejercicio": "dominadas",
+    "rm": 36.9,
+    "peso_origen": 30.0
+  },
+  {
+    "fecha": "2026-07-30 16:30",
+    "ejercicio": "sentadilla",
+    "rm": 216.7,
+    "peso_origen": 200.0
+  },
+  {
+    "fecha": "2026-07-30 16:51",
+    "ejercicio": "press banco plano",
+    "rm": 59.3,
+    "peso_origen": 45.0
+  },
+  {
+    "fecha": "2026-07-30 17:24",
+    "ejercicio": "press banca plano con mancuernas",
+    "rm": 59.3,
+    "peso_origen": 45.0
+  },
+  {
+    "fecha": "2026-07-30 17:57",
+    "ejercicio": "press inclinado",
+    "rm": 135.7,
+    "peso_origen": 110.0
+  },
+  {
+    "fecha": "2026-07-30 18:19",
+    "ejercicio": "curl de biceps con barra",
+    "rm": 53.7,
+    "peso_origen": 40.0
   }
 ]
