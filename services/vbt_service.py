@@ -29,6 +29,27 @@ async def _subir_y_enviar_video(cliente: httpx.AsyncClient, headers: dict,
     """Sube el MP4 a Meta y lo manda al atleta. True si Meta lo aceptó."""
     url_upload = f"{settings.GRAPH_URL}/{ID_NUMERO_TELEFONO}/media"
 
+    MAX_BYTES_META = int(15.0 * 1024 * 1024)
+    if os.path.exists(ruta_video) and os.path.getsize(ruta_video) > MAX_BYTES_META:
+        print(f"[RE-COMPRESION WHATSAPP]: El video pesa {os.path.getsize(ruta_video)/(1024*1024):.2f} MB. Comprimiendo para Meta (<15 MB)...")
+        import subprocess
+        import imageio_ffmpeg
+        try:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_exe = "ffmpeg"
+        ruta_comp = ruta_video + ".wa.mp4"
+        cmd = [
+            ffmpeg_exe, "-y", "-i", ruta_video,
+            "-c:v", "libx264", "-crf", "25", "-preset", "medium",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", ruta_comp
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if os.path.exists(ruta_comp) and os.path.getsize(ruta_comp) <= MAX_BYTES_META:
+            os.replace(ruta_comp, ruta_video)
+        elif os.path.exists(ruta_comp):
+            os.remove(ruta_comp)
+
     with open(ruta_video, "rb") as f_video:
         archivos = {"file": (os.path.basename(ruta_video), f_video, "video/mp4")}
         datos = {"messaging_product": "whatsapp"}

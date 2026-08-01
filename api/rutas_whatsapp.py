@@ -160,8 +160,10 @@ async def enviar_whatsapp(numero_usuario: str, texto: str) -> None:
     """Envío no bloqueante. `enviar_mensaje_whatsapp` usa requests + pausas, así
     que llamarla directo desde una corrutina congelaba el event loop en cada
     mensaje (y hasta 4 s cuando el texto se parte en varios fragmentos)."""
+    detener_escribiendo(numero_usuario)
     await asyncio.to_thread(enviar_mensaje_whatsapp,
                             telefono_destino=numero_usuario, texto=texto)
+
 
 
 def corregir_ejercicio_usuario(texto_usuario: str, ejercicio_ia: str) -> str:
@@ -362,6 +364,8 @@ async def procesar_y_enviar_mensaje(
                 "Se me trabó el sistema procesando eso bro 🙏 Mándamelo otra vez porfa.")
         except Exception as e_aviso:
             print(f"[ERROR]: tampoco pude avisar del fallo: {e_aviso}")
+    finally:
+        detener_escribiendo(numero_usuario)
 
 
 # ==============================================================================
@@ -702,8 +706,21 @@ async def _encolar_y_avisar(trabajo: Trabajo) -> None:
         await enviar_whatsapp(trabajo.numero, TEXTO_AVISO_EN_COLA)
 
 
-def _lanzar_escribiendo(mensaje_id: str) -> None:
-    """Enciende el 'escribiendo…' sin bloquear el webhook.
+_TAREAS_TYPING: dict[str, asyncio.Task] = {}
+_ULTIMO_MENSAJE_ID: dict[str, str] = {}
+
+
+def detener_escribiendo(clave: str) -> None:
+    """Cancela el bucle de 'escribiendo...' cuando la respuesta ya fue enviada."""
+    if not clave:
+        return
+    task = _TAREAS_TYPING.pop(clave, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _lanzar_escribiendo(mensaje_id: str = "", numero_usuario: str = "") -> None:
+    """Enciende el 'escribiendo…' y lo mantiene activo en segundo plano cada 18s mientras el modelo piensa.
 
     La tarea suelta el guardia heredado antes de nada: `asyncio.create_task`
     COPIA los ContextVar, así que sin esto una tarea de fondo creada dentro de un
@@ -712,8 +729,16 @@ def _lanzar_escribiendo(mensaje_id: str) -> None:
     thrashing de VRAM, sin ningún error visible. Ver la nota de EXCLUSIÓN POR
     TURNO en llm_service y el test 7 de test_turno_exclusivo.
     """
+    if numero_usuario and mensaje_id:
+        _ULTIMO_MENSAJE_ID[numero_usuario] = mensaje_id
+    elif numero_usuario and not mensaje_id:
+        mensaje_id = _ULTIMO_MENSAJE_ID.get(numero_usuario, "")
+
     if not mensaje_id:
         return
+
+    clave = numero_usuario or mensaje_id
+    detener_escribiendo(clave)
 
     async def _tarea():
         try:
@@ -721,14 +746,24 @@ def _lanzar_escribiendo(mensaje_id: str) -> None:
             _soltar_guardia_heredado()
         except Exception:
             pass
+        from services import proactividad
+        max_duracion = 180  # 3 minutos tope por seguridad
+        inicio = time.time()
         try:
-            from services import proactividad
-            await proactividad.marcar_leido_y_escribiendo(mensaje_id)
+            while (time.time() - inicio) < max_duracion:
+                await proactividad.marcar_leido_y_escribiendo(mensaje_id)
+                await asyncio.sleep(18)
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            print(f"[TYPING] fallo al lanzar el indicador: {e}")
+            print(f"[TYPING] fallo en el bucle del indicador: {e}")
+        finally:
+            _TAREAS_TYPING.pop(clave, None)
 
     try:
-        asyncio.create_task(_tarea())
+        task = asyncio.create_task(_tarea())
+        if clave:
+            _TAREAS_TYPING[clave] = task
     except RuntimeError:
         pass          # sin event loop (tests sincronos): el indicador es opcional
 
@@ -763,7 +798,7 @@ async def _procesar_mensaje(mensaje: dict) -> None:
     # Fire-and-forget a propósito: el webhook tiene que devolverle 200 a Meta
     # cuanto antes o reintenta la entrega, así que esperar a la Graph API aquí
     # sería cambiar un problema de percepción por uno real.
-    _lanzar_escribiendo(mensaje_id)
+    _lanzar_escribiendo(mensaje_id, numero_usuario)
 
     # =========================================================
     # GANCHO V9 (1/2): INTERCEPTOR DE BOTONES (READINESS)

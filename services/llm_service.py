@@ -6036,6 +6036,47 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
         log(numero_usuario, rectificacion["etapa"], rectificacion["resumen"])
         serie = None                      # ya está resuelto: no registrar de nuevo
 
+    # --- AUTO-REGISTRO DE SERIE DESDE VIDEO VBT ---
+    if "TELEMETRÍA DE VIDEO VBT RECIBIDA" in mensaje_usuario:
+        try:
+            m_ej = re.search(r"(?:EJERCICIO CONFIRMADO POR EL ATLETA|EJERCICIO DE ESTA SERIE):\s*([^\n\.\(\-]+)", mensaje_usuario, re.IGNORECASE)
+            m_carga = re.search(r"(?:CARGA CONFIRMADA|Carga en barra):\s*([\d\.]+)\s*kg", mensaje_usuario, re.IGNORECASE)
+            m_reps = re.search(r"Repeticiones Completadas:\s*(\d+)", mensaje_usuario, re.IGNORECASE)
+            m_rpe = re.search(r"RPE Estimado:\s*([\d\.]+)", mensaje_usuario, re.IGNORECASE)
+
+            if m_ej and m_reps:
+                vbt_ej = m_ej.group(1).strip().title()
+                vbt_reps = int(m_reps.group(1))
+                vbt_kg = float(m_carga.group(1)) if m_carga else 0.0
+                vbt_rpe = float(m_rpe.group(1)) if m_rpe else None
+
+                from services.motor_predictivo import serie_duplicada_reciente
+                is_dup = await asyncio.to_thread(serie_duplicada_reciente, numero_usuario, vbt_ej, vbt_kg, vbt_reps, vbt_rpe)
+                if not is_dup:
+                    await asyncio.to_thread(guardar_serie_sql, numero_usuario, {
+                        "ejercicio": vbt_ej,
+                        "peso_kg": vbt_kg,
+                        "repeticiones": vbt_reps,
+                        "rpe_reportado": vbt_rpe,
+                    })
+                    if 1 <= vbt_reps <= 15 and vbt_kg > 0:
+                        rm_val = _e1rm_de_serie(vbt_kg, vbt_reps, vbt_rpe)
+                        await asyncio.to_thread(guardar_rm, numero_usuario, vbt_ej, rm_val,
+                                                peso_origen=vbt_kg, reps_origen=vbt_reps,
+                                                fuente="auto_vbt")
+                    fijar_ejercicio_confirmado(numero_usuario, vbt_ej)
+
+                resumen_vbt = f"{vbt_ej} {vbt_kg:g} kg x {vbt_reps} reps"
+                if vbt_rpe:
+                    resumen_vbt += f" @RPE {vbt_rpe:g}"
+
+                serie_registrada_python = True
+                accion_ejecutada = True
+                acciones_ok.append(f"serie completada de video VBT registrada: {resumen_vbt}")
+                log(numero_usuario, "SERIE-VBT-AUTO", f"registrada automáticamente: {resumen_vbt}")
+        except Exception as e_vbt:
+            log(numero_usuario, "SERIE-VBT-AUTO-ERR", f"error auto-registrando VBT: {e_vbt}")
+
     # --- SERIE(S) ---
     if serie and not rutina_vacia:
         series_todas = detectar_series_multiples(mensaje_usuario)
