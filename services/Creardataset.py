@@ -82,6 +82,7 @@ import inspect
 import logging
 import math
 import os
+import subprocess
 import traceback
 from collections import deque
 from dataclasses import dataclass, asdict
@@ -91,8 +92,64 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from moviepy import VideoFileClip
+import imageio_ffmpeg
 
 from data.meta_service import enviar_mensaje_whatsapp
+
+
+def _es_video_hdr(ruta_video: str) -> bool:
+    """Detecta si el video de entrada contiene transferencia o espacio de color HDR."""
+    try:
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_exe = "ffmpeg"
+    try:
+        res = subprocess.run([ffmpeg_exe, "-i", ruta_video], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        err = res.stderr.lower()
+        hdr_keywords = ["bt2020", "arib-std-b67", "smpte2084", "hlg", "hdr10", "10bit", "yuv420p10le", "yuv422p10le", "p010le"]
+        return any(kw in err for kw in hdr_keywords)
+    except Exception as e:
+        logger.warning(f"No se pudo verificar si el video es HDR: {e}")
+        return False
+
+
+def _preprocesar_video_hdr_si_es_necesario(ruta_video: str) -> tuple[str, bool]:
+    """Si el video es HDR, realiza tone-mapping con zscale + tonemap=hable a Rec. 709 SDR."""
+    if not _es_video_hdr(ruta_video):
+        return ruta_video, False
+
+    logger.info("Video HDR detectado. Convirtiendo a Rec. 709 SDR con zscale + tonemap=hable...")
+    try:
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_exe = "ffmpeg"
+
+    dir_name, base_name = os.path.split(ruta_video)
+    ruta_sdr = os.path.join(dir_name, "sdr_" + base_name)
+
+    vf_filter = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-i", ruta_video,
+        "-vf", vf_filter,
+        "-c:v", "libx264",
+        "-crf", "18",
+        "-preset", "slow",
+        "-pix_fmt", "yuv420p",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
+        ruta_sdr
+    ]
+
+    try:
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        logger.info("Conversión HDR -> Rec. 709 SDR completada.")
+        return ruta_sdr, True
+    except Exception as e:
+        logger.error(f"Fallo en conversión HDR -> SDR via zscale: {e}. Se utilizará el video original.")
+        return ruta_video, False
 
 
 # ==============================================================================
@@ -1288,10 +1345,19 @@ class MaquinaEstadosRep:
                     # empuje terminó en la última ganancia real, no aquí.
                     self.empuje_cerrado = True
 
-            if y < self.y_tope:          # mínimo absoluto (cierre por reversa)
+            # Cierre inmediato si el empuje concéntrico terminó en el lockout
+            if self.empuje_cerrado:
+                tope_val = self.y_tope_empuje if self.y_tope_empuje is not None else self.y_tope
+                if abs(tope_val - self.inicio_fase_y) >= rom_min:
+                    rep_cerrada = self._cerrar_repeticion(self.t_fin_ascenso if self.t_fin_ascenso > self.t_inicio_concentrica else t)
+                    self.inicio_fase_y = self.y_tope
+                    self.t_inicio_rep = t
+                    self._reiniciar_a_reposo(y)
+
+            if not rep_cerrada and y < self.y_tope:          # mínimo absoluto (cierre por reversa)
                 self.y_tope = y
 
-            if y > (self.y_tope + reversa):
+            if not rep_cerrada and y > (self.y_tope + reversa):
                 if abs(self.y_tope - self.inicio_fase_y) >= rom_min:
                     rep_cerrada = self._cerrar_repeticion(t)
                     # Arranca la excéntrica de la siguiente repetición
@@ -1936,165 +2002,150 @@ def _semaforo_vl(vl_pct: float) -> str:
 
 def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
                                 carga_kg: Optional[float] = None) -> str:
-    """Reporte para el ATLETA: lenguaje llano, una idea por línea, semáforos.
-    Cero jerga (nada de VL/ROM/CV/e1RM a secas). La versión densa vive en
-    `_construir_reporte_tecnico`."""
+    """Reporte de WhatsApp para ATLETA y COACH (Usuario Normal y Técnico):
+    Combina la síntesis clara de gimnasio con telemetría VBT estructurada,
+    legible y digerible para ambos perfiles."""
     a = analisis
     n = a["reps"]
     vl = a.get("vl_pct")
     rest = a.get("reps_restantes") or {}
 
-    carga_txt = f" con {carga_kg:g} kg" if carga_kg else ""
-    L = [f"\U0001F3CB\uFE0F *{ejercicio.upper()}* — {n} "
-         f"rep{'s' if n != 1 else ''}{carga_txt}", ""]
+    rir_val = a.get("rir_velocidad")
+    if rir_val is None and rest:
+        try:
+            rir_val = float(rest.get("min", 0))
+        except (ValueError, TypeError):
+            rir_val = None
 
-    # ---------- EN CORTO ----------
-    L.append("*EN CORTO*")
+    rpe_val = round(max(10.0 - rir_val, 5.0), 1) if rir_val is not None else None
+    rpe_txt = f"{rpe_val:g}" if rpe_val is not None else "N/D"
+    rir_txt = f"~{rir_val:.0f}" if rir_val is not None else (rest.get("texto", "N/D"))
+
+    carga_linea = f"{carga_kg:g} kg" if carga_kg else "Peso por calibrar"
+    resumen_serie = f"*{carga_linea} × {n} rep{'s' if n != 1 else ''} @ RPE {rpe_txt} (RIR {rir_txt})*"
+
+    L = [
+        f"\U0001F3CB\uFE0F *{ejercicio.upper()}*",
+        f"*SERIE:* {resumen_serie}",
+        ""
+    ]
+
+    # ---------- EN CORTO (Para Usuario Normal / Atleta) ----------
+    L.append("\U0001F4CC *EN CORTO (Resumen de Sesión)*")
     if vl is None:
         rir_v = a.get("rir_velocidad")
         if rir_v is not None and rir_v <= 1:
-            lectura = "fue un intento casi máximo: poquísimo margen"
+            lectura = "fue un intento casi máximo: poquísimo margen de fallo"
         elif rir_v is not None and rir_v <= 3:
-            lectura = "pesó, pero aún tenías margen"
+            lectura = "pesó considerablemente, pero mantuviste margen"
         else:
-            lectura = "te salió cómoda, con mucho margen"
-        L.append(f"Una sola rep a {a['v_mejor']:.2f} m/s: {lectura}.")
+            lectura = "salió fluida y explosiva, con bastante margen"
+        L.append(f"• Repetición única a {a['v_mejor']:.2f} m/s: {lectura}.")
     elif vl < 10:
-        L.append(f"Serie fresca: de la primera a la última rep apenas "
-                 f"perdiste velocidad ({vl:.0f}%). Terminaste con mucha cuerda.")
+        L.append(f"• Serie muy fresca: apenas perdiste velocidad ({vl:.0f}% VL). Terminaste con mucha reserva.")
     elif vl < 20:
-        L.append(f"Serie sólida y controlada: acabaste un {vl:.0f}% más lento "
-                 f"que al empezar. Buen trabajo de fuerza sin pasarte de fatiga.")
+        L.append(f"• Serie sólida y controlada ({vl:.0f}% VL): fatiga óptima para estimular fuerza sin sobrecargar el SNC.")
     elif vl < 30:
-        L.append(f"Serie exigente: acabaste un {vl:.0f}% más lento que al "
-                 f"empezar. Buen estímulo para ganar músculo, con fatiga notable.")
+        L.append(f"• Serie exigente ({vl:.0f}% VL): alto estímulo de hipertrofia con fatiga acumulada notable.")
     else:
-        L.append(f"Serie muy dura: acabaste un {vl:.0f}% más lento que al "
-                 f"empezar, muy cerca del fallo. Cuenta 48-72 h para "
-                 f"recuperarte del todo.")
+        L.append(f"• Serie al límite ({vl:.0f}% VL): cercana al fallo muscular. Requiere 48-72 h de recuperación.")
 
-    # ---------- TUS REPS ----------
-    L += ["", "*TUS REPS* (velocidad de subida)"]
+    # ---------- DESGLOSE POR REPETICIÓN (Para Coach & Usuario Técnico) ----------
+    L += ["", "\u26A1 *DESGLOSE DE VELOCIDAD POR REP*"]
     i_best = a.get("rep_mas_rapida")
     lineas_reps = []
     for r in registro:
+        pico_txt = f" (pico {r.v_peak:.2f} m/s)" if hasattr(r, "v_peak") and r.v_peak else ""
         if len(registro) == 1:
-            lineas_reps.append(f"R{r.rep} \u26A1 {r.v_avg:.2f} m/s")
+            lineas_reps.append(f"• R{r.rep} \u26A1 {r.v_avg:.2f} m/s{pico_txt}")
         elif r.rep == i_best:
-            lineas_reps.append(f"R{r.rep} {_semaforo_vl(0)} {r.v_avg:.2f} m/s "
-                               f"\u26A1 tu mejor")
+            lineas_reps.append(f"• R{r.rep} {_semaforo_vl(0)} {r.v_avg:.2f} m/s{pico_txt} \u26A1 *Mejor rep*")
         else:
-            lineas_reps.append(f"R{r.rep} {_semaforo_vl(r.vl_pct)} "
-                               f"{r.v_avg:.2f} m/s (\u2212{r.vl_pct:.0f}%)")
+            lineas_reps.append(f"• R{r.rep} {_semaforo_vl(r.vl_pct)} {r.v_avg:.2f} m/s{pico_txt} (\u2212{r.vl_pct:.0f}%)")
     L += lineas_reps
 
-    # ---------- LO QUE DICE LA SERIE ----------
+    # ---------- TELEMETRÍA Y TÉCNICA (Para Coach & Usuario Técnico) ----------
     frases = []
     if a.get("e1rm_kg") and carga_kg:
         if a.get("e1rm_origen") == "piso_reps":
-            frases.append(f"\U0001F4AA Fuerza de hoy: sacar {n} reps con "
-                          f"{carga_kg:g} kg garantiza que tu máximo (1RM) es "
-                          f"de *al menos {a['e1rm_kg']:.0f} kg* — hoy "
-                          f"trabajaste al ~{a['pct_1rm_estimado']:.0f}% "
-                          f"de tu tope.")
+            frases.append(f"\U0001F4AA *1RM de hoy:* al menos *{a['e1rm_kg']:.0f} kg* (garantizado por volumen a ~{a['pct_1rm_estimado']:.0f}% 1RM).")
         else:
-            frases.append(f"\U0001F4AA Fuerza de hoy: tu máximo (1RM) ronda "
-                          f"*{a['e1rm_kg']:.0f} kg* — los {carga_kg:g} kg "
-                          f"fueron ~{a['pct_1rm_estimado']:.0f}% de tu tope.")
+            frases.append(f"\U0001F4AA *1RM estimado:* *{a['e1rm_kg']:.0f} kg* (~{a['pct_1rm_estimado']:.0f}% de intensidad relativa).")
+
     if rest:
         if rest.get("max", 9) <= 1:
-            frases.append("\U0001F50B Terminaste al límite: te quedaba como "
-                          "mucho 1 rep en el tanque.")
+            frases.append("\U0001F50B *Reserva:* Terminaste al límite (\u22641 rep en reserva).")
         else:
-            frases.append(f"\U0001F50B Al terminar aún te quedaban "
-                          f"*{rest['texto']} reps* en el tanque.")
+            frases.append(f"\U0001F50B *Reserva:* Quedaban *{rest['texto']} reps* en el tanque.")
+
     if a.get("sticking_max_s", 0) >= 0.8 and a.get("rep_sticking"):
-        frases.append(f"\U0001F9F1 En la R{a['rep_sticking']} la barra se te "
-                      f"clavó *{a['sticking_max_s']:.1f} s* a media subida: "
-                      f"ese esfuerzo cuenta, y ya se mide entero.")
+        frases.append(f"\U0001F9F1 *Sticking Point:* Clavado *{a['sticking_max_s']:.1f} s* a media subida en R{a['rep_sticking']}.")
+
     caida = a.get("caida_mayor") or {}
     if str(caida.get("patron", "")).startswith("abrupta"):
         ra, rb = caida["entre"]
-        frases.append(f"\U0001F4C9 El bajón fuerte llegó de la rep {ra} a la "
-                      f"{rb} (\u2212{caida['delta_pct']:.0f}% de golpe): ahí "
-                      f"empezó la fatiga de verdad.")
+        frases.append(f"\U0001F4C9 *Degradación:* Bajón brusco entre R{ra} y R{rb} (\u2212{caida['delta_pct']:.0f}%).")
+
     amort_delta = (a.get("tempo") or {}).get("amort_delta_pct")
     if amort_delta is not None and amort_delta >= CONFIG.amort_alerta_crec_pct:
-        amorts = [r.t_amortiguacion_s for r in registro
-                  if r.t_amortiguacion_s is not None]
+        amorts = [r.t_amortiguacion_s for r in registro if r.t_amortiguacion_s is not None]
         if len(amorts) >= 2:
-            frases.append(f"\u23F1\uFE0F La pausa abajo se te fue alargando "
-                          f"({amorts[0]:.1f} \u2192 {amorts[-1]:.1f} s): la "
-                          f"fatiga te está robando el rebote.")
-    if a["desv_horizontal_max_cm"] >= CONFIG.umbral_desv_horizontal_cm:
-        frases.append(f"\u26A0\uFE0F La barra se te desvió hasta "
-                      f"{a['desv_horizontal_max_cm']:.0f} cm de la vertical: "
-                      f"revisa la trayectoria.")
-    elif a.get("rom_cv_pct") is not None and \
-            a["rom_cv_pct"] > CONFIG.rom_cv_alerta_pct:
-        frases.append(f"\u26A0\uFE0F No bajaste igual en todas las reps (el "
-                      f"recorrido varió un {a['rom_cv_pct']:.0f}%): iguala la "
-                      f"profundidad para poder comparar.")
-    elif n > 1:
-        frases.append("\u2705 Técnica sólida: mismo recorrido en todas las "
-                      "reps y la barra subió recta.")
-    if frases:
-        L += ["", "*LO QUE DICE LA SERIE*"] + frases[:4]
+            frases.append(f"\u23F1\uFE0F *Pausa inferior:* Se alargó ({amorts[0]:.1f}s \u2192 {amorts[-1]:.1f}s), perdiendo elástico.")
 
-    # ---------- PARA LA SIGUIENTE SERIE ----------
+    if a.get("desv_horizontal_max_cm", 0) >= CONFIG.umbral_desv_horizontal_cm:
+        frases.append(f"\u26A0\uFE0F *Bar Path:* Desviación de *{a['desv_horizontal_max_cm']:.0f} cm* de la vertical.")
+    elif a.get("rom_cv_pct") is not None and a["rom_cv_pct"] > CONFIG.rom_cv_alerta_pct:
+        frases.append(f"\u26A0\uFE0F *Consistencia ROM:* Profundidad variable ({a['rom_cv_pct']:.0f}% CV).")
+    elif n > 1:
+        frases.append("\u2705 *Técnica:* Trayectoria vertical limpia y ROM consistente.")
+
+    if frases:
+        L += ["", "\U0001F3AF *ANÁLISIS VBT & TÉCNICO*"] + frases[:5]
+
+    # ---------- INDICACIONES PARA LA SIGUIENTE SERIE ----------
     acciones = []
     cortes = a.get("cortes_vl") or {}
     c10, c20 = cortes.get("vl10"), cortes.get("vl20")
     if vl is None:
         rir_v = a.get("rir_velocidad")
         if rir_v is not None and rir_v <= 1:
-            acciones.append("Fue casi un máximo: no acumules más intentos "
-                            "pesados hoy; cierra con trabajo técnico más ligero.")
+            acciones.append("Intento máximo alcanzado: concluye con series secundarias más ligeras.")
         else:
-            acciones.append("Tenías margen: puedes subir un poco en el "
-                            "próximo intento.")
+            acciones.append("Margen disponible: puedes incrementar 2.5-5 kg en la siguiente.")
     elif vl >= 30:
-        acciones.append("Hoy tocaste fondo: en la próxima baja un poco el "
-                        "peso (5-10%) o descansa 4-5 min entre series.")
+        acciones.append("Fatiga alta acumulada: reduce carga 5-10% o descansa 4-5 min.")
     elif vl >= 20:
-        cola = (f"corta la serie en la rep {c20}" if c20
-                else "corta la serie un par de reps antes")
-        acciones.append(f"Vas bien para ganar músculo. Si tu bloque es de "
-                        f"fuerza, {cola}.")
+        cola = f"corta en rep {c20}" if c20 else "corta 1-2 reps antes"
+        acciones.append(f"Excelente estímulo para fuerza/hipertrofia. Para enfoque de fuerza pura: {cola}.")
     elif vl >= 10:
-        acciones.append("Carga y esfuerzo en su punto: repite igual en la "
-                        "siguiente serie.")
+        acciones.append("Carga e intensidad en punto óptimo: mantén para la siguiente serie.")
     else:
-        acciones.append("Te sobró gasolina: puedes añadir peso o un par de "
-                        "reps sin problema.")
+        acciones.append("Carga ligera para tu potencial: incrementa peso o repeticiones.")
+
     ad = (a.get("recomendacion") or {}).get("ajuste_datos") or {}
     if ad.get("carga_nueva"):
         if ad.get("motivo") == "volumen":
-            acciones.append(f"Hoy fue trabajo máximo: para tus próximas "
-                            f"series de 3-5 con margen, prueba "
-                            f"*{ad['carga_nueva']:g} kg* (\u2212{ad['kg']:g} kg).")
+            acciones.append(f"Para series de trabajo acumulativo (3-5 reps), ajusta a *{ad['carga_nueva']:g} kg* (\u2212{ad['kg']:g} kg).")
         elif vl is None or vl < 30:
-            acciones.append(f"Para entrenar fuerza de verdad te falta peso: "
-                            f"prueba *{ad['carga_nueva']:g} kg* "
-                            f"(+{ad['kg']:g} kg).")
-    if n > 1:
-        p10 = f" (hoy: rep {c10})" if c10 else ""
-        p20 = f" (rep {c20})" if c20 else ""
-        acciones.append(f"Regla rápida: corta al perder 10% de velocidad si "
-                        f"buscas potencia{p10}, 20% para fuerza{p20}, 30% "
-                        f"para músculo.")
-    L += ["", "*PARA LA SIGUIENTE SERIE*"]
-    L += [f"\U0001F449 {t}" for t in acciones[:3]]
-    if not carga_kg:
-        L.append("\U0001F4E9 Dime los kg que usaste y en el próximo video te "
-                 "doy tu máximo del día y el ajuste exacto en kilos.")
+            acciones.append(f"Para zona de fuerza principal (\u226585%), prueba *{ad['carga_nueva']:g} kg* (+{ad['kg']:g} kg).")
 
-    L += ["", "¿Dudas con algún dato? Pregúntame y te lo explico."]
+    if n > 1:
+        p10 = f" (rep {c10})" if c10 else ""
+        p20 = f" (rep {c20})" if c20 else ""
+        acciones.append(f"Corte por velocidad: VL 10% potencia{p10} | VL 20% fuerza{p20} | VL 30% hipertrofia.")
+
+    L += ["", "\U0001F680 *RECOMENDACIÓN PRÓXIMA SERIE*"]
+    L += [f"\U0001F449 {t}" for t in acciones[:3]]
+
+    if not carga_kg:
+        L.append("\U0001F4CC *Nota:* Indica los kg utilizados para calcular tu 1RM diario y cargas exactas.")
+
+    L += ["", "\U0001F4AC _¿Necesitas ajustar la rutina o tienes dudas sobre la técnica? Escríbeme._"]
     msg = "\n".join(L)
 
     # WhatsApp corta ~4096 chars: compactar el desglose si hace falta
     if len(msg) > 3800 and len(registro) > 6:
-        idx = L.index("*TUS REPS* (velocidad de subida)")
+        idx = L.index("*TUS REPS* (velocidad de subida)") if "*TUS REPS* (velocidad de subida)" in L else L.index("\u26A1 *DESGLOSE DE VELOCIDAD POR REP*")
         compacto = (lineas_reps[:3]
                     + [f"\u2026 ({len(registro) - 5} reps intermedias) \u2026"]
                     + lineas_reps[-2:])
@@ -2153,10 +2204,7 @@ def _generar_contexto_llm(reps_completadas: int, velocidades_globales: list,
                           analisis: Optional[dict] = None,
                           carga_kg: Optional[float] = None) -> str:
     """
-    Construye el súper-prompt para el LLM. (v3: ya no envía WhatsApp aquí —
-    el reporte lo envía el orquestador con `_construir_reporte_whatsapp` —
-    y ahora inyecta el análisis determinista como única fuente de verdad.)
-    `velocidades_globales` y `numero_usuario` se conservan por compatibilidad.
+    Construye el súper-prompt para el LLM con formato atrapable (kg + reps + RPE + RIR).
     """
     perfil = obtener_perfil_ejercicio(ejercicio)
     if analisis is None:
@@ -2180,15 +2228,25 @@ def _generar_contexto_llm(reps_completadas: int, velocidades_globales: list,
             f"Exc: {r.t_excentrica_s:.2f}s | Trans: {trans} | "
             f"DesvX: {r.desv_horizontal_cm:.1f} cm | VL: {r.vl_pct:.1f}%\n")
 
-    rir_txt = "N/D"
-    if a.get("rir_velocidad") is not None:
-        rpe = round(max(10.0 - a["rir_velocidad"], 5.0), 1)
-        rir_txt = f"~{a['rir_velocidad']:.0f} (RPE ~{rpe})"
+    rir_val = a.get("rir_velocidad")
+    if rir_val is None and a.get("reps_restantes"):
+        try:
+            rir_val = float(a["reps_restantes"].get("min", 0))
+        except (ValueError, TypeError):
+            rir_val = None
+
+    rpe_val = round(max(10.0 - rir_val, 5.0), 1) if rir_val is not None else None
+    rpe_txt = f"{rpe_val:g}" if rpe_val is not None else "N/D"
     reps_rest_txt = (a["reps_restantes"]["texto"]
                      if a.get("reps_restantes") else "N/D")
+    rir_txt = f"~{rir_val:.0f}" if rir_val is not None else reps_rest_txt
     e1rm_txt = (f"{a['e1rm_kg']:.1f} kg" if a.get("e1rm_kg")
                 else "peso por calibrar (pídele los kg al atleta)")
     carga_txt = f"{carga_kg:g} kg" if carga_kg else "no informada"
+    carga_linea = f"{carga_kg:g} kg" if carga_kg else "Peso por calibrar"
+
+    v_prom = round(float(np.mean([r.v_avg for r in registro])), 3) if registro else 0.0
+    resumen_serie_estandar = f"{carga_linea} x {reps_completadas} reps @ RPE {rpe_txt} (RIR {rir_txt})"
 
     hallazgos = "\n".join(f"- {i}" for i in a.get("insights", []))
     rec = a.get("recomendacion", {}) or {}
@@ -2202,19 +2260,26 @@ def _generar_contexto_llm(reps_completadas: int, velocidades_globales: list,
 
     contexto_final = f"""Eres el motor analítico de Iron Progress, un coach experto especializado en Velocity Based Training (VBT). Tu función es analizar la cinemática de la serie con máxima rigurosidad científica internamente, pero EXPRESAR tus conclusiones en un lenguaje de gimnasio motivador, directo y muy fácil de entender para el levantador.
 
-[TELEMETRÍA DE LA SERIE]
+[DATOS ESTRUCTURADOS DE LA SERIE PARA GUARDAR EN HISTORIAL]
+- Serie Estándar (Formato Atrapable): {resumen_serie_estandar}
 - Ejercicio: {ejercicio.upper()} (perfil VBT aplicado: {perfil.nombre})
-- Perfil del Atleta: {nivel_atleta} (Alta eficiencia neural y capacidad de "grind")
 - Carga en barra: {carga_txt}
 - Repeticiones Completadas: {reps_completadas}
+- RPE Estimado: {rpe_txt}
+- RIR Estimado: {rir_txt}
+- e1RM Estimado: {e1rm_txt}
 - Pérdida de Velocidad (VL %, vs la rep más rápida): {fatiga_str}
+- Velocidad Media Concéntrica (VCM): {v_prom:.3f} m/s
+
+[TELEMETRÍA DETALLADA DE LA SERIE]
+- Perfil del Atleta: {nivel_atleta} (Alta eficiencia neural y capacidad de "grind")
 
 [DESGLOSE CINEMÁTICO POR REPETICIÓN]
 {detalle_reps_str}
 [ANÁLISIS DETERMINISTA DEL MOTOR — TU ÚNICA FUENTE DE VERDAD]
 Estos hallazgos YA fueron calculados con los datos. Tu trabajo es narrarlos y traducirlos, NO recalcularlos ni contradecirlos:
 {hallazgos}
-- Reps en reserva estimadas: {reps_rest_txt} | RIR/RPE: {rir_txt}
+- Reps en reserva estimadas: {reps_rest_txt} | RIR/RPE: {rir_txt} (RPE {rpe_txt})
 - 1RM estimado de hoy: {e1rm_txt} | Zona de carga: {a.get('zona_intensidad', 'N/D')} | Origen del e1RM: {a.get('e1rm_origen') or 'N/D'} (piso_reps = mínimo garantizado por completar las reps; NUNCA digas que la carga superó el 100%)
 - MVT efectivo usado hoy: {a.get('mvt_efectivo', 'N/D')} m/s (tabla del nivel: {a.get('mvt_tabla', 'N/D')}) | Barra clavada máx: {a.get('sticking_max_s', 0)} s (rep {a.get('rep_sticking') or '—'})
 - Tempo medio: excéntrica {t.get('excentrica_media_s', 'N/A')}s · transición {amort_txt} · concéntrica {t.get('concentrica_media_s', 'N/A')}s
@@ -2245,10 +2310,9 @@ Si la serie tiene múltiples repeticiones, el VL (%) dicta el fenotipo celular:
 *Nota: En Press de Banca y Dominadas, el fallo absoluto ocurre cerca del 50-60% VL.*
 
 [INSTRUCCIONES DE ANÁLISIS EXCLUSIVAS Y ESTILO DE RESPUESTA]
-Redacta el reporte como un coach humano hablando directamente con el atleta, basándote EXCLUSIVAMENTE en el bloque [ANÁLISIS DETERMINISTA DEL MOTOR]: cita repeticiones concretas, porcentajes y tiempos de ese bloque (ej. "el bajón vino entre la rep 4 y la 5"). PROHIBIDO usar términos como "fenotipo", "neurogénica", "isquemia", "MVT" o "MPV" en la respuesta final. PROHIBIDO inventar pesos, porcentajes o repeticiones que no estén en los datos. Usa el siguiente formato amigable:
-
+0. REGISTRO DE SERIE: El bloque [DATOS ESTRUCTURADOS DE LA SERIE PARA GUARDAR EN HISTORIAL] contiene el formato exacto '{resumen_serie_estandar}' (kg + cantidad de reps + RPE + RIR) necesario para invocar la herramienta registrar_serie_completada o guardar la serie en el historial si la conversación lo amerita.
 1. INTENSIDAD DE LA CARGA: ¿Qué tan pesado estuvo? Menciona el %1RM estimado y, si existe, el 1RM de hoy en kg. Si la carga no fue informada, escribe exactamente 'peso por calibrar' y pídele los kg al atleta.
-2. FATIGA Y ESFUERZO: ¿Qué tan cerca del fallo se quedó? Traduce el VL% y di EXPLÍCITAMENTE cuántas reps le quedaban en el tanque ({reps_rest_txt}).
+2. FATIGA Y ESFUERZO: ¿Qué tan cerca del fallo se quedó? Traduce el VL% y di EXPLÍCITAMENTE cuántas reps le quedaban en el tanque ({reps_rest_txt}) y el RPE/RIR.
 3. OBJETIVO LOGRADO: Traduce el tipo de adaptación conseguida con esta serie a palabras simples.
 4. QUÉ HACER AHORA: Da la orden directa del motor para la siguiente serie (carga, corte de reps y prioridad técnica si la hay).
 
@@ -2266,17 +2330,17 @@ Usa ÚNICAMENTE los 1RMs y pesos que el sistema te proporciona en los bloques an
 
 # ── Paleta centralizada (BGR) ─────────────────────────────────────────────────
 _HUB = {
-    "bg":      (24, 18, 12),    # carbón profundo (fondo del panel)
-    "bg_soft": (34, 27, 20),    # carbón elevado (tarjetas internas)
-    "border":  (70, 62, 52),    # borde exterior sutil
-    "sep":     (52, 46, 40),    # separadores internos / fondo de barras
-    "accent":  (255, 220, 0),   # cian eléctrico  (B=255, G=220, R=0)
-    "green":   (150, 240, 0),   # verde neón
-    "amber":   (0, 170, 255),   # ámbar
-    "red":     (55, 55, 255),   # rojo alerta
-    "white":   (245, 246, 250), # texto principal
-    "muted":   (150, 140, 120), # etiquetas secundarias
-    "shadow":  (0, 0, 0),
+    "bg":      (28, 28, 28),     # backgroundDark (#1C1C1C)
+    "bg_soft": (26, 26, 26),     # cardBackground (#1A1A1A)
+    "border":  (47, 47, 47),     # darkGray (#2F2F2F)
+    "sep":     (47, 47, 47),     # darkGray (#2F2F2F)
+    "accent":  (53, 57, 229),    # brandRed (#E53935)
+    "green":   (134, 135, 1),    # teal (#018786)
+    "amber":   (40, 40, 198),    # darkRed (#C62828)
+    "red":     (70, 57, 230),    # red (#E63946)
+    "white":   (255, 255, 255),  # white (#FFFFFF)
+    "muted":   (187, 187, 187),  # hintColor (#BBBBBB)
+    "shadow":  (0, 0, 0),        # black (#000000)
 }
 
 _FASES = {
@@ -2284,6 +2348,7 @@ _FASES = {
     "excentrica":  (_HUB["amber"], "EXCENTRICA", -1),   # -1 = flecha abajo
     "eccentrica":  (_HUB["amber"], "EXCENTRICA", -1),
     "reposo":      (_HUB["muted"], "REPOSO", 0),
+    "finalizado":  (_HUB["accent"], "SERIE FINALIZADA", 0),
 }
 
 _FONT = cv2.FONT_HERSHEY_DUPLEX
@@ -2591,7 +2656,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     for j in range(1, n):
         t = j / n
         col = (0, int(140 + 100 * t), int(190 + 65 * t))
-        grosor = 1 + int(t > 0.6)
+        grosor = max(1, _s(frame, 2 if t > 0.6 else 1))
         cv2.line(frame, trayectoria[j - 1], trayectoria[j], col, grosor)
 
     # ── 2. MARCADOR DE DISCO ──────────────────────────────────────────────────
@@ -2600,56 +2665,58 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
         bx2, by2 = int(det.x_max), int(det.y_max)
 
         _corners(frame, bx1, by1, bx2, by2, _HUB["accent"])
-        cv2.circle(frame, (det.cx, det.cy), 4, _HUB["accent"], -1)
-        cv2.circle(frame, (det.cx, det.cy), 8, _HUB["accent"], 1)
+        cv2.circle(frame, (det.cx, det.cy), _s(frame, 4), _HUB["accent"], -1)
+        cv2.circle(frame, (det.cx, det.cy), _s(frame, 8), _HUB["accent"], 1)
 
         vel = abs(v_inst)
         col_vel = _color_por_velocidad(vel)
         _txt(frame, f"{vel:.2f} m/s",
-             (det.cx + 50, det.cy + 6),
+             (det.cx + _s(frame, 45), det.cy + _s(frame, 6)),
              scale=0.65, color=col_vel, shadow=True)
 
-    # ── 3. PANEL HUD ──────────────────────────────────────────────────────────
-    PX, PY = 16, 16
-    PW, PH = 295, 316   # v3: +16px para la fila "EN RESERVA"
+    # ── 3. PANEL HUD (escalado responsivo para 1080x1920 Stories/Reels) ───────
+    PX = _s(frame, 20)
+    PY = _s(frame, 20)
+    PW = _s(frame, 320)
+    PH = _s(frame, 340)
 
     overlay = frame.copy()
     cv2.rectangle(overlay, (PX, PY), (PX + PW, PY + PH), _HUB["bg"], -1)
     cv2.addWeighted(overlay, 0.76, frame, 0.24, 0, frame)
 
-    cv2.rectangle(frame, (PX, PY), (PX + PW, PY + PH), _HUB["border"], 1)
-    cv2.line(frame, (PX + 10, PY), (PX + PW - 10, PY), _HUB["accent"], 2)
-    cv2.line(frame, (PX + 10, PY + PH), (PX + PW - 10, PY + PH), _HUB["sep"], 1)
+    cv2.rectangle(frame, (PX, PY), (PX + PW, PY + PH), _HUB["border"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 10), PY), (PX + PW - _s(frame, 10), PY), _HUB["accent"], _s(frame, 2))
+    cv2.line(frame, (PX + _s(frame, 10), PY + PH), (PX + PW - _s(frame, 10), PY + PH), _HUB["sep"], _s(frame, 1))
 
     # ── MARCA IRON PROGRESS ───────────────────────────────────────────────────
-    _txt(frame, "IRON PROGRESS", (PX + 18, PY + 24),
+    _txt(frame, "IRON PROGRESS", (PX + _s(frame, 18), PY + _s(frame, 24)),
          scale=0.45, color=_HUB["accent"], shadow=True, thickness=1)
-    cv2.line(frame, (PX + 12, PY + 34), (PX + PW - 12, PY + 34), _HUB["sep"], 1)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 34)), (PX + PW - _s(frame, 12), PY + _s(frame, 34)), _HUB["sep"], _s(frame, 1))
 
     # ── 3c. REPETICIONES ──────────────────────────────────────────────────────
-    _txt(frame, "REPETICIONES", (PX + 18, PY + 52),
+    _txt(frame, "REPETICIONES", (PX + _s(frame, 18), PY + _s(frame, 46)),
          scale=0.34, color=_HUB["muted"])
-    _txt(frame, str(reps), (PX + 16, PY + 106),
+    _txt(frame, str(reps), (PX + _s(frame, 16), PY + _s(frame, 110)),
          scale=2.5, color=_HUB["green"], thickness=2, shadow=True)
 
-    cv2.line(frame, (PX + 12, PY + 120), (PX + PW - 12, PY + 120), _HUB["sep"], 1)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 120)), (PX + PW - _s(frame, 12), PY + _s(frame, 120)), _HUB["sep"], _s(frame, 1))
 
     # ── 3d. FASE ──────────────────────────────────────────────────────────────
     color_fase, label_fase, _dir = _FASES.get(
         fase.lower(), (_HUB["muted"], f"  {fase.upper()}", 0))
-    _pill(frame, label_fase, PX + 18, PY + 145, color_fase)
+    _pill(frame, label_fase, PX + _s(frame, 18), PY + _s(frame, 145), color_fase)
 
-    cv2.line(frame, (PX + 12, PY + 160), (PX + PW - 12, PY + 160), _HUB["sep"], 1)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 160)), (PX + PW - _s(frame, 12), PY + _s(frame, 160)), _HUB["sep"], _s(frame, 1))
 
     # ── 3e. VELOCIDAD ÚLTIMA REP + barra ──────────────────────────────────────
     if registro:
         v_last = registro[-1].v_avg
         col_last = _color_por_velocidad(v_last)
         _metric(frame, "Ultima rep", f"{v_last:.2f} m/s",
-                PX + 18, PY + 178, vcolor=col_last)
-        _bar(frame, PX + 18, PY + 208, PW - 36, 6, v_last / 1.5, col_last)
+                PX + _s(frame, 18), PY + _s(frame, 178), vcolor=col_last)
+        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 208), PW - _s(frame, 36), _s(frame, 6), v_last / 1.5, col_last)
 
-    cv2.line(frame, (PX + 12, PY + 224), (PX + PW - 12, PY + 224), _HUB["sep"], 1)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 224)), (PX + PW - _s(frame, 12), PY + _s(frame, 224)), _HUB["sep"], _s(frame, 1))
 
     # ── 3f. PÉRDIDA DE VELOCIDAD (fatiga) + barra ─────────────────────────────
     if vl_actual is not None:
@@ -2662,17 +2729,17 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
         _metric(frame, "Perdida de velocidad",
                 f"{vl_actual:.1f}%   {estado}",
-                PX + 18, PY + 242,
+                PX + _s(frame, 18), PY + _s(frame, 242),
                 vcolor=color_vl, vscale=0.60)
-        _bar(frame, PX + 18, PY + 272, PW - 36, 6, vl_actual / 50, color_vl)
+        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 272), PW - _s(frame, 36), _s(frame, 6), vl_actual / 50, color_vl)
 
     # ── 3g. REPS EN RESERVA (v3) ──────────────────────────────────────────────
     if rir_txt:
-        cv2.line(frame, (PX + 12, PY + 288), (PX + PW - 12, PY + 288),
-                 _HUB["sep"], 1)
-        _txt(frame, "EN RESERVA (RIR est.)", (PX + 18, PY + 306),
+        cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 288)), (PX + PW - _s(frame, 12), PY + _s(frame, 288)),
+                 _HUB["sep"], _s(frame, 1))
+        _txt(frame, "EN RESERVA (RIR est.)", (PX + _s(frame, 18), PY + _s(frame, 306)),
              scale=0.34, color=_HUB["muted"], shadow=False, font=_FONT_UI)
-        _txt(frame, rir_txt, (PX + PW - 72, PY + 308),
+        _txt(frame, rir_txt, (PX + PW - _s(frame, 72), PY + _s(frame, 308)),
              scale=0.52, color=_HUB["accent"], font=_FONT_UI)
 
 
@@ -2700,28 +2767,89 @@ def inicializar_video(ruta_video: str, numero_usuario: str):
     return cap, fps, 1.0 / fps, ancho, alto
 
 
-def _inicializar_escritor_video(ruta_salida: str, ancho: int, alto: int, fps: float):
+def _inicializar_escritor_video(ruta_salida: str, fps: float):
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     directorio, nombre = os.path.split(ruta_salida)
     ruta_temporal = os.path.join(directorio, "temp_" + nombre)
-    writer = cv2.VideoWriter(ruta_temporal, fourcc, fps, (ancho, alto))
+    # Resolución objetivo para Instagram Stories/Reels: 9:16 (1080x1920)
+    writer = cv2.VideoWriter(ruta_temporal, fourcc, fps, (1080, 1920))
     if not writer.isOpened():
         raise ValueError(f"No se pudo crear el escritor de video en {ruta_temporal}")
     return writer, ruta_temporal
 
 
 def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
-    logger.info("Convirtiendo video a H.264 (compatible con móvil)...")
+    logger.info("Exportando video en alta calidad para Instagram Stories/Reels (Rec. 709 SDR)...")
     try:
-        clip = VideoFileClip(ruta_temporal)
-        clip.write_videofile(ruta_salida, codec="libx264", audio=False, logger=None)
-        clip.close()
-        if os.path.exists(ruta_temporal):
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_exe = "ffmpeg"
+
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-i", ruta_temporal,
+        "-c:v", "libx264",
+        "-crf", "18",
+        "-preset", "slow",
+        "-pix_fmt", "yuv420p",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
+        "-movflags", "+faststart",
+        "-an",
+        ruta_salida
+    ]
+    try:
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        logger.info("Exportación FFmpeg H.264 CRF 18 Rec.709 finalizada con éxito.")
+        if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
             os.remove(ruta_temporal)
     except Exception as e:
-        logger.error(f"Conversión H.264 falló: {e}")
-        if os.path.exists(ruta_temporal):
-            os.replace(ruta_temporal, ruta_salida)
+        logger.error(f"Conversión H.264 FFmpeg falló: {e}")
+        try:
+            clip = VideoFileClip(ruta_temporal)
+            clip.write_videofile(ruta_salida, codec="libx264", audio=False, logger=None,
+                                ffmpeg_params=["-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
+            clip.close()
+            if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
+                os.remove(ruta_temporal)
+        except Exception as e_fallback:
+            logger.error(f"Fallback MoviePy falló: {e_fallback}")
+            if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
+                os.replace(ruta_temporal, ruta_salida)
+
+    # Control estricto de tamaño para WhatsApp Cloud API (Límite máximo de Meta: 16 MB)
+    MAX_BYTES = int(15.0 * 1024 * 1024)
+    if os.path.exists(ruta_salida):
+        tam_actual = os.path.getsize(ruta_salida)
+        if tam_actual > MAX_BYTES:
+            logger.warning(f"El video generado ({tam_actual / (1024*1024):.2f} MB) excede el límite de 16 MB de WhatsApp. Re-comprimiendo a <15 MB...")
+            for crf_target in [23, 26, 28]:
+                ruta_comp = ruta_salida + ".comp.mp4"
+                cmd_comp = [
+                    ffmpeg_exe, "-y",
+                    "-i", ruta_salida,
+                    "-c:v", "libx264",
+                    "-crf", str(crf_target),
+                    "-preset", "slow",
+                    "-pix_fmt", "yuv420p",
+                    "-color_primaries", "bt709",
+                    "-color_trc", "bt709",
+                    "-colorspace", "bt709",
+                    "-movflags", "+faststart",
+                    "-an",
+                    ruta_comp
+                ]
+                res_comp = subprocess.run(cmd_comp, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if res_comp.returncode == 0 and os.path.exists(ruta_comp):
+                    tam_nuevo = os.path.getsize(ruta_comp)
+                    os.replace(ruta_comp, ruta_salida)
+                    logger.info(f"Re-compresión exitosa con CRF {crf_target}: {tam_nuevo / (1024*1024):.2f} MB.")
+                    if tam_nuevo <= MAX_BYTES:
+                        break
+                else:
+                    if os.path.exists(ruta_comp):
+                        os.remove(ruta_comp)
 
 
 # ==============================================================================
@@ -2750,6 +2878,9 @@ def procesar_levantamiento_vbt(
     logger.info(f"Iniciando Motor VBT v3 para: {nombre_ejercicio}...")
     _silenciar_avisos_ultralytics()
 
+    # Preprocesamiento HDR -> Rec. 709 SDR si el video de entrada está en HDR
+    ruta_video_proc, es_temp_sdr = _preprocesar_video_hdr_si_es_necesario(ruta_video)
+
     perfil = obtener_perfil_ejercicio(nombre_ejercicio)
     nivel = _normalizar_nivel(nivel_atleta)
 
@@ -2762,19 +2893,31 @@ def procesar_levantamiento_vbt(
     frames_con_disco = 0
     timestamp_actual = 0.0
 
+    TARGET_W, TARGET_H = 1080, 1920
+
     try:
         # 1. Inicialización de componentes
         rastreador = RastreadorDisco(ruta_modelo)
         pose = EstimadorPose(ruta_modelo_pose)
-        cap, fps, dt_nominal, ancho, alto = inicializar_video(ruta_video, numero_usuario)
-        video_writer, ruta_temporal = _inicializar_escritor_video(ruta_salida, ancho, alto, fps)
+        cap, fps, dt_nominal, ancho_orig, alto_orig = inicializar_video(ruta_video_proc, numero_usuario)
+        video_writer, ruta_temporal = _inicializar_escritor_video(ruta_salida, fps)
+
+        # Cálculo de escalado y centrado del video original sobre lienzo 1080x1920 (9:16)
+        scale_canvas = min(TARGET_W / ancho_orig, TARGET_H / alto_orig)
+        new_w = int(round(ancho_orig * scale_canvas))
+        new_h = int(round(alto_orig * scale_canvas))
+        pad_x = (TARGET_W - new_w) // 2
+        pad_y = (TARGET_H - new_h) // 2
 
         estimador = EstimadorCinematica(CONFIG, fps)
         maquina = MaquinaEstadosRep(CONFIG, fps)
 
         puntos_trayectoria = deque(maxlen=30)
+        puntos_trayectoria_canvas = deque(maxlen=30)
         tiempo_anterior = 0.0
         rir_live: Optional[str] = None
+        ultimo_clean_canvas = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
+        ultima_det_canvas = None
 
         def _adjuntar_pose(rep: Repeticion) -> None:
             """Cruza la rep con la cinemática articular (si está activa)."""
@@ -2790,7 +2933,7 @@ def procesar_levantamiento_vbt(
         logger.info("Analizando video frame a frame...")
 
         while cap.isOpened():
-            exito, frame = cap.read()
+            exito, frame_orig = cap.read()
             if not exito:
                 break
 
@@ -2804,17 +2947,32 @@ def procesar_levantamiento_vbt(
 
             # 2. Cinemática articular (opcional, submuestreada)
             if pose.activo and frames_totales % CONFIG.pose_cada_n_frames == 0:
-                pose.procesar(frame, timestamp_actual)
+                pose.procesar(frame_orig, timestamp_actual)
 
-            # 3. Tracking YOLO del disco
-            det = rastreador.procesar(frame)
+            # 3. Tracking YOLO del disco sobre frame original
+            det = rastreador.procesar(frame_orig)
             v_inst = 0.0
 
+            det_canvas = None
             if det is not None:
                 frames_con_disco += 1
                 puntos_trayectoria.appendleft((det.cx, det.cy))
 
-                # 4. Filtrado cinemático + máquina de estados (ahora recibe X)
+                # Coordenadas transformadas al lienzo 1080x1920 (9:16)
+                det_canvas = Deteccion(
+                    cx=int(det.cx * scale_canvas + pad_x),
+                    cy=int(det.cy * scale_canvas + pad_y),
+                    x_min=det.x_min * scale_canvas + pad_x,
+                    y_min=det.y_min * scale_canvas + pad_y,
+                    x_max=det.x_max * scale_canvas + pad_x,
+                    y_max=det.y_max * scale_canvas + pad_y,
+                    alto_caja=det.alto_caja * scale_canvas,
+                    m_por_px=det.m_por_px / scale_canvas,
+                )
+                ultima_det_canvas = det_canvas
+                puntos_trayectoria_canvas.appendleft((det_canvas.cx, det_canvas.cy))
+
+                # 4. Filtrado cinemático + máquina de estados (cinemática física exacta sobre frame original)
                 y_suave, v_inst = estimador.actualizar(timestamp_actual, det.cy, det.m_por_px)
                 rep_cerrada = maquina.actualizar(timestamp_actual, det.cx,
                                                  y_suave, v_inst, det.alto_caja)
@@ -2827,8 +2985,13 @@ def procesar_levantamiento_vbt(
                     est = estimar_rir_por_velocidad(rep_cerrada.v_avg, perfil, nivel)
                     rir_live = f"~{est:.0f}" if est is not None else None
 
+            # Construcción del lienzo 1080x1920
+            canvas_frame = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
+            resized_orig = cv2.resize(frame_orig, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            canvas_frame[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized_orig
+            ultimo_clean_canvas = canvas_frame.copy()
+
             # 5. Fin de serie por quietud prolongada
-            #    (FIX v3: usa el contador global `frames_quietos`)
             if (maquina.estado != "calibrando"
                     and maquina.frames_quietos > fps * CONFIG.seg_inactividad_fin
                     and (maquina.reps > 0 or maquina.estado == "concentrica")):
@@ -2838,19 +3001,16 @@ def procesar_levantamiento_vbt(
                     registro_repeticiones.append(rep_final)
                     _recalcular_vl_por_rep(registro_repeticiones)
 
-                cv2.putText(frame, "FIN DE SERIE", (ancho // 2 - 150, alto // 2),
-                            cv2.FONT_HERSHEY_DUPLEX, 2, (0, 0, 255), 3)
-                video_writer.write(frame)
                 break
 
-            # 6. Renderizado HUD y trayectoria
+            # 6. Renderizado HUD y trayectoria sobre lienzo 1080x1920
             vl_actual = (calcular_velocity_loss(registro_repeticiones)
                          if len(registro_repeticiones) >= 2 else None)
 
             renderizar_frame(
-                frame=frame,
-                det=det,
-                trayectoria=puntos_trayectoria,
+                frame=canvas_frame,
+                det=det_canvas,
+                trayectoria=puntos_trayectoria_canvas,
                 v_inst=v_inst,
                 reps=maquina.reps,
                 fase=maquina.estado,
@@ -2859,10 +3019,9 @@ def procesar_levantamiento_vbt(
                 rir_txt=rir_live,
             )
 
-            video_writer.write(frame)
+            video_writer.write(canvas_frame)
 
-        # 7. FIX v3: si el video terminó con la barra bloqueada arriba (caso
-        #    típico: se corta la grabación en el lockout), cerrar la última rep.
+        # 7. Asegurar cierre de la última repetición al terminar el video (lockout o fin de grabación)
         if maquina is not None:
             rep_final = maquina.cerrar_por_inactividad(timestamp_actual)
             if rep_final:
@@ -2872,6 +3031,31 @@ def procesar_levantamiento_vbt(
                 logger.info(f"Rep #{rep_final.rep} cerrada al terminar el "
                             f"video (grabación cortada en el lockout).")
 
+        # 8. Congelar e imprimir el estado final completado en el HUD (2 segundos) para no cortar antes de contar la última rep
+        reps_finales = maquina.reps if maquina else len(registro_repeticiones)
+        vl_final = (calcular_velocity_loss(registro_repeticiones)
+                    if len(registro_repeticiones) >= 2 else None)
+        if registro_repeticiones:
+            est_fin = estimar_rir_por_velocidad(registro_repeticiones[-1].v_avg, perfil, nivel)
+            rir_live = f"~{est_fin:.0f}" if est_fin is not None else rir_live
+
+        final_canvas = ultimo_clean_canvas.copy()
+        renderizar_frame(
+            frame=final_canvas,
+            det=ultima_det_canvas,
+            trayectoria=puntos_trayectoria_canvas,
+            v_inst=0.0,
+            reps=reps_finales,
+            fase="finalizado",
+            registro=registro_repeticiones,
+            vl_actual=vl_final,
+            rir_txt=rir_live,
+        )
+
+        frames_congelados = int(round(fps * 2.0))
+        for _ in range(frames_congelados):
+            video_writer.write(final_canvas)
+
     except Exception as e:
         logger.error(f"Crasheo en ciclo principal: {e}")
         traceback.print_exc()
@@ -2880,6 +3064,13 @@ def procesar_levantamiento_vbt(
             cap.release()
         if video_writer:
             video_writer.release()
+
+        # Limpiar archivo temporal de video SDR si fue generado durante la entrada HDR
+        if es_temp_sdr and os.path.exists(ruta_video_proc):
+            try:
+                os.remove(ruta_video_proc)
+            except OSError:
+                pass
 
     # 8. Diagnóstico si no hubo repeticiones válidas
     reps_ok = maquina.reps if maquina else 0
@@ -2916,23 +3107,12 @@ def procesar_levantamiento_vbt(
         analisis=analisis,
         carga_kg=carga_kg,
     )
-    # `nombre_ejercicio` llega ya reconciliado por el orquestador (la corrección
-    # del atleta pisa a la detección de visión). Etiquetarlo como "IDENTIFICADO
-    # VÍA IA" hacía que el modelo lo tratase como una hipótesis más de la visión
-    # y lo pusiera al mismo nivel que la detección errónea que él mismo había
-    # corregido, con las dos afirmaciones contradiciéndose en el mismo prompt.
     contexto_agente = (f"EJERCICIO DE ESTA SERIE: "
                        f"{nombre_ejercicio.upper()}\n\n{contexto_base}")
 
     # Conversión final para iOS/Web
     _convertir_video_h264(ruta_temporal, ruta_salida)
 
-    # FIX v3.4: la media de la serie es la media de las VCM por repetición, no
-    # la media de las muestras instantáneas. Promediar muestras pondera cada rep
-    # por cuántos frames duró, así que las reps LENTAS (las que más frames
-    # aportan) dominaban el resultado y la "velocidad media de la serie" salía
-    # sistemáticamente por debajo de todas las reps que la componen (medido:
-    # 0.245 m/s reportado para reps de 0.316 / 0.314 / 0.266).
     v_prom = round(float(np.mean([r.v_avg for r in registro_repeticiones])), 3)
 
     # 10. Retorno estructurado: claves originales intactas + claves v3
