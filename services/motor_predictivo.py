@@ -144,6 +144,53 @@ def leer_series(numero: str, ejercicio: str | None = None, dias: int = 180) -> l
     return filas
 
 
+VENTANA_DUPLICADO_MIN = 20
+
+
+def serie_duplicada_reciente(numero: str, ejercicio: str, peso_kg: float,
+                             repeticiones: int, rpe: float | None,
+                             minutos: int = VENTANA_DUPLICADO_MIN) -> bool:
+    """¿Esta serie EXACTA ya está en el diario de hace un momento?
+
+    v14 — El diario acumulaba la misma serie dos veces cuando el atleta la
+    reenviaba. Medido el 2026-07-30:
+
+        · 2026-07-30 | Press Pecho Mancuernas: 45.0kg x 10 | RPE 10.0
+        · 2026-07-30 | Press Banca:            45.0kg x 10 | RPE 10.0
+
+    Era una sola serie. El atleta la repitió porque el guardia CLAIM-FALSO le
+    había dicho que no se guardó, y cada vía la registró con un nombre distinto.
+    Los duplicados falsean el volumen semanal, el análisis de MRV y la detección
+    de PR, que es justo lo que el atleta no puede auditar.
+
+    Se compara sobre el ejercicio YA canonizado: los dos nombres de arriba
+    convergen desde v14, así que el par se detecta como lo que es.
+    """
+    desde = (datetime.now() - timedelta(minutes=max(1, int(minutos)))).isoformat(" ", "seconds")
+    objetivo = canonizar(ejercicio)
+    q = (f"SELECT {C['ejercicio']} AS e, {C['peso']} AS w, {C['reps']} AS r, {C['rpe']} AS rpe "
+         f"FROM {TABLA_SERIES} WHERE {C['usuario']}=? AND {C['fecha']}>=?")
+    try:
+        with _con() as con:
+            filas = [dict(f) for f in con.execute(q, (str(numero), desde))]
+    except Exception as e:                      # nunca bloquear un registro por esto
+        print(f"[DEDUPE-SERIE] no se pudo comprobar: {type(e).__name__}: {e}")
+        return False
+    for f in filas:
+        if canonizar(f["e"]) != objetivo:
+            continue
+        if abs(float(f["w"] or 0) - float(peso_kg)) > 0.5:
+            continue
+        if int(f["r"] or 0) != int(repeticiones):
+            continue
+        # El RPE puede no venir en una de las dos vías: si falta en cualquiera de
+        # las dos, el resto de la tríada ya identifica la serie de sobra.
+        if rpe is not None and f["rpe"] is not None and abs(float(f["rpe"]) - float(rpe)) > 0.25:
+            continue
+        return True
+    return False
+
+
 def guardar_serie_v9(numero: str, ejercicio: str, peso_kg: float,
                      repeticiones: int, rpe: float, dolor: str = "ninguno") -> None:
     """Inserción directa con la tríada completa. Si prefieres centralizar en tu

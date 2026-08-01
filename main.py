@@ -194,7 +194,7 @@ if __name__ == "__main__":
     opciones = dict(
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
-        log_level="info",
+        log_level="warning",
     )
     if recargar:
         opciones["reload"] = True

@@ -72,8 +72,18 @@ async def _falso_procesar_y_enviar(numero, texto=None, media_id=None,
     LLAMADAS.append(("mensaje", numero, texto, media_id, nombre_ejercicio, carga_kg))
 
 
-async def _falso_audio(numero, audio_id):
+async def _falso_audio(numero, audio_id, transcripcion=None):
+    # v14 — el tercer argumento es la tarea de TRANSCRIPCIÓN ADELANTADA, que
+    # arranca al recibir el audio para no esperar al turno del LLM.
     LLAMADAS.append(("audio", numero, audio_id))
+    if transcripcion is not None:
+        await transcripcion          # no dejar la tarea colgando
+
+
+async def _falsa_transcripcion(numero, audio_id):
+    """Evita que el test salga a la red de Meta a bajarse un audio inventado."""
+    LLAMADAS.append(("transcripcion", numero, audio_id))
+    return "cien por cinco en banca"
 
 
 async def _falso_prediccion(numero, media_id):
@@ -94,6 +104,7 @@ async def _falso_enviar(numero, texto):
 def instalar_dobles() -> None:
     rw.procesar_y_enviar_mensaje = _falso_procesar_y_enviar
     rw.procesar_audio_en_segundo_plano = _falso_audio
+    rw._transcribir_adelantado = _falsa_transcripcion
     rw.procesar_prediccion_rapida = _falso_prediccion
     rw.responder_readiness_en_segundo_plano = _falso_readiness
     rw.enviar_whatsapp = _falso_enviar
@@ -146,8 +157,13 @@ async def prueba_audio() -> None:
     await _limpiar()
     await _procesar(_msg("audio", audio={"id": "AUDIO123"}))
 
-    check(len(LLAMADAS) == 1 and LLAMADAS[0][0] == "audio",
+    tipos = [ll[0] for ll in LLAMADAS]
+    check(tipos.count("audio") == 1 and ("audio", "525500000777", "AUDIO123") in LLAMADAS,
           "un audio va al pipeline de Whisper", f"llamadas: {LLAMADAS}")
+    # v14 — TRANSCRIPCIÓN ADELANTADA: arranca al recibir el audio, antes de que
+    # el trabajo llegue a su turno, para no esperar a la GPU (ver #15).
+    check("transcripcion" in tipos and tipos.index("transcripcion") < tipos.index("audio"),
+          "la transcripción arranca ANTES de que el turno la necesite", f"{tipos}")
 
 
 async def prueba_video_sin_kilos() -> None:

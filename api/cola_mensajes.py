@@ -38,6 +38,7 @@ ordenado; una caída seca, no. Para eso hace falta persistir la cola en SQLite.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -52,6 +53,17 @@ MAX_EN_COLA = 20
 # dos turnos es peor que leerlos juntos: es lo que haría un coach humano al volver
 # al teléfono. Tope para que una ráfaga larga no monte un prompt gigante.
 MAX_FUSION_TEXTO = 5
+
+# v14 — VENTANA DE RÁFAGA. En WhatsApp la gente parte una idea en 2-3 mensajes
+# seguidos ("Ayyy ai cierto" / "Perdón" / "En press banco con mancuernas"), y el
+# worker arrancaba con el primero antes de que llegaran los demás: el atleta
+# recibía DOS respuestas del coach a lo que era un solo pensamiento. La fusión ya
+# existía, pero solo alcanzaba a lo que estuviera en cola cuando el turno acababa.
+#
+# Este margen se paga UNA vez y solo cuando hay un único texto esperando; frente a
+# los 20-130 s que dura un turno es ruido, y evita el turno duplicado entero.
+# A 0 se desactiva.
+VENTANA_RAFAGA_S = float(os.environ.get("IRON_VENTANA_RAFAGA", "2.0"))
 
 # Aviso al atleta cuando su mensaje entra detrás de otro trabajo suyo. Interruptor
 # para A/B: ponlo en False y la cola trabaja en silencio.
@@ -162,9 +174,25 @@ def _extraer(cola: deque[Trabajo]) -> Trabajo:
     return trabajo.rehacer("\n".join(piezas))    # type: ignore[misc]
 
 
+async def _esperar_rafaga(numero: str) -> None:
+    """Da un margen a que lleguen los mensajes que el atleta sigue escribiendo.
+
+    Solo espera cuando lo único pendiente es UN texto: con dos ya se fusionan
+    solos, y con un audio o un vídeo delante no hay ráfaga que agrupar.
+    """
+    if VENTANA_RAFAGA_S <= 0:
+        return
+    async with _lock:
+        cola = _colas.get(numero)
+        if not cola or len(cola) != 1 or not cola[0].fusionable:
+            return
+    await asyncio.sleep(VENTANA_RAFAGA_S)
+
+
 async def _atender(numero: str) -> None:
     """Worker de UN atleta: vacía su cola en orden y muere cuando no queda nada."""
     while True:
+        await _esperar_rafaga(numero)
         async with _lock:
             cola = _colas.get(numero)
             if not cola:
@@ -208,6 +236,16 @@ def pendientes(numero: str | None = None) -> int:
     if numero is not None:
         return len(_colas.get(numero) or ())
     return sum(len(c) for c in _colas.values())
+
+
+def tiene_trabajo(numero: str) -> bool:
+    """¿Este atleta tiene algo suyo en marcha o esperando?
+
+    Lo usan los avisos que NO pasan por la cola (el acuse de un sticker, una
+    foto o un PDF): salen al instante y, con un turno en vuelo, se cuelan por
+    delante de la respuesta que el atleta está esperando.
+    """
+    return bool(_colas.get(numero)) or numero in _en_curso
 
 
 def estado() -> dict:

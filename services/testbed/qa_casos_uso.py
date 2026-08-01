@@ -526,6 +526,9 @@ _ACCIONES_PYTHON = {
     "PESO-AUTO":    "registrar_peso_corporal",
     "SUSTITUCION":  "sustituir_ejercicio",
     "EXPEDIENTE":   "guardar_en_expediente_personal",
+    # v14 — el orquestador emite un solo marcador honesto. Los dos viejos se
+    # conservan para que los logs ya capturados sigan puntuando igual.
+    "CONSULTA-RUTINA": "consultar_rutina_futura",
     "CONSULTA-SEM": "consultar_rutina_futura",
     "CONSULTA-DIA": "consultar_rutina_futura",
     "CURSOR":       "consultar_rutina_futura",

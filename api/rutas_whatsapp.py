@@ -14,12 +14,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 # Importaciones de configuración y servicios propios
-from api.cola_mensajes import (Trabajo, encolar, TEXTO_AVISO_EN_COLA,
+from api.cola_mensajes import (Trabajo, encolar, tiene_trabajo, TEXTO_AVISO_EN_COLA,
                                TEXTO_COLA_LLENA)
 from core.config import settings
 from core.ejercicios import canonizar, detectar
 from data.meta_service import enviar_mensaje_whatsapp
-from services.llm_service import generar_respuesta_coach
+from services.llm_service import enviar_bienvenida_si_procede, generar_respuesta_coach
 from services.audio_service import procesar_audio_whatsapp
 from services.vbt_service import procesar_y_responder_video_vbt
 from services.vision_service import predecir_ejercicio
@@ -338,6 +338,13 @@ async def procesar_y_enviar_mensaje(
             print("[LLM]: No se recibió ni texto ni video válido.")
             return
 
+        # v14 — CARTA DE PRESENTACIÓN. Va AQUÍ, antes de arrancar el turno: el
+        # orquestador tarda 20-130 s y esto uno, así que la presentación llega
+        # primero y su mensaje se responde igual justo después. No la lanzamos en
+        # paralelo a propósito — si el turno fuera rapidísimo podrían cruzarse y
+        # el atleta leería la respuesta antes que el saludo.
+        await enviar_bienvenida_si_procede(numero_usuario)
+
         respuesta_ia = await generar_respuesta_coach(numero_usuario, mensaje_final_para_llm)
 
         if not respuesta_ia or not respuesta_ia.strip():
@@ -357,16 +364,77 @@ async def procesar_y_enviar_mensaje(
             print(f"[ERROR]: tampoco pude avisar del fallo: {e_aviso}")
 
 
-async def procesar_audio_en_segundo_plano(numero_usuario: str, audio_id: str) -> None:
-    """Transcribe el audio y lo despacha FUERA del ciclo de petición del webhook.
+# ==============================================================================
+# v14 — TRANSCRIPCIÓN ADELANTADA (audio que no espera su turno)
+# ------------------------------------------------------------------------------
+# La descarga desde Meta (red) y Whisper (CPU, device="cpu") NO tocan la GPU,
+# pero corrían dentro del trabajo encolado: el segundo audio ni siquiera empezaba
+# a bajarse hasta que el primero terminaba su turno completo de LLM. Medido el
+# 2026-07-30: esperas de 65,8 s, 54,4 s y 94,7 s en cola.
+#
+# Ahora la transcripción arranca AL RECIBIR el audio, en paralelo con el turno
+# que esté ocupando la GPU. El trabajo se encola igual y en el mismo instante que
+# antes —el orden de la conversación no cambia—, solo que cuando le llega el
+# turno su texto ya suele estar listo.
+#
+# El semáforo evita que una ráfaga de audios lance ocho Whisper a la vez y
+# ahogue la CPU que el resto del proceso necesita.
+_SEM_TRANSCRIPCION = asyncio.Semaphore(2)
+_tareas_transcripcion: set[asyncio.Task] = set()
+
+
+async def _transcribir_adelantado(numero_usuario: str, audio_id: str) -> str:
+    """Descarga y transcribe ya, sin esperar a la cola del LLM."""
+    t0 = time.monotonic()
+    async with _SEM_TRANSCRIPCION:
+        espera = time.monotonic() - t0
+        try:
+            texto = await procesar_audio_whatsapp(audio_id)
+        except Exception as e:
+            print(f"[AUDIO] {numero_usuario}: transcripción falló "
+                  f"({type(e).__name__}: {e})")
+            return ""
+    print(f"[AUDIO] {numero_usuario}: transcrito en {time.monotonic() - t0:.1f}s"
+          + (f" (esperó {espera:.1f}s por otra transcripción)" if espera > 0.5 else "")
+          + " — adelantado, sin ocupar el turno")
+    return texto
+
+
+def lanzar_transcripcion(numero_usuario: str, audio_id: str) -> asyncio.Task:
+    """Arranca la transcripción en paralelo y devuelve su tarea.
+
+    Referencia fuerte en `_tareas_transcripcion`: asyncio solo guarda referencias
+    débiles y el recolector puede llevarse una a medias.
+    """
+    tarea = asyncio.create_task(_transcribir_adelantado(numero_usuario, audio_id))
+    _tareas_transcripcion.add(tarea)
+    tarea.add_done_callback(_tareas_transcripcion.discard)
+    return tarea
+
+
+async def procesar_audio_en_segundo_plano(numero_usuario: str, audio_id: str,
+                                          transcripcion: asyncio.Task | None = None) -> None:
+    """Despacha el audio FUERA del ciclo de petición del webhook.
 
     Antes esto ocurría dentro del handler: Whisper (5-30 s) más el extractor de
     tríada podían superar el timeout de Meta, que marcaba la entrega como fallida y
     la reintentaba. Ahora el webhook responde 200 al instante y el trabajo pasa a
     la cola del atleta (api/cola_mensajes).
+
+    `transcripcion` es la tarea que ya arrancó al recibir el audio: aquí solo se
+    espera su resultado, que casi siempre está listo. Sin ella (llamada directa o
+    reintento), se transcribe aquí como antes.
     """
     try:
-        texto_transcrito = await procesar_audio_whatsapp(audio_id)
+        if transcripcion is not None:
+            t_espera = time.monotonic()
+            texto_transcrito = await transcripcion
+            faltaba = time.monotonic() - t_espera
+            if faltaba > 0.5:
+                print(f"[AUDIO] {numero_usuario}: el turno esperó {faltaba:.1f}s a "
+                      f"que acabara la transcripción")
+        else:
+            texto_transcrito = await procesar_audio_whatsapp(audio_id)
 
         if not texto_transcrito:
             # Antes el atleta se quedaba en silencio absoluto cuando Whisper
@@ -750,14 +818,17 @@ async def _procesar_mensaje(mensaje: dict) -> None:
                 nombre_ejercicio=ejercicio, carga_kg=carga)))
 
     elif tipo_mensaje == "audio":
-        # Todo el trabajo del audio (Whisper + extractor de tríada) se encola:
-        # ver procesar_audio_en_segundo_plano.
         audio_id = (mensaje.get("audio") or {}).get("id")
         if audio_id:
+            # v14 — La descarga y Whisper arrancan YA, en paralelo con el turno
+            # que esté ocupando la GPU (ver TRANSCRIPCIÓN ADELANTADA). El trabajo
+            # se encola en este mismo instante, así que el orden de la
+            # conversación es exactamente el de antes.
+            tarea_texto = lanzar_transcripcion(numero_usuario, audio_id)
             await _encolar_y_avisar(Trabajo(
                 numero=numero_usuario, tipo="audio", etiqueta=f"audio[{audio_id[-6:]}]",
-                ejecutar=lambda: procesar_audio_en_segundo_plano(numero_usuario,
-                                                                 audio_id)))
+                ejecutar=lambda: procesar_audio_en_segundo_plano(
+                    numero_usuario, audio_id, tarea_texto)))
 
     elif tipo_mensaje == "text":
         texto_recibido = texto_boton or ""
@@ -790,6 +861,17 @@ async def _procesar_mensaje(mensaje: dict) -> None:
         aviso = respuestas.get(tipo_mensaje,
                                "Eso no lo puedo abrir bro 🙏 Mándame texto, un audio o un "
                                "video de tu serie y seguimos.")
+        # v14 — Este aviso NO pasa por la cola ni por el orquestador: sale al
+        # instante. Si el atleta ya tiene un turno en vuelo, se le cuela por
+        # delante de la respuesta que está esperando y lee dos mensajes del coach
+        # sin relación. Medido el 2026-07-30: mandó un sticker mientras el turno
+        # trabajaba y recibió "😄 Te leo. Cuéntame qué tal va el entreno" justo
+        # antes de la respuesta real. Un sticker no pide contestación urgente:
+        # con trabajo suyo en marcha, se calla.
+        if tiene_trabajo(numero_usuario):
+            print(f"[WEBHOOK] tipo '{tipo_mensaje}' de {numero_usuario} con turno en "
+                  f"curso; NO se avisa (evita el mensaje doble)")
+            return
         print(f"[WEBHOOK] tipo '{tipo_mensaje}' no procesable de {numero_usuario}; se avisa")
         try:
             await enviar_whatsapp(numero_usuario, aviso)

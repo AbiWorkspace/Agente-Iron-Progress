@@ -158,6 +158,19 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
                 "instruccion": ("NO afirmes que la serie quedó registrada. "
                                 "Pide al atleta SOLO estos datos: " + ", ".join(faltan))}
 
+    # v14 — DUPLICADO: la misma serie ya está en el diario de hace un momento.
+    # Pasa cuando el atleta la reenvía (porque cree que no se guardó) o cuando
+    # llega por las dos vías del turno. Un duplicado falsea el volumen semanal,
+    # el MRV y la detección de PR, y el atleta no puede auditarlo.
+    if await asyncio.to_thread(mp.serie_duplicada_reciente,
+                               numero, ejercicio, peso, reps, rpe):
+        etiqueta_dup = para_mostrar(ejercicio)
+        return {"ok": True, "duplicada": True,
+                "resumen": f"{etiqueta_dup} {peso:g}×{reps} @RPE {rpe:g} (ya estaba apuntada)",
+                "nota_coach": (f"Esa serie de {etiqueta_dup} YA constaba en su diario, así que "
+                               f"NO se apuntó otra vez. Díselo con naturalidad —ya la tienes— y "
+                               f"sigue; no le pidas que la repita ni le digas que falló nada.")}
+
     # PR: comparar contra el mejor e1RM histórico ANTES de insertar
     e1_nuevo, reps_ef = mp.e1rm_serie(peso, reps, rpe)
     historicas = await asyncio.to_thread(mp.leer_series, numero, ejercicio, 365)
