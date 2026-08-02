@@ -2033,6 +2033,7 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
         except (ValueError, TypeError):
             rir_val = None
 
+
     rpe_val = round(max(10.0 - rir_val, 5.0), 1) if rir_val is not None else None
     rpe_txt = f"{rpe_val:g}" if rpe_val is not None else "N/D"
     rir_txt = f"~{rir_val:.0f}" if rir_val is not None else (rest.get("texto", "N/D"))
