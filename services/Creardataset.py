@@ -97,58 +97,74 @@ import imageio_ffmpeg
 from data.meta_service import enviar_mensaje_whatsapp
 
 
-def _es_video_hdr(ruta_video: str) -> bool:
-    """Detecta si el video de entrada contiene transferencia o espacio de color HDR."""
+def _analizar_propiedades_video(ruta_video: str) -> tuple[bool, bool]:
+    """Detecta si el video de entrada es HDR y/o entrelazado (interlaced)."""
     try:
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         ffmpeg_exe = "ffmpeg"
+    
+    es_hdr = False
+    es_entrelazado = False
     try:
         res = subprocess.run([ffmpeg_exe, "-i", ruta_video], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         err = res.stderr.lower()
         hdr_keywords = ["bt2020", "arib-std-b67", "smpte2084", "hlg", "hdr10", "10bit", "yuv420p10le", "yuv422p10le", "p010le"]
-        return any(kw in err for kw in hdr_keywords)
+        es_hdr = any(kw in err for kw in hdr_keywords)
+        
+        interlaced_keywords = ["interlaced", "field_order", "top first", "bottom first", "tff", "bff", "tb", "bt"]
+        es_entrelazado = any(kw in err for kw in interlaced_keywords)
     except Exception as e:
-        logger.warning(f"No se pudo verificar si el video es HDR: {e}")
-        return False
+        logger.warning(f"No se pudieron verificar las propiedades del video: {e}")
+    
+    return es_hdr, es_entrelazado
 
 
 def _preprocesar_video_hdr_si_es_necesario(ruta_video: str) -> tuple[str, bool]:
-    """Si el video es HDR, realiza tone-mapping con zscale + tonemap=hable a Rec. 709 SDR."""
-    if not _es_video_hdr(ruta_video):
+    """Si el video es HDR o entrelazado, lo preprocesa con FFmpeg (bwdif / zscale) a Rec. 709 SDR progresivo sin dientes de sierra."""
+    es_hdr, es_entrelazado = _analizar_propiedades_video(ruta_video)
+    if not es_hdr and not es_entrelazado:
         return ruta_video, False
 
-    logger.info("Video HDR detectado. Convirtiendo a Rec. 709 SDR con zscale + tonemap=hable...")
+    logger.info(f"Preprocesando video (HDR={es_hdr}, Entrelazado={es_entrelazado}) para eliminar dientes de sierra...")
     try:
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         ffmpeg_exe = "ffmpeg"
 
     dir_name, base_name = os.path.split(ruta_video)
-    ruta_sdr = os.path.join(dir_name, "sdr_" + base_name)
+    ruta_proc = os.path.join(dir_name, "proc_" + base_name)
 
-    vf_filter = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+    filtros = []
+    if es_entrelazado:
+        filtros.append("bwdif=mode=0:parity=-1:deint=1")
+    if es_hdr:
+        filtros.append("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+    else:
+        filtros.append("format=yuv420p")
+
+    vf_filter = ",".join(filtros)
 
     cmd = [
         ffmpeg_exe, "-y",
         "-i", ruta_video,
         "-vf", vf_filter,
         "-c:v", "libx264",
-        "-crf", "18",
+        "-crf", "17",
         "-preset", "slow",
         "-pix_fmt", "yuv420p",
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
         "-colorspace", "bt709",
-        ruta_sdr
+        ruta_proc
     ]
 
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        logger.info("Conversión HDR -> Rec. 709 SDR completada.")
-        return ruta_sdr, True
+        logger.info("Preprocesamiento de video completado.")
+        return ruta_proc, True
     except Exception as e:
-        logger.error(f"Fallo en conversión HDR -> SDR via zscale: {e}. Se utilizará el video original.")
+        logger.error(f"Fallo en preprocesamiento de video via FFmpeg: {e}. Se utilizará el video original.")
         return ruta_video, False
 
 
@@ -2022,16 +2038,16 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
     rir_txt = f"~{rir_val:.0f}" if rir_val is not None else (rest.get("texto", "N/D"))
 
     carga_linea = f"{carga_kg:g} kg" if carga_kg else "Peso por calibrar"
-    resumen_serie = f"*{carga_linea} × {n} rep{'s' if n != 1 else ''} @ RPE {rpe_txt} (RIR {rir_txt})*"
+    resumen_serie = f"{carga_linea} × {n} rep{'s' if n != 1 else ''}  ·  RPE {rpe_txt} (RIR {rir_txt})"
 
     L = [
-        f"\U0001F3CB\uFE0F *{ejercicio.upper()}*",
-        f"*SERIE:* {resumen_serie}",
+        f"🏋️ *{ejercicio.upper()}*",
+        resumen_serie,
         ""
     ]
 
-    # ---------- EN CORTO (Para Usuario Normal / Atleta) ----------
-    L.append("\U0001F4CC *EN CORTO (Resumen de Sesión)*")
+    # ---------- RESUMEN DE LA SERIE (legible para cualquier usuario) ----------
+    L.append("*Resumen de la serie*")
     if vl is None:
         rir_v = a.get("rir_velocidad")
         if rir_v is not None and rir_v <= 1:
@@ -2040,67 +2056,67 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
             lectura = "pesó considerablemente, pero mantuviste margen"
         else:
             lectura = "salió fluida y explosiva, con bastante margen"
-        L.append(f"• Repetición única a {a['v_mejor']:.2f} m/s: {lectura}.")
+        L.append(f"Repetición única a {a['v_mejor']:.2f} m/s: {lectura}.")
     elif vl < 10:
-        L.append(f"• Serie muy fresca: apenas perdiste velocidad ({vl:.0f}% VL). Terminaste con mucha reserva.")
+        L.append(f"Serie muy fresca: apenas perdiste velocidad ({vl:.0f}% VL). Terminaste con mucha reserva.")
     elif vl < 20:
-        L.append(f"• Serie sólida y controlada ({vl:.0f}% VL): fatiga óptima para estimular fuerza sin sobrecargar el SNC.")
+        L.append(f"Serie sólida y controlada ({vl:.0f}% VL): fatiga óptima para estimular fuerza sin sobrecargar el SNC.")
     elif vl < 30:
-        L.append(f"• Serie exigente ({vl:.0f}% VL): alto estímulo de hipertrofia con fatiga acumulada notable.")
+        L.append(f"Serie exigente ({vl:.0f}% VL): alto estímulo de hipertrofia con fatiga acumulada notable.")
     else:
-        L.append(f"• Serie al límite ({vl:.0f}% VL): cercana al fallo muscular. Requiere 48-72 h de recuperación.")
+        L.append(f"Serie al límite ({vl:.0f}% VL): cercana al fallo muscular. Requiere 48-72 h de recuperación.")
 
-    # ---------- DESGLOSE POR REPETICIÓN (Para Coach & Usuario Técnico) ----------
-    L += ["", "\u26A1 *DESGLOSE DE VELOCIDAD POR REP*"]
+    # ---------- DETALLE POR REPETICIÓN (semáforo de velocidad) ----------
+    L += ["", "*Detalle por repetición*"]
     i_best = a.get("rep_mas_rapida")
     lineas_reps = []
     for r in registro:
         pico_txt = f" (pico {r.v_peak:.2f} m/s)" if hasattr(r, "v_peak") and r.v_peak else ""
         if len(registro) == 1:
-            lineas_reps.append(f"• R{r.rep} \u26A1 {r.v_avg:.2f} m/s{pico_txt}")
+            lineas_reps.append(f"R{r.rep}: {r.v_avg:.2f} m/s{pico_txt}")
         elif r.rep == i_best:
-            lineas_reps.append(f"• R{r.rep} {_semaforo_vl(0)} {r.v_avg:.2f} m/s{pico_txt} \u26A1 *Mejor rep*")
+            lineas_reps.append(f"R{r.rep} {_semaforo_vl(0)} {r.v_avg:.2f} m/s{pico_txt} — mejor rep")
         else:
-            lineas_reps.append(f"• R{r.rep} {_semaforo_vl(r.vl_pct)} {r.v_avg:.2f} m/s{pico_txt} (\u2212{r.vl_pct:.0f}%)")
+            lineas_reps.append(f"R{r.rep} {_semaforo_vl(r.vl_pct)} {r.v_avg:.2f} m/s{pico_txt} (−{r.vl_pct:.0f}%)")
     L += lineas_reps
 
-    # ---------- TELEMETRÍA Y TÉCNICA (Para Coach & Usuario Técnico) ----------
+    # ---------- ANÁLISIS VBT Y TÉCNICO (para perfil técnico/coach) ----------
     frases = []
     if a.get("e1rm_kg") and carga_kg:
         if a.get("e1rm_origen") == "piso_reps":
-            frases.append(f"\U0001F4AA *1RM de hoy:* al menos *{a['e1rm_kg']:.0f} kg* (garantizado por volumen a ~{a['pct_1rm_estimado']:.0f}% 1RM).")
+            frases.append(f"*1RM de hoy:* al menos *{a['e1rm_kg']:.0f} kg* (garantizado por volumen a ~{a['pct_1rm_estimado']:.0f}% 1RM).")
         else:
-            frases.append(f"\U0001F4AA *1RM estimado:* *{a['e1rm_kg']:.0f} kg* (~{a['pct_1rm_estimado']:.0f}% de intensidad relativa).")
+            frases.append(f"*1RM estimado:* *{a['e1rm_kg']:.0f} kg* (~{a['pct_1rm_estimado']:.0f}% de intensidad relativa).")
 
     if rest:
         if rest.get("max", 9) <= 1:
-            frases.append("\U0001F50B *Reserva:* Terminaste al límite (\u22641 rep en reserva).")
+            frases.append("*Reserva:* Terminaste al límite (≤1 rep en reserva).")
         else:
-            frases.append(f"\U0001F50B *Reserva:* Quedaban *{rest['texto']} reps* en el tanque.")
+            frases.append(f"*Reserva:* Quedaban *{rest['texto']} reps* en el tanque.")
 
     if a.get("sticking_max_s", 0) >= 0.8 and a.get("rep_sticking"):
-        frases.append(f"\U0001F9F1 *Sticking Point:* Clavado *{a['sticking_max_s']:.1f} s* a media subida en R{a['rep_sticking']}.")
+        frases.append(f"*Sticking point:* Clavado *{a['sticking_max_s']:.1f} s* a media subida en R{a['rep_sticking']}.")
 
     caida = a.get("caida_mayor") or {}
     if str(caida.get("patron", "")).startswith("abrupta"):
         ra, rb = caida["entre"]
-        frases.append(f"\U0001F4C9 *Degradación:* Bajón brusco entre R{ra} y R{rb} (\u2212{caida['delta_pct']:.0f}%).")
+        frases.append(f"*Degradación:* Bajón brusco entre R{ra} y R{rb} (−{caida['delta_pct']:.0f}%).")
 
     amort_delta = (a.get("tempo") or {}).get("amort_delta_pct")
     if amort_delta is not None and amort_delta >= CONFIG.amort_alerta_crec_pct:
         amorts = [r.t_amortiguacion_s for r in registro if r.t_amortiguacion_s is not None]
         if len(amorts) >= 2:
-            frases.append(f"\u23F1\uFE0F *Pausa inferior:* Se alargó ({amorts[0]:.1f}s \u2192 {amorts[-1]:.1f}s), perdiendo elástico.")
+            frases.append(f"*Pausa inferior:* Se alargó ({amorts[0]:.1f}s → {amorts[-1]:.1f}s), perdiendo elástico.")
 
     if a.get("desv_horizontal_max_cm", 0) >= CONFIG.umbral_desv_horizontal_cm:
-        frases.append(f"\u26A0\uFE0F *Bar Path:* Desviación de *{a['desv_horizontal_max_cm']:.0f} cm* de la vertical.")
+        frases.append(f"*Bar path:* Desviación de *{a['desv_horizontal_max_cm']:.0f} cm* de la vertical.")
     elif a.get("rom_cv_pct") is not None and a["rom_cv_pct"] > CONFIG.rom_cv_alerta_pct:
-        frases.append(f"\u26A0\uFE0F *Consistencia ROM:* Profundidad variable ({a['rom_cv_pct']:.0f}% CV).")
+        frases.append(f"*Consistencia ROM:* Profundidad variable ({a['rom_cv_pct']:.0f}% CV).")
     elif n > 1:
-        frases.append("\u2705 *Técnica:* Trayectoria vertical limpia y ROM consistente.")
+        frases.append("*Técnica:* Trayectoria vertical limpia y ROM consistente.")
 
     if frases:
-        L += ["", "\U0001F3AF *ANÁLISIS VBT & TÉCNICO*"] + frases[:5]
+        L += ["", "*Análisis VBT y técnico*"] + [f"• {f}" for f in frases[:5]]
 
     # ---------- INDICACIONES PARA LA SIGUIENTE SERIE ----------
     acciones = []
@@ -2125,29 +2141,29 @@ def _construir_reporte_whatsapp(ejercicio: str, registro: list, analisis: dict,
     ad = (a.get("recomendacion") or {}).get("ajuste_datos") or {}
     if ad.get("carga_nueva"):
         if ad.get("motivo") == "volumen":
-            acciones.append(f"Para series de trabajo acumulativo (3-5 reps), ajusta a *{ad['carga_nueva']:g} kg* (\u2212{ad['kg']:g} kg).")
+            acciones.append(f"Para series de trabajo acumulativo (3-5 reps), ajusta a *{ad['carga_nueva']:g} kg* (−{ad['kg']:g} kg).")
         elif vl is None or vl < 30:
-            acciones.append(f"Para zona de fuerza principal (\u226585%), prueba *{ad['carga_nueva']:g} kg* (+{ad['kg']:g} kg).")
+            acciones.append(f"Para zona de fuerza principal (≥85%), prueba *{ad['carga_nueva']:g} kg* (+{ad['kg']:g} kg).")
 
     if n > 1:
         p10 = f" (rep {c10})" if c10 else ""
         p20 = f" (rep {c20})" if c20 else ""
         acciones.append(f"Corte por velocidad: VL 10% potencia{p10} | VL 20% fuerza{p20} | VL 30% hipertrofia.")
 
-    L += ["", "\U0001F680 *RECOMENDACIÓN PRÓXIMA SERIE*"]
-    L += [f"\U0001F449 {t}" for t in acciones[:3]]
+    L += ["", "*Recomendación para la próxima serie*"]
+    L += [f"• {t}" for t in acciones[:3]]
 
     if not carga_kg:
-        L.append("\U0001F4CC *Nota:* Indica los kg utilizados para calcular tu 1RM diario y cargas exactas.")
+        L.append("Nota: indica los kg utilizados para calcular tu 1RM diario y cargas exactas.")
 
-    L += ["", "\U0001F4AC _¿Necesitas ajustar la rutina o tienes dudas sobre la técnica? Escríbeme._"]
+    L += ["", "_¿Necesitas ajustar la rutina o tienes dudas sobre la técnica? Escríbeme._"]
     msg = "\n".join(L)
 
     # WhatsApp corta ~4096 chars: compactar el desglose si hace falta
     if len(msg) > 3800 and len(registro) > 6:
-        idx = L.index("*TUS REPS* (velocidad de subida)") if "*TUS REPS* (velocidad de subida)" in L else L.index("\u26A1 *DESGLOSE DE VELOCIDAD POR REP*")
+        idx = L.index("*Detalle por repetición*")
         compacto = (lineas_reps[:3]
-                    + [f"\u2026 ({len(registro) - 5} reps intermedias) \u2026"]
+                    + [f"… ({len(registro) - 5} reps intermedias) …"]
                     + lineas_reps[-2:])
         L = L[:idx + 1] + compacto + L[idx + 1 + len(lineas_reps):]
         msg = "\n".join(L)
@@ -2657,7 +2673,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
         t = j / n
         col = (0, int(140 + 100 * t), int(190 + 65 * t))
         grosor = max(1, _s(frame, 2 if t > 0.6 else 1))
-        cv2.line(frame, trayectoria[j - 1], trayectoria[j], col, grosor)
+        cv2.line(frame, trayectoria[j - 1], trayectoria[j], col, grosor, cv2.LINE_AA)
 
     # ── 2. MARCADOR DE DISCO ──────────────────────────────────────────────────
     if det is not None:
@@ -2665,8 +2681,8 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
         bx2, by2 = int(det.x_max), int(det.y_max)
 
         _corners(frame, bx1, by1, bx2, by2, _HUB["accent"])
-        cv2.circle(frame, (det.cx, det.cy), _s(frame, 4), _HUB["accent"], -1)
-        cv2.circle(frame, (det.cx, det.cy), _s(frame, 8), _HUB["accent"], 1)
+        cv2.circle(frame, (det.cx, det.cy), _s(frame, 4), _HUB["accent"], -1, cv2.LINE_AA)
+        cv2.circle(frame, (det.cx, det.cy), _s(frame, 8), _HUB["accent"], 1, cv2.LINE_AA)
 
         vel = abs(v_inst)
         col_vel = _color_por_velocidad(vel)
@@ -2681,17 +2697,17 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     PH = _s(frame, 340)
 
     overlay = frame.copy()
-    cv2.rectangle(overlay, (PX, PY), (PX + PW, PY + PH), _HUB["bg"], -1)
+    _rounded_rect(overlay, PX, PY, PX + PW, PY + PH, _s(frame, 12), _HUB["bg"], -1)
     cv2.addWeighted(overlay, 0.76, frame, 0.24, 0, frame)
 
-    cv2.rectangle(frame, (PX, PY), (PX + PW, PY + PH), _HUB["border"], _s(frame, 1))
-    cv2.line(frame, (PX + _s(frame, 10), PY), (PX + PW - _s(frame, 10), PY), _HUB["accent"], _s(frame, 2))
-    cv2.line(frame, (PX + _s(frame, 10), PY + PH), (PX + PW - _s(frame, 10), PY + PH), _HUB["sep"], _s(frame, 1))
+    _rounded_rect(frame, PX, PY, PX + PW, PY + PH, _s(frame, 12), _HUB["border"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 10), PY), (PX + PW - _s(frame, 10), PY), _HUB["accent"], _s(frame, 2), cv2.LINE_AA)
+    cv2.line(frame, (PX + _s(frame, 10), PY + PH), (PX + PW - _s(frame, 10), PY + PH), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── MARCA IRON PROGRESS ───────────────────────────────────────────────────
     _txt(frame, "IRON PROGRESS", (PX + _s(frame, 18), PY + _s(frame, 24)),
          scale=0.45, color=_HUB["accent"], shadow=True, thickness=1)
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 34)), (PX + PW - _s(frame, 12), PY + _s(frame, 34)), _HUB["sep"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 34)), (PX + PW - _s(frame, 12), PY + _s(frame, 34)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3c. REPETICIONES ──────────────────────────────────────────────────────
     _txt(frame, "REPETICIONES", (PX + _s(frame, 18), PY + _s(frame, 46)),
@@ -2699,14 +2715,14 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     _txt(frame, str(reps), (PX + _s(frame, 16), PY + _s(frame, 110)),
          scale=2.5, color=_HUB["green"], thickness=2, shadow=True)
 
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 120)), (PX + PW - _s(frame, 12), PY + _s(frame, 120)), _HUB["sep"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 120)), (PX + PW - _s(frame, 12), PY + _s(frame, 120)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3d. FASE ──────────────────────────────────────────────────────────────
     color_fase, label_fase, _dir = _FASES.get(
         fase.lower(), (_HUB["muted"], f"  {fase.upper()}", 0))
     _pill(frame, label_fase, PX + _s(frame, 18), PY + _s(frame, 145), color_fase)
 
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 160)), (PX + PW - _s(frame, 12), PY + _s(frame, 160)), _HUB["sep"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 160)), (PX + PW - _s(frame, 12), PY + _s(frame, 160)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3e. VELOCIDAD ÚLTIMA REP + barra ──────────────────────────────────────
     if registro:
@@ -2716,7 +2732,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
                 PX + _s(frame, 18), PY + _s(frame, 178), vcolor=col_last)
         _bar(frame, PX + _s(frame, 18), PY + _s(frame, 208), PW - _s(frame, 36), _s(frame, 6), v_last / 1.5, col_last)
 
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 224)), (PX + PW - _s(frame, 12), PY + _s(frame, 224)), _HUB["sep"], _s(frame, 1))
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 224)), (PX + PW - _s(frame, 12), PY + _s(frame, 224)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3f. PÉRDIDA DE VELOCIDAD (fatiga) + barra ─────────────────────────────
     if vl_actual is not None:
@@ -2736,7 +2752,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     # ── 3g. REPS EN RESERVA (v3) ──────────────────────────────────────────────
     if rir_txt:
         cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 288)), (PX + PW - _s(frame, 12), PY + _s(frame, 288)),
-                 _HUB["sep"], _s(frame, 1))
+                 _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
         _txt(frame, "EN RESERVA (RIR est.)", (PX + _s(frame, 18), PY + _s(frame, 306)),
              scale=0.34, color=_HUB["muted"], shadow=False, font=_FONT_UI)
         _txt(frame, rir_txt, (PX + PW - _s(frame, 72), PY + _s(frame, 308)),
@@ -2744,7 +2760,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
 
 # ==============================================================================
-# UTILIDADES DE VIDEO
+# UTILIDADES DE VIDEO Y ESCRITOR DE ALTA CALIDAD SÍNCRONO VIA PIPE FFMPEG
 # ==============================================================================
 def inicializar_video(ruta_video: str, numero_usuario: str):
     try:
@@ -2767,15 +2783,86 @@ def inicializar_video(ruta_video: str, numero_usuario: str):
     return cap, fps, 1.0 / fps, ancho, alto
 
 
+class EscritorVideoFFmpeg:
+    """Escritor de video de alta calidad mediante canal (pipe) directo a FFmpeg (libx264, CRF 17).
+    Elimina la compresión intermedia lossy mp4v de OpenCV (principal causa de dientes de sierra)."""
+    def __init__(self, ruta_salida: str, fps: float, ancho: int = 1080, alto: int = 1920, crf: int = 17):
+        self.ruta_salida = ruta_salida
+        self.fps = fps
+        self.ancho = ancho
+        self.alto = alto
+        directorio, nombre = os.path.split(ruta_salida)
+        self.ruta_temporal = os.path.join(directorio, "temp_" + nombre)
+
+        try:
+            self.ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            self.ffmpeg_exe = "ffmpeg"
+
+        cmd = [
+            self.ffmpeg_exe, "-y",
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-s", f"{ancho}x{alto}",
+            "-pix_fmt", "bgr24",
+            "-r", f"{fps:.3f}",
+            "-i", "-",
+            "-c:v", "libx264",
+            "-crf", str(crf),
+            "-preset", "slow",
+            "-pix_fmt", "yuv420p",
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            "-colorspace", "bt709",
+            "-movflags", "+faststart",
+            "-an",
+            self.ruta_temporal
+        ]
+
+        try:
+            self.proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            self._usando_pipe = True
+        except Exception as e:
+            logger.warning(f"No se pudo iniciar canal directo de FFmpeg: {e}. Usando fallback OpenCV VideoWriter.")
+            self._usando_pipe = False
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self.cv_writer = cv2.VideoWriter(self.ruta_temporal, fourcc, fps, (ancho, alto))
+
+    def write(self, frame: np.ndarray) -> None:
+        if self._usando_pipe and self.proc and self.proc.stdin:
+            try:
+                self.proc.stdin.write(frame.tobytes())
+            except Exception as e:
+                logger.error(f"Fallo al escribir cuadro en canal FFmpeg: {e}")
+        elif hasattr(self, "cv_writer") and self.cv_writer and self.cv_writer.isOpened():
+            self.cv_writer.write(frame)
+
+    def release(self) -> None:
+        if self._usando_pipe and self.proc:
+            try:
+                stdout, stderr = self.proc.communicate()
+                if self.proc.returncode != 0 and stderr:
+                    logger.error(f"FFmpeg devolvió código {self.proc.returncode}: {stderr.decode('utf-8', errors='ignore')}")
+            except Exception as e:
+                logger.error(f"Error al cerrar canal de FFmpeg: {e}")
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            finally:
+                self.proc = None
+        elif hasattr(self, "cv_writer") and self.cv_writer:
+            try:
+                self.cv_writer.release()
+            except Exception:
+                pass
+
+
 def _inicializar_escritor_video(ruta_salida: str, fps: float):
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    directorio, nombre = os.path.split(ruta_salida)
-    ruta_temporal = os.path.join(directorio, "temp_" + nombre)
-    # Resolución objetivo para Instagram Stories/Reels: 9:16 (1080x1920)
-    writer = cv2.VideoWriter(ruta_temporal, fourcc, fps, (1080, 1920))
-    if not writer.isOpened():
-        raise ValueError(f"No se pudo crear el escritor de video en {ruta_temporal}")
-    return writer, ruta_temporal
+    writer = EscritorVideoFFmpeg(ruta_salida, fps, 1080, 1920, crf=17)
+    return writer, writer.ruta_temporal
 
 
 def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
@@ -2785,38 +2872,21 @@ def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
     except Exception:
         ffmpeg_exe = "ffmpeg"
 
-    cmd = [
-        ffmpeg_exe, "-y",
-        "-i", ruta_temporal,
-        "-c:v", "libx264",
-        "-crf", "18",
-        "-preset", "slow",
-        "-pix_fmt", "yuv420p",
-        "-color_primaries", "bt709",
-        "-color_trc", "bt709",
-        "-colorspace", "bt709",
-        "-movflags", "+faststart",
-        "-an",
-        ruta_salida
-    ]
-    try:
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        logger.info("Exportación FFmpeg H.264 CRF 18 Rec.709 finalizada con éxito.")
-        if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
-            os.remove(ruta_temporal)
-    except Exception as e:
-        logger.error(f"Conversión H.264 FFmpeg falló: {e}")
+    # Si la ruta temporal ya existe y fue generada por el pipe H.264 directo, mover o copiar
+    if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
         try:
-            clip = VideoFileClip(ruta_temporal)
-            clip.write_videofile(ruta_salida, codec="libx264", audio=False, logger=None,
-                                ffmpeg_params=["-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
-            clip.close()
-            if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
+            os.replace(ruta_temporal, ruta_salida)
+        except Exception:
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-i", ruta_temporal,
+                "-c:v", "copy",
+                "-movflags", "+faststart",
+                ruta_salida
+            ]
+            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if os.path.exists(ruta_temporal):
                 os.remove(ruta_temporal)
-        except Exception as e_fallback:
-            logger.error(f"Fallback MoviePy falló: {e_fallback}")
-            if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
-                os.replace(ruta_temporal, ruta_salida)
 
     # Control estricto de tamaño para WhatsApp Cloud API (Límite máximo de Meta: 16 MB)
     MAX_BYTES = int(15.0 * 1024 * 1024)
@@ -2824,7 +2894,7 @@ def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
         tam_actual = os.path.getsize(ruta_salida)
         if tam_actual > MAX_BYTES:
             logger.warning(f"El video generado ({tam_actual / (1024*1024):.2f} MB) excede el límite de 16 MB de WhatsApp. Re-comprimiendo a <15 MB...")
-            for crf_target in [23, 26, 28]:
+            for crf_target in [22, 25, 28]:
                 ruta_comp = ruta_salida + ".comp.mp4"
                 cmd_comp = [
                     ffmpeg_exe, "-y",
@@ -2986,8 +3056,9 @@ def procesar_levantamiento_vbt(
                     rir_live = f"~{est:.0f}" if est is not None else None
 
             # Construcción del lienzo 1080x1920
+            interp = cv2.INTER_AREA if scale_canvas < 1.0 else cv2.INTER_CUBIC
             canvas_frame = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
-            resized_orig = cv2.resize(frame_orig, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            resized_orig = cv2.resize(frame_orig, (new_w, new_h), interpolation=interp)
             canvas_frame[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized_orig
             ultimo_clean_canvas = canvas_frame.copy()
 

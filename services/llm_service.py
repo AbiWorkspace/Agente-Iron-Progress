@@ -6015,6 +6015,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
     # serie: nombrar un ejercicio en una pregunta ("¿cómo se hace el remo?") no
     # cambia lo que está haciendo ahora mismo.
     if (not onboarding_activo and not bloque_onboarding
+            and "TELEMETRÍA DE VIDEO VBT RECIBIDA" not in mensaje_usuario
             and (serie or NOTACION_ENTRENO_RE.search(texto_puro))):
         ej_nombrado = _inferir_ejercicio_serie(texto_puro)
         if ej_nombrado:
@@ -6072,6 +6073,7 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
 
                 serie_registrada_python = True
                 accion_ejecutada = True
+                serie = None                      # VBT resolvió la serie; anular para evitar registro duplicado en flujo secundario
                 acciones_ok.append(f"serie completada de video VBT registrada: {resumen_vbt}")
                 log(numero_usuario, "SERIE-VBT-AUTO", f"registrada automáticamente: {resumen_vbt}")
         except Exception as e_vbt:

@@ -21,15 +21,6 @@
         "ultima_fecha_completada": "",
         "rm_a_la_baja": {}
     },
-    "527291395298": {
-        "semana": 1,
-        "dia": 1,
-        "fecha_programada": "2026-07-31",
-        "ultima_fecha_completada": "",
-        "bienvenida_enviada": 1785542519.1072156,
-        "onboarding_activo": true,
-        "campo_pendiente": "genero"
-    },
     "5219999000001": {
         "semana": 1,
         "dia": 1,
@@ -40,6 +31,35 @@
         "campo_pendiente": "",
         "cursor_semana": 1,
         "cursor_dia": 0,
-        "bienvenida_enviada": 1785545061.96505
+        "bienvenida_enviada": 1785562952.780285
+    },
+    "5217291395298": {
+        "semana": 1,
+        "dia": 1,
+        "fecha_programada": "2026-08-01",
+        "ultima_fecha_completada": "",
+        "estado_generacion": "lista",
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "cursor_semana": 1,
+        "cursor_dia": 0,
+        "bienvenida_enviada": 1785624392.730809
+    },
+    "527291395298": {
+        "semana": 1,
+        "dia": 1,
+        "fecha_programada": "2026-08-01",
+        "ultima_fecha_completada": "",
+        "estado_generacion": "lista",
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "cursor_semana": 1,
+        "cursor_dia": 0,
+        "bienvenida_enviada": 1785626199.06633,
+        "plan_pausado": 0,
+        "motivo_pausa": "",
+        "lesiones_resueltas": [
+            "general"
+        ]
     }
 }
