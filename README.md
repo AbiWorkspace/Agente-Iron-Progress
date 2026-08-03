@@ -197,7 +197,7 @@ El chat no es todo el proyecto. Cuando el atleta manda el vídeo de una serie, e
 
 ### El motor VBT
 
-`services/Creardataset.py` — 3.225 líneas de OpenCV, YOLO y MediaPipe. Detecta el disco, lo sigue frame a frame y saca:
+`services/Creardataset.py` — 3.225 líneas de OpenCV y YOLO. Detecta el disco de la barra, lo sigue frame a frame y saca:
 
 | Familia | Métricas |
 |---|---|
@@ -264,7 +264,7 @@ El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay **32 
 | **API** | FastAPI · Uvicorn · webhook de WhatsApp Cloud API con validación HMAC · cola FIFO por atleta |
 | **LLM** | Qwen3.6 27B (Q4_K_M) sobre Ollama, **40 960 de contexto**, thinking selectivo por turno |
 | **RAG** | ChromaDB + `nomic-embed-text` — expediente, bitácora narrativa y biblioteca científica |
-| **Visión** | MediaPipe Pose · YOLO (Ultralytics) · OpenCV — motor VBT propio con HUD renderizado sobre el vídeo |
+| **Visión** | YOLO (Ultralytics) · OpenCV · MoviePy — motor VBT propio con HUD renderizado sobre el vídeo · MediaPipe Pose para la técnica |
 | **ML propio** | scikit-learn — clasificador de ejercicios (Gradient Boosting) entrenado sobre 44 vídeos y 23 variables de pose |
 | **Audio** | faster-whisper (`small`, int8 en CPU) |
 | **Datos** | SQLite (7 tablas en dos bases) · JSON (planes y estado) |
