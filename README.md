@@ -14,6 +14,7 @@ Todo con un LLM que corre en local — sin enviar tus datos a ninguna nube.
 ![Ollama](https://img.shields.io/badge/Ollama-Qwen3.6_27B-000000?style=flat-square&logo=ollama&logoColor=white)
 ![WhatsApp](https://img.shields.io/badge/WhatsApp-Cloud_API-25D366?style=flat-square&logo=whatsapp&logoColor=white)
 ![ChromaDB](https://img.shields.io/badge/RAG-ChromaDB-FF6B6B?style=flat-square)
+![MediaPipe](https://img.shields.io/badge/Visión-MediaPipe_·_YOLO-0097A7?style=flat-square)
 ![Local first](https://img.shields.io/badge/100%25-local-8A2BE2?style=flat-square)
 
 </div>
@@ -86,7 +87,8 @@ flowchart TB
     E --> J[("ChromaDB<br/>expediente · bitácora · literatura")]
 
     K["⏰ APScheduler<br/>readiness 6:30 AM"] --> N["Graph API de Meta"]
-    L["👁️ MediaPipe + YOLO<br/>VBT y técnica"] --> C
+    L["👁️ Motor VBT<br/>YOLO · MediaPipe · HUD"] --> C
+    L --> N
     M["🎙️ Whisper<br/>notas de voz"] --> C
 
     style C fill:#8A2BE2,color:#fff
@@ -125,7 +127,7 @@ Sustituye ejercicios si te duele algo o falta material, aplica descargas cuando 
 <td valign="top">
 
 ### 👁️ Ve
-Le mandas el vídeo de una serie y extrae métricas de **VBT** (velocidad media y pico, pérdida de velocidad, rango de movimiento) con MediaPipe, más un clasificador propio de ejercicios entrenado sobre 23 variables de pose.
+Le mandas el vídeo de una serie y te devuelve el **mismo vídeo con un HUD encima**: reps contadas, fase, velocidad y trayectoria de la barra. Debajo hay un motor de **VBT** de 3.200 líneas y un clasificador de ejercicios entrenado con vídeos propios.
 
 </td>
 <td valign="top">
@@ -185,6 +187,50 @@ El atleta no sabe que hay un sistema detrás. Ningún nombre de función, tabla 
 
 <br>
 
+## La otra mitad: ver el levantamiento
+
+El chat no es todo el proyecto. Cuando el atleta manda el vídeo de una serie, este devuelve **el vídeo anotado** más un análisis en texto — y ninguna de las dos cosas la escribe el LLM.
+
+<div align="center">
+<img src="hud_demo.png" alt="HUD del motor VBT: reps, fase, velocidad media, fatiga y trayectoria de la barra" width="85%">
+</div>
+
+### El motor VBT
+
+`services/Creardataset.py` — 3.225 líneas de OpenCV, YOLO y MediaPipe. Detecta el disco, lo sigue frame a frame y saca:
+
+| Familia | Métricas |
+|---|---|
+| **Velocidad** | media y pico por repetición, pérdida de velocidad contra la rep **más rápida** de la serie (no contra la primera: la 1ª casi nunca lo es) |
+| **Trayectoria** | *bar path* — desviación horizontal máxima en cm y eficiencia del recorrido (vertical real / longitud del camino) |
+| **Fases** | duración de la excéntrica, tiempo de amortiguación en el fondo (ms) y concéntrica |
+| **Articular** | ángulo mínimo de rodilla y cadera, velocidad angular pico de extensión — opcional, vía YOLO-pose |
+| **Derivadas** | e1RM del día por perfil carga-velocidad, y **reps en reserva** con doble estimador que se reconcilia en un rango entero |
+
+El HUD de la imagen se renderiza sobre el vídeo original en formato vertical y se reenvía por WhatsApp. Un `analizar_serie` determinista redacta los hallazgos concretos — qué rep tuvo el mayor bajón, en cuál cortar para no pasar del 20 % de pérdida, cuánto ajustar la carga en kg — y el modelo solo los envuelve en lenguaje de entrenador.
+
+> Las correcciones de la v3.3 salieron de medir sobre **grabaciones propias**, no de suponer: el filtro que ignoraba discos apilados descartaba también el disco de trabajo en peso muerto, y con él el primer tirón — YOLO veía el disco en el 99,6 % de los frames y el motor solo usaba el 55,7 %.
+
+### El clasificador de ejercicios
+
+Para saber *qué* está levantando sin preguntárselo, hay un modelo entrenado desde cero con un dataset grabado a mano:
+
+```bash
+python Entrenamiento_modelo_media/1_crear_dataset.py    # vídeos → 23 variables de pose por vídeo
+python Entrenamiento_modelo_media/2_entrenar_modelo.py  # torneo de 5 algoritmos, gana el mejor
+```
+
+`1_crear_dataset.py` recorre una carpeta con un subdirectorio por ejercicio, pasa cada vídeo por MediaPipe Pose y comprime toda la serie temporal en **23 variables**: mínimo, máximo, rango, media y desviación de los ángulos de rodilla, cadera, codo y hombro, más tres de distancia muñeca–cadera. Descarta solo el vídeo en el que no se ve el cuerpo. El resultado es `datos_entrenamiento1.csv`: **49 vídeos grabados a mano** en cuatro clases —press banca, sentadilla, peso muerto y dominadas—.
+
+`2_entrenar_modelo.py` enfrenta cinco algoritmos —Gradient Boosting, Random Forest, Regresión Logística, SVC y KNN, todos en `Pipeline` con `StandardScaler`— sobre el mismo split, exporta la comparativa a `comparacion_modelos.png` y empaqueta al ganador. **Ganó Gradient Boosting**, y es el `.pkl` que carga `vision_service.py` en producción. El clasificador además **marca como desconocido** lo que no reconoce con confianza, en vez de forzar una etiqueta.
+
+Y el dataset se alimenta solo: cada vídeo que entra por WhatsApp se archiva en `data/dataset_recoleccion/` bajo la carpeta del ejercicio que se predijo. Hay **44 vídeos** acumulados esperando la siguiente ronda de entrenamiento.
+
+> [!NOTE]
+> `1_crear_dataset.py` tiene la carpeta de origen escrita a mano al final del fichero (`ruta_base`). Cámbiala por la tuya antes de reentrenar.
+
+<br>
+
 ## QA de comportamiento
 
 Probar un agente conversacional no es probar funciones puras. Hay un banco de **74 casos de uso repartidos en 22 bloques temáticos** que **habla con el orquestador completo** como lo haría un usuario real y emite un veredicto automático por caso:
@@ -218,7 +264,8 @@ El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay **32 
 | **API** | FastAPI · Uvicorn · webhook de WhatsApp Cloud API con validación HMAC · cola FIFO por atleta |
 | **LLM** | Qwen3.6 27B (Q4_K_M) sobre Ollama, **40 960 de contexto**, thinking selectivo por turno |
 | **RAG** | ChromaDB + `nomic-embed-text` — expediente, bitácora narrativa y biblioteca científica |
-| **Visión** | MediaPipe Pose · YOLO (Ultralytics) · OpenCV · clasificador propio (scikit-learn) |
+| **Visión** | MediaPipe Pose · YOLO (Ultralytics) · OpenCV — motor VBT propio con HUD renderizado sobre el vídeo |
+| **ML propio** | scikit-learn — clasificador de ejercicios (Gradient Boosting) entrenado sobre 44 vídeos y 23 variables de pose |
 | **Audio** | faster-whisper (`small`, int8 en CPU) |
 | **Datos** | SQLite (7 tablas en dos bases) · JSON (planes y estado) |
 | **Proactividad** | APScheduler · Matplotlib para las gráficas de progreso |
@@ -260,6 +307,8 @@ python scripts/crear_base_conocimiento.py     # ~1 min: 1.007 páginas → 3.852
 python main.py            # health check en http://localhost:8000/
 ```
 
+El clasificador de ejercicios viaja ya entrenado en `Entrenamiento_modelo_media/clasificador_ejercicios.pkl`, así que **no hay que reentrenarlo** para arrancar. Solo si añades vídeos nuevos al dataset: `1_crear_dataset.py` y después `2_entrenar_modelo.py`.
+
 Expón el puerto con un túnel (ngrok, Cloudflare) y registra esa URL como webhook en el panel de Meta.
 
 <br>
@@ -298,15 +347,19 @@ El sembrado escribe exactamente lo que escribiría el sistema en producción: la
 │   ├── ejercicios.py        # canonización de nombres de ejercicios
 │   └── config.py            # settings y diagnóstico de variables ausentes
 ├── services/
-│   ├── llm_service.py       # ⭐ orquestador: interceptores, tools, validadores
+│   ├── llm_service.py       # ⭐ orquestador (7.792 l.): interceptores, tools, validadores
 │   ├── motor_predictivo.py  # e1RM, fatiga, ACWR, autorregulación
 │   ├── handlers_v9.py       # handlers del motor predictivo y sello de ejercicio
+│   ├── calculadora_rm.py    # fórmulas de 1RM por tipo de ejercicio
+│   ├── metricas_atleta.py   # perfil físico y nivel de fuerza relativo
 │   ├── repositorio_atleta.py # perfil, marcas y su historial fechado
 │   ├── db_service.py        # telemetría y panel analítico
+│   ├── Creardataset.py      # 👁️ motor VBT (3.225 l.): bar path, fases, RIR, HUD
+│   ├── vbt_service.py       # puente: vídeo de WhatsApp → motor VBT → respuesta
 │   ├── vision_service.py    # MediaPipe + clasificador de ejercicios
-│   ├── vbt_service.py       # métricas de velocidad del levantamiento
 │   ├── audio_service.py     # Whisper
 │   ├── proactividad.py      # readiness matutino y gráficas
+│   ├── proactive_coach.py   # detección de alertas y avisos no solicitados
 │   └── testbed/             # 🧪 74 casos de QA + 32 suites deterministas
 ├── scripts/
 │   ├── Entrenamiento.py     # motor de planificación (DUP, splits, volumen)
@@ -314,8 +367,20 @@ El sembrado escribe exactamente lo que escribiría el sistema en producción: la
 │   ├── sembrar_demo.py      # atleta con meses de historial, en segundos
 │   ├── sembrar_conversacion.py     # su pasado conversacional y narrativo
 │   └── verificar_demo.py    # pasa lista antes de salir a demostrar
+├── Entrenamiento_modelo_media/     # 🤖 dataset propio y torneo de clasificadores
+├── data/                    # bases SQLite, planes, estado y vídeos del dataset
+├── docs/                    # documentación técnica (PDF/DOCX) y plan de demostración
 └── resources/               # base de ejercicios y planes generados
 ```
+
+<br>
+
+## Documentación
+
+| Documento | Qué contiene |
+|---|---|
+| [`docs/Iron_Progress_Documentacion_Tecnica.pdf`](docs/Iron_Progress_Documentacion_Tecnica.pdf) | Memoria técnica completa: decisión de diseño central, arquitectura, ciclo de vida de un mensaje, anatomía de un turno del orquestador, interceptores y defensas. También en `.docx`, y se regenera con `docs/fuentes/generar_docx.py` |
+| [`docs/PLAN_DEMOSTRACION.md`](docs/PLAN_DEMOSTRACION.md) | Guion operativo de 20-25 minutos, con los tiempos **medidos** en la máquina de desarrollo |
 
 <br>
 
@@ -329,8 +394,9 @@ El sembrado escribe exactamente lo que escribiría el sistema en producción: la
 - [x] Persistir los mensajes de herramientas para aprovechar la caché de prompts
 - [x] Indicador de "escribiendo…" durante las esperas largas
 - [x] Cola por atleta en vez de descartar el mensaje cuando hay otro en proceso
+- [x] Registrar varias series de un solo mensaje, distinguiendo `4x8 con 60 kg` (prescripción) de `100x5` (marca)
+- [x] HUD renderizado sobre el vídeo y devuelto por WhatsApp
 - [ ] Cerrar mesociclos automáticamente en la bitácora narrativa *(hoy solo la siembra el script de demo)*
-- [ ] Registrar series agrupadas en un solo mensaje ("las 4 series me salieron igual")
 - [ ] Cálculo inverso de 1RM ("¿cuántas reps con 110 para llegar a 140?")
 - [ ] Panel web de seguimiento
 
