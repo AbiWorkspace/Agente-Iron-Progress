@@ -44,10 +44,10 @@ Iron Progress intenta ser lo segundo. Le escribes por WhatsApp como le escribir�
 
 🧑  qué me toca hoy?
 
-🤖  Hoy arrancamos con *Torso*. El foco es volumen controlado:
-    • Press Banco Plano: 5x10 — *80 kg* @RPE 7.5
-    • Remo en Máquina: 7x10 @RPE 7.5
-    • Press Pecho en Máquina: 4x11 @RPE 8.0
+🤖  Hoy es *Día 1 · Torso*.
+    • Press Banco Plano: 4x10 — *87.5 kg* @RPE 7.5
+    • Dominadas Lastradas: 4x10 — *20 kg* @RPE 7.5
+    • Press Pecho en Máquina: 2x11 — *67.5 kg* @RPE 8.0
     ...
 
 🧑  la primera de banca me salió durísima, 100x5 y rpe 9.5
@@ -58,12 +58,13 @@ Iron Progress intenta ser lo segundo. Le escribes por WhatsApp como le escribir�
 
 🧑  cuántas series de pecho hago a la semana?
 
-🤖  En tu plan actual llevas *13 series semanales* para pecho:
-    • Día 1: 5 de Press Banca + 4 en máquina
-    • Día 3: 3 de Press Banca + 1 en máquina
+🤖  Esta semana tienes prescritas *15 series para pecho*:
+    • Día 1: 4 de Press Banca + 2 en máquina
+    • Día 3: 2 de Press Banca + 1 en máquina
+    • Día 5: 4 de Press Banca + 2 en máquina
 ```
 
-Los `95 kg` y las `2 series` **no los escribe el modelo**: los calcula el motor predictivo a partir del overshoot de RPE. El coach solo los transcribe. Esa distinción es el corazón del proyecto.
+Los `87.5 kg`, las `15 series` y el ajuste a `95 kg` **no los escribe el modelo**: salen del plan en disco y del motor predictivo. El coach solo los transcribe. Esa distinción es el corazón del proyecto.
 
 <br>
 
@@ -72,18 +73,19 @@ Los `95 kg` y las `2 series` **no los escribe el modelo**: los calcula el motor 
 ```mermaid
 flowchart TB
     A["📱 WhatsApp<br/>texto · voz · vídeo"] --> B["FastAPI<br/>webhook + firma HMAC"]
-    B --> C{{"Orquestador<br/>llm_service.py"}}
+    B --> Q["📥 Cola por atleta<br/><i>FIFO · fusión de ráfaga</i>"]
+    Q --> C{{"Orquestador<br/>llm_service.py"}}
 
     C --> D["🐍 Interceptores deterministas<br/><i>Python actúa, el LLM solo redacta</i>"]
-    C --> E["🧠 Qwen3.6 27B · Ollama<br/>23 herramientas"]
-    C --> F["🛡️ Validadores de salida<br/><i>anti-alucinación</i>"]
+    C --> E["🧠 Qwen3.6 27B · Ollama<br/>23 herramientas · 40k contexto"]
+    C --> F["🛡️ 6 redes de validación<br/><i>anti-alucinación</i>"]
 
     D --> G[("SQLite<br/>diario de series")]
-    E --> H["Motor de planificación<br/>DUP · MEV/MAV/MRV"]
-    E --> I["Motor predictivo<br/>e1RM · fatiga · autorregulación"]
-    E --> J[("ChromaDB<br/>expediente + literatura")]
+    E --> H["Motor de planificación<br/>DUP · MEV→MAV"]
+    E --> I["Motor predictivo<br/>e1RM · fatiga · ACWR · autorregulación"]
+    E --> J[("ChromaDB<br/>expediente · bitácora · literatura")]
 
-    K["⏰ APScheduler<br/>readiness 6:30 AM"] --> B
+    K["⏰ APScheduler<br/>readiness 6:30 AM"] --> N["Graph API de Meta"]
     L["👁️ MediaPipe + YOLO<br/>VBT y técnica"] --> C
     M["🎙️ Whisper<br/>notas de voz"] --> C
 
@@ -91,6 +93,8 @@ flowchart TB
     style F fill:#FF6B6B,color:#fff
     style D fill:#25D366,color:#fff
 ```
+
+El trabajo proactivo de las 6:30 **no entra por el webhook**: llama directamente a la Graph API de Meta, y solo escribe a quien tiene sesión hoy o la lleva atrasada.
 
 <br>
 
@@ -101,13 +105,13 @@ flowchart TB
 <td width="33%" valign="top">
 
 ### 📋 Planifica
-Genera mesociclos completos con **periodización ondulante diaria (DUP)**, splits Torso/Pierna de 3 a 7 días y guardia de SNC (nunca dos días de fuerza pesada seguidos). El volumen se reparte por patrón de movimiento según los marcos MEV/MAV/MRV.
+Genera mesociclos completos con **periodización ondulante diaria (DUP)**, splits Torso/Pierna de 3 a 7 días y guardia de SNC (nunca dos días de fuerza pesada seguidos). El volumen se reparte por patrón de movimiento interpolando de **MEV a MAV** a lo largo del bloque.
 
 </td>
 <td width="33%" valign="top">
 
 ### 📊 Mide
-Calcula 1RM estimado con fórmulas científicas, sigue tu progreso por ejercicio y detecta si **excediste tu volumen recuperable** comparando rendimiento, esfuerzo a cargas emparejadas y síntomas articulares.
+Calcula 1RM estimado con fórmulas científicas, sigue tu progreso por ejercicio, calcula la **ratio de carga aguda/crónica (ACWR)** y detecta si excediste tu volumen recuperable comparando rendimiento, esfuerzo a cargas emparejadas y síntomas articulares.
 
 </td>
 <td width="33%" valign="top">
@@ -121,7 +125,7 @@ Sustituye ejercicios si te duele algo o falta material, aplica descargas cuando 
 <td valign="top">
 
 ### 👁️ Ve
-Le mandas el vídeo de una serie y extrae métricas de **VBT** (velocidad media y pico, pérdida de velocidad, rango de movimiento) con MediaPipe, más un clasificador propio de ejercicios.
+Le mandas el vídeo de una serie y extrae métricas de **VBT** (velocidad media y pico, pérdida de velocidad, rango de movimiento) con MediaPipe, más un clasificador propio de ejercicios entrenado sobre 23 variables de pose.
 
 </td>
 <td valign="top">
@@ -133,7 +137,7 @@ Nota de voz en pleno descanso: Whisper transcribe y el sistema extrae la tríada
 <td valign="top">
 
 ### 🧠 Recuerda
-Un expediente vectorial guarda tus molestias, tu material, tus horarios y tus manías. Si dices que se te quitó el hombro, deja de sacártelo. Un buen coach no pregunta dos veces lo mismo.
+Tres memorias distintas: el **expediente** (molestias, material, horarios), la **bitácora narrativa** (mesociclos cerrados, lesiones viejas) y la **biblioteca científica**. Si dices que se te quitó el hombro, deja de sacártelo.
 
 </td>
 </tr>
@@ -147,25 +151,31 @@ Un coach que se inventa los kilos es peor que no tener coach. El atleta *no pued
 
 ### 1. El LLM no calcula. Python calcula, el LLM redacta
 
-Los interceptores deterministas parsean el mensaje y **ejecutan la acción** antes de que el modelo opine. El modelo recibe el resultado ya hecho y solo lo comunica con tono de entrenador:
+Una quincena de interceptores deterministas parsean el mensaje y **ejecutan la acción** antes de que el modelo opine. El modelo recibe el resultado ya hecho y solo lo comunica con tono de entrenador:
 
 ```python
 # El atleta escribe "listo la segunda igual, 100 por 4".
 # Python detecta la serie, hereda el ejercicio del turno anterior
-# (guarda con TTL de 30 min), lo registra en SQLite y recalcula el 1RM.
+# (sello con ventana de 3 min para imponerlo, 30 min para heredarlo),
+# comprueba que no sea un duplicado de los últimos 20 minutos,
+# lo registra en SQLite y recalcula el 1RM.
 # Solo entonces el modelo escribe la frase.
 ```
 
-### 2. Validadores de salida que auditan contra el disco
+Los kilos de la rutina tampoco los inventa nadie: el plan guarda **porcentajes de 1RM**, y el orquestador los multiplica por tu marca guardada y los redondea a tu incremento real de disco. Si no hay marca de ese ejercicio, sale *peso por calibrar* — nunca un número improvisado.
 
-Antes de que la respuesta salga a WhatsApp pasa por varias redes:
+### 2. Seis redes de validación que auditan contra el disco
+
+Antes de que la respuesta salga a WhatsApp pasa por varias mallas:
 
 | Red | Qué caza |
 |---|---|
-| **KG inventados** | Cualquier cifra en kg que no venga del plan, del historial o de una herramienta |
+| **Kilajes inventados** | Cualquier cifra en kg que no venga del plan, del historial o de una herramienta |
 | **Rutina fantasma** | Texto con forma de rutina cuando no hay plan generado |
+| **Reparador de onboarding** | Preguntas fuera de orden o repetidas durante la recolección de la ficha |
 | **Claim falso** | Afirmar "ya lo registré" cuando ninguna escritura se completó |
 | **Estado del plan** | Dar por aplicada una descarga, una pausa o un avance de día **contrastándolo contra el disco** |
+| **Anti-eco** | Repetir el mensaje anterior con otras palabras |
 
 Si una red salta, se fuerza una reescritura honesta; si el modelo reincide, responde una plantilla determinista escrita en Python. Cero bucles.
 
@@ -177,24 +187,27 @@ El atleta no sabe que hay un sistema detrás. Ningún nombre de función, tabla 
 
 ## QA de comportamiento
 
-Probar un agente conversacional no es probar funciones puras. Hay un banco de casos de uso que **habla con el orquestador completo** como lo haría un usuario real y emite un veredicto automático por caso:
+Probar un agente conversacional no es probar funciones puras. Hay un banco de **74 casos de uso repartidos en 22 bloques temáticos** que **habla con el orquestador completo** como lo haría un usuario real y emite un veredicto automático por caso:
 
 ```bash
-# 30 casos cubriendo las 17 reglas de decisión del prompt
+# el banco entero, cubriendo las 17 reglas de decisión del prompt
 SIM_NUMERO=52155... python -m services.testbed.qa_casos_uso
 
-# o solo un bloque temático
+# o solo unos bloques temáticos
 SIM_NUMERO=52155... python -m services.testbed.qa_casos_uso fatiga salud
 ```
 
 ```
-[9/30] ✓  (regla 10)
+[9/74] ✓  (regla 10)
   ATLETA : la primera serie de banca me salió durísima, 100x5 y rpe 9.5
   espera : autorregular_dia con los datos exactos; NO es descarga semanal
   tools  : ['registrar_serie_completada*', 'autorregular_dia*']   8.3s
 ```
 
-El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay suites deterministas para el parser de marcas, el RPE hablado, el router de charla casual, las sustituciones fantasma, los claims de estado y el contrato `tools.json` ↔ handlers, más un smoke de 72 aserciones.
+El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay **32 suites deterministas** para el parser de marcas, el RPE hablado, el router de charla casual, las sustituciones fantasma, los claims de estado, la cola de mensajes, el turno exclusivo y el contrato `tools.json` ↔ handlers, más un smoke de 72 aserciones.
+
+> [!TIP]
+> El banco tiene ruido: ±1 acierto entre corridas es normal. Repite antes de culpar a un cambio.
 
 <br>
 
@@ -202,21 +215,24 @@ El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay suite
 
 | Capa | Tecnología |
 |---|---|
-| **API** | FastAPI · Uvicorn · webhook de WhatsApp Cloud API con validación HMAC |
-| **LLM** | Qwen3.6 27B (Q4_K_M) sobre Ollama, 32k de contexto, thinking selectivo |
-| **RAG** | ChromaDB + `nomic-embed-text` — expediente vivo del atleta y biblioteca científica |
+| **API** | FastAPI · Uvicorn · webhook de WhatsApp Cloud API con validación HMAC · cola FIFO por atleta |
+| **LLM** | Qwen3.6 27B (Q4_K_M) sobre Ollama, **40 960 de contexto**, thinking selectivo por turno |
+| **RAG** | ChromaDB + `nomic-embed-text` — expediente, bitácora narrativa y biblioteca científica |
 | **Visión** | MediaPipe Pose · YOLO (Ultralytics) · OpenCV · clasificador propio (scikit-learn) |
 | **Audio** | faster-whisper (`small`, int8 en CPU) |
-| **Datos** | SQLite (telemetría y diario) · JSON (planes y estado) |
+| **Datos** | SQLite (7 tablas en dos bases) · JSON (planes y estado) |
 | **Proactividad** | APScheduler · Matplotlib para las gráficas de progreso |
 | **Hardware** | Probado en AMD RX 7900 XTX (24 GB) con PyTorch ROCm |
+
+> [!IMPORTANT]
+> El nombre del modelo está en **dos** sitios independientes: `services/llm_service.py` (`MODELO_LLM`) y `scripts/resources/Entrenamiento_llm_peticion.py`. Cambiar solo el primero deja el generador de planes pidiendo un modelo que quizá no tengas.
 
 <br>
 
 ## Puesta en marcha
 
 > [!IMPORTANT]
-> Necesitas una cuenta de **WhatsApp Business (Meta Cloud API)**, **Ollama** corriendo en local y **FFmpeg** en el sistema.
+> Necesitas una cuenta de **WhatsApp Business (Meta Cloud API)** y **Ollama** corriendo en local.
 
 ```bash
 # 1. Dependencias
@@ -225,7 +241,6 @@ python -m venv .venv && source .venv/bin/activate
 #    PyTorch va PRIMERO y desde el índice de tu GPU (aquí, ROCm)
 pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 pip install -r requirements.txt
-sudo apt install ffmpeg
 
 # 2. Modelos
 ollama pull qwen3.6:27b
@@ -234,11 +249,12 @@ ollama pull nomic-embed-text
 # 3. Credenciales
 cp .env.example .env      # y rellena los tokens de Meta
 
-# 4. Indexar la biblioteca científica (opcional pero recomendado)
-#    Sin este paso el coach responde teoría de memoria en vez de citar fuentes.
+# 4. Indexar la biblioteca científica  ← NO es opcional
+#    Sin este paso, 'consultar_libro_cientifico' y 'explicar_tecnica_ejercicio'
+#    devuelven vacío: dos de las 23 herramientas quedan muertas.
 pip install langchain-community langchain-text-splitters pypdf
 #    coloca tus PDFs en scripts/resources/libros_cientificos/
-python scripts/crear_base_conocimiento.py
+python scripts/crear_base_conocimiento.py     # ~1 min: 1.007 páginas → 3.852 fragmentos
 
 # 5. Arrancar
 python main.py            # health check en http://localhost:8000/
@@ -248,25 +264,56 @@ Expón el puerto con un túnel (ngrok, Cloudflare) y registra esa URL como webho
 
 <br>
 
+## Preparar una demostración
+
+Media docena de funciones solo tienen algo que decir con meses de historial detrás. Para no esperar cuatro meses:
+
+```bash
+# 1. Un atleta con 16 semanas de entrenamiento creíble (~15 s, plan incluido)
+python3 scripts/sembrar_demo.py --limpiar
+
+# 2. Semanas de conversación previa + bitácora de mesociclos cerrados
+python3 scripts/sembrar_conversacion.py
+
+# 3. Pasar lista a las 21 comprobaciones antes de que haya público
+python3 scripts/verificar_demo.py
+```
+
+El sembrado escribe exactamente lo que escribiría el sistema en producción: las mismas tablas, los mismos ficheros y las mismas claves canónicas. Genera una progresión realista —mesociclos de cuatro semanas con su descarga, ruido en el RPE, un estancamiento deliberado en banca y molestias puntuales ya resueltas— y termina en el **pico de carga** de un mesociclo, que es donde el análisis de volumen recuperable tiene algo que decir.
+
+`verificar_demo.py` comprueba contra el sistema real que cada pieza responde: que `predecir_carga_optima` no diga «datos insuficientes», que el ACWR caiga en zona creíble, que ningún ejercicio del plan salga como *peso por calibrar*, y que las tres memorias devuelvan algo.
+
+<br>
+
 ## Estructura
 
 ```
 ├── main.py                  # arranque, lifespan, scheduler proactivo
-├── api/rutas_whatsapp.py    # webhook: firma, media, cola de vídeos
+├── api/
+│   ├── rutas_whatsapp.py    # webhook: firma, media, indicador de escribiendo
+│   └── cola_mensajes.py     # cola FIFO por atleta, fusión de ráfaga
 ├── core/
 │   ├── prompt.json          # system prompt: identidad y 17 reglas de decisión
 │   ├── tools.json           # contrato de las 23 herramientas del LLM
-│   └── ejercicios.py        # canonización de nombres de ejercicios
+│   ├── ejercicios.py        # canonización de nombres de ejercicios
+│   └── config.py            # settings y diagnóstico de variables ausentes
 ├── services/
 │   ├── llm_service.py       # ⭐ orquestador: interceptores, tools, validadores
-│   ├── motor_predictivo.py  # e1RM, fatiga, MRV, autorregulación
-│   ├── handlers_v9.py       # handlers de las tools del motor predictivo
+│   ├── motor_predictivo.py  # e1RM, fatiga, ACWR, autorregulación
+│   ├── handlers_v9.py       # handlers del motor predictivo y sello de ejercicio
+│   ├── repositorio_atleta.py # perfil, marcas y su historial fechado
+│   ├── db_service.py        # telemetría y panel analítico
 │   ├── vision_service.py    # MediaPipe + clasificador de ejercicios
 │   ├── vbt_service.py       # métricas de velocidad del levantamiento
 │   ├── audio_service.py     # Whisper
 │   ├── proactividad.py      # readiness matutino y gráficas
-│   └── testbed/             # 🧪 banco de QA y suites deterministas
-├── scripts/Entrenamiento.py # motor de planificación (DUP, splits, volumen)
+│   └── testbed/             # 🧪 74 casos de QA + 32 suites deterministas
+├── scripts/
+│   ├── Entrenamiento.py     # motor de planificación (DUP, splits, volumen)
+│   ├── crear_base_conocimiento.py  # ingesta de la biblioteca científica
+│   ├── sembrar_demo.py      # atleta con meses de historial, en segundos
+│   ├── sembrar_conversacion.py     # su pasado conversacional y narrativo
+│   └── verificar_demo.py    # pasa lista antes de salir a demostrar
 └── resources/               # base de ejercicios y planes generados
 ```
 
@@ -276,12 +323,15 @@ Expón el puerto con un túnel (ngrok, Cloudflare) y registra esa URL como webho
 
 - [x] Onboarding conversacional y generación de mesociclos
 - [x] Registro por texto, voz y vídeo
-- [x] Autorregulación por RPE y análisis de MRV
+- [x] Autorregulación por RPE y análisis de volumen recuperable
 - [x] Redes anti-alucinación con auditoría contra disco
 - [x] Banco de QA de interacción
-- [ ] Reducir el techo de razonamiento del modelo (fuente de las respuestas truncadas)
-- [ ] Persistir los mensajes de herramientas para aprovechar mejor la caché de prompts
-- [ ] Indicador de "escribiendo…" durante las esperas largas
+- [x] Persistir los mensajes de herramientas para aprovechar la caché de prompts
+- [x] Indicador de "escribiendo…" durante las esperas largas
+- [x] Cola por atleta en vez de descartar el mensaje cuando hay otro en proceso
+- [ ] Cerrar mesociclos automáticamente en la bitácora narrativa *(hoy solo la siembra el script de demo)*
+- [ ] Registrar series agrupadas en un solo mensaje ("las 4 series me salieron igual")
+- [ ] Cálculo inverso de 1RM ("¿cuántas reps con 110 para llegar a 140?")
 - [ ] Panel web de seguimiento
 
 <br>

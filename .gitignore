@@ -4,3 +4,9 @@
 # Ocultar el entorno virtual
 .venv/
 __pycache__/
+# Base vectorial de ChromaDB: ~96 MB de embeddings REGENERABLES.
+# Se reconstruye con:  python scripts/crear_base_conocimiento.py
+data/chroma_db/
+
+# Salidas generadas del banco de QA (se recrean al correr qa_casos_uso.py)
+services/testbed/qa/

@@ -1,0 +1,54 @@
+
+--- 'ya termine mi sesion de hoy, todo completo'
+    esperado: avanzar_dia
+    think=True   OK   77.2s think=1653 tok -> ['avanzar_dia']
+    think=low    OK   54.6s think= 262 tok -> ['avanzar_dia']
+    think=False  NO    3.0s think=   0 tok -> (ninguna)
+
+--- 'que me toca entrenar manana?'
+    esperado: consultar_rutina_futura
+    think=True   OK   18.3s think= 421 tok -> ['consultar_rutina_futura']
+    think=low    NO   39.3s think= 811 tok -> (ninguna)
+    think=False  NO   20.8s think=   0 tok -> (ninguna)
+
+--- 'cambia el peso muerto por rumano en todo el plan'
+    esperado: sustituir_ejercicio
+    think=True   OK   79.5s think= 532 tok -> ['sustituir_ejercicio']
+    think=low    OK   81.2s think= 701 tok -> ['sustituir_ejercicio']
+    think=False  NO   13.3s think=   0 tok -> (ninguna)
+
+--- 'hice 140x3 en sentadilla, cual seria mi 1rm?'
+    esperado: calcular_rm_exacto
+    think=True   OK    8.8s think= 122 tok -> ['calcular_rm_exacto']
+    think=low    OK   44.4s think=1149 tok -> ['calcular_rm_exacto']
+    think=False  OK   74.4s think=   0 tok -> ['calcular_rm_exacto']
+
+--- 'me siento fatal, rpe 10 en la primera serie'
+    esperado: aplicar_descarga|autorregular_dia
+    think=True   NO   96.3s think=2755 tok -> (ninguna)
+    think=low    OK  167.4s think=1164 tok -> ['autorregular_dia']
+    think=False  NO    8.8s think=   0 tok -> (ninguna)
+
+--- 'pausa mi plan que me voy de viaje dos semanas'
+    esperado: pausar_plan
+    think=True   OK    5.1s think=  73 tok -> ['pausar_plan']
+    think=low    OK    5.7s think=  89 tok -> ['pausar_plan']
+    think=False  OK    2.6s think=   0 tok -> ['pausar_plan']
+
+--- 'mandame la grafica de mi progreso'
+    esperado: enviar_grafica_progreso
+    think=True   OK   22.3s think= 667 tok -> ['enviar_grafica_progreso']
+    think=low    OK   18.2s think= 486 tok -> ['enviar_grafica_progreso']
+    think=False  OK    2.7s think=   0 tok -> ['enviar_grafica_progreso']
+
+--- 'hazme una rutina nueva desde cero'
+    esperado: generar_rutina
+    think=True   NO   82.6s think=2573 tok -> (ninguna)
+    think=low    NO   96.2s think=2989 tok -> (ninguna)
+    think=False  NO    5.0s think=   0 tok -> (ninguna)
+
+
+================ RESUMEN ================
+think=True   aciertos 6/8 | tiempo total  390.1s (media  48.8s) | thinking total 8796 tok
+think=low    aciertos 6/8 | tiempo total  507.1s (media  63.4s) | thinking total 7651 tok
+think=False  aciertos 3/8 | tiempo total  130.6s (media  16.3s) | thinking total 0 tok
