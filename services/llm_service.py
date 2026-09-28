@@ -1508,7 +1508,7 @@ LIMITE_EMERGENCIA = 40
 # ==============================================================================
 # Cambia el modelo AQUÍ (y usa el MISMO nombre + num_ctx en el servicio generador,
 # o tendrás dos modelos rotando en 24 GB y vuelve el thrashing de recargas).
-MODELO_LLM = "qwen3.6:27b"   # rollback instantáneo: "qwen3:32b"
+MODELO_LLM = "qwen3.8:27b"   # rollback instantáneo: "qwen3:32b"
 
 # Thinking selectivo: el modelo RAZONA solo en turnos donde decide herramientas
 # o sintetiza sus resultados. Donde Python ya decidió todo (onboarding, casual,

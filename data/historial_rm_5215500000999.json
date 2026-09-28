@@ -472,5 +472,11 @@
     "ejercicio": "press banco plano",
     "rm": 111.0,
     "peso_origen": 90.0
+  },
+  {
+    "fecha": "2026-08-27 21:34",
+    "ejercicio": "press banco plano",
+    "rm": 118.3,
+    "peso_origen": 100.0
   }
 ]

@@ -265,7 +265,7 @@ El sufijo `*` marca lo que resolvió Python en vez del modelo. Además hay **32 
 | **LLM** | Qwen3.6 27B (Q4_K_M) sobre Ollama, **40 960 de contexto**, thinking selectivo por turno |
 | **RAG** | ChromaDB + `nomic-embed-text` — expediente, bitácora narrativa y biblioteca científica |
 | **Visión** | YOLO (Ultralytics) · OpenCV · MoviePy — motor VBT propio con HUD renderizado sobre el vídeo · MediaPipe Pose para la técnica |
-| **ML propio** | scikit-learn — clasificador de ejercicios (Gradient Boosting) entrenado sobre 44 vídeos y 23 variables de pose |
+| **ML propio** | scikit-learn — clasificador de ejercicios (Gradient Boosting) entrenado sobre 49 vídeos propios y 23 variables de pose |
 | **Audio** | faster-whisper (`small`, int8 en CPU) |
 | **Datos** | SQLite (7 tablas en dos bases) · JSON (planes y estado) |
 | **Proactividad** | APScheduler · Matplotlib para las gráficas de progreso |
@@ -301,7 +301,9 @@ cp .env.example .env      # y rellena los tokens de Meta
 #    devuelven vacío: dos de las 23 herramientas quedan muertas.
 pip install langchain-community langchain-text-splitters pypdf
 #    coloca tus PDFs en scripts/resources/libros_cientificos/
-python scripts/crear_base_conocimiento.py     # ~1 min: 1.007 páginas → 3.852 fragmentos
+python scripts/crear_base_conocimiento.py     # ~1 min: 997 páginas únicas → 3.811 fragmentos
+#    (el script deduplica por hash de contenido: un PDF repetido con otro
+#    nombre no se indexa dos veces)
 
 # 5. Arrancar
 python main.py            # health check en http://localhost:8000/

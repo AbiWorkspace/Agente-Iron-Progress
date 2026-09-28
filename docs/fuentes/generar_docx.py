@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Genera la documentación técnica de Iron Progress en .docx."""
+import re
 from pathlib import Path
 
 from docx import Document
@@ -206,6 +207,173 @@ def pie_de_pagina():
         r = par.add_run("Iron Progress · Documentación técnica · v9.1")
         r.font.size = Pt(8)
         r.font.color.rgb = GRIS
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# F0.4 — Citas, bibliografía, numeración de figuras/tablas por capítulo.
+#
+# Todo lo de aquí en adelante es ADITIVO: no toca ninguna de las llamadas ya
+# existentes en este fichero (figura()/tabla() sin captions siguen igual).
+# Las funciones nuevas son figura_numerada()/tabla_numerada(), que envuelven
+# a las originales y además registran el índice.
+# ══════════════════════════════════════════════════════════════════════════
+
+RUTA_BIB = BASE / "bibliografia.bib"
+
+
+def _cargar_bibliografia(ruta=RUTA_BIB) -> dict:
+    """Parser mínimo de BibTeX sin dependencias externas (bibtexparser no
+    está instalado en el entorno). Basta para los campos que usa este
+    proyecto: author, title, journal/booktitle/publisher, year, volume,
+    number, pages, note, isbn. No pretende ser un parser BibTeX completo."""
+    if not ruta.exists():
+        return {}
+    txt = ruta.read_text(encoding="utf-8")
+    entradas = {}
+    for bloque in re.split(r"\n(?=@)", txt):
+        m = re.match(r"@(\w+)\{\s*([^,\s]+)\s*,", bloque)
+        if not m:
+            continue
+        tipo, clave = m.group(1), m.group(2)
+        campos = {}
+        for fm in re.finditer(r"(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}", bloque):
+            campos[fm.group(1).lower()] = re.sub(r"\s+", " ", fm.group(2)).strip()
+        entradas[clave] = {"tipo": tipo, **campos}
+    return entradas
+
+
+_BIB = _cargar_bibliografia()
+_CITAS_USADAS: dict[str, None] = {}   # dict como set ordenado (clave -> None)
+_CONTADOR_FIG: dict[int, int] = {}
+_INDICE_FIGURAS: list[tuple[str, str]] = []
+_CONTADOR_TAB: dict[int, int] = {}
+_INDICE_TABLAS: list[tuple[str, str]] = []
+
+
+def _primer_apellido(campo_autor: str) -> str:
+    """'Brzycki, Matt' -> 'Brzycki'; '{Cámara de Diputados}' -> 'Cámara de Diputados'."""
+    primero = campo_autor.split(" and ")[0].strip()
+    if primero.startswith("{"):
+        return primero.strip("{}")
+    return primero.split(",")[0].strip()
+
+
+def cita(clave: str, pagina: str | None = None) -> str:
+    """Devuelve el texto de una cita en texto estilo APA: '(Autor, Año)' o
+    '(Autor, Año, p. N)'. Se usa como fragmento dentro de p()/rico():
+
+        rico(("El sistema separa cálculo y lenguaje ", ""),
+             (cita("Sculley2015"), "i"))
+
+    Si la clave no existe en bibliografia.bib, devuelve una marca visible
+    '[CITA-NO-ENCONTRADA: clave]' en vez de fallar en silencio — una cita
+    rota debe ser tan visible como un kilaje inventado en el propio chat
+    del coach (mismo principio que las redes de validación del capítulo 7)."""
+    if clave not in _BIB:
+        return f"[CITA-NO-ENCONTRADA: {clave}]"
+    _CITAS_USADAS.setdefault(clave, None)
+    e = _BIB[clave]
+    autor = _primer_apellido(e.get("author", e.get("author", "s.a.")))
+    anio = e.get("year", "s.f.")
+    extra = f", p. {pagina}" if pagina else ""
+    if " and " in e.get("author", "") or "others" in e.get("author", ""):
+        autor += " et al."
+    return f"({autor}, {anio}{extra})"
+
+
+def _referencia_apa(clave: str, e: dict) -> str:
+    autor = e.get("author", "s.a.")
+    anio = e.get("year", "s.f.")
+    titulo = e.get("title", "")
+    resto = ""
+    if "journal" in e:
+        resto = f"*{e['journal']}*"
+        if e.get("volume"):
+            resto += f", {e['volume']}"
+            if e.get("number"):
+                resto += f"({e['number']})"
+        if e.get("pages"):
+            resto += f", {e['pages']}"
+    elif "booktitle" in e:
+        resto = f"En *{e['booktitle']}*"
+        if e.get("volume"):
+            resto += f" (vol. {e['volume']})"
+    elif "publisher" in e:
+        resto = f"{e['publisher']}"
+    ident = f" ISBN {e['isbn']}." if e.get("isbn") else ""
+    nota = f" [{e['note']}]" if e.get("note") else ""
+    return f"{autor} ({anio}). {titulo}. {resto}.{ident}{nota}"
+
+
+def referencias():
+    """Renderiza 'Referencias bibliográficas' con SOLO las claves citadas
+    de verdad vía cita() en el documento — no vuelca todo bibliografia.bib.
+    Marca en rojo cualquier entrada citada que llevara nota de verificación
+    pendiente, para que no pase inadvertida en la revisión F12.5."""
+    salto()
+    p("Referencias bibliográficas", estilo="Heading 1")
+    if not _CITAS_USADAS:
+        p("(ninguna cita registrada todavía — usa cita() al redactar los capítulos)",
+          color=GRIS)
+        return
+    ordenadas = sorted(_CITAS_USADAS.keys(),
+                        key=lambda k: _primer_apellido(_BIB.get(k, {}).get("author", k)))
+    for clave in ordenadas:
+        e = _BIB.get(clave)
+        if e is None:
+            rico((f"[CITA-NO-ENCONTRADA: {clave}]", "b"))
+            continue
+        texto = _referencia_apa(clave, e)
+        pendiente_de_verificar = "VERIFICAR" in e.get("note", "").upper() or \
+                                  "CITAR SOLO SI" in e.get("note", "").upper()
+        par = doc.add_paragraph()
+        par.paragraph_format.left_indent = Cm(0.6)
+        par.paragraph_format.first_line_indent = Cm(-0.6)
+        par.paragraph_format.space_after = Pt(6)
+        par.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        r = par.add_run(texto)
+        if pendiente_de_verificar:
+            r.font.color.rgb = ROJO
+
+
+def figura_numerada(nombre: str, capitulo: int, texto_pie: str, ancho=None):
+    """Como figura(), pero numera 'Figura {capitulo}.{n}' automáticamente y
+    la registra para indice_figuras()."""
+    _CONTADOR_FIG[capitulo] = _CONTADOR_FIG.get(capitulo, 0) + 1
+    n = _CONTADOR_FIG[capitulo]
+    etiqueta = f"Figura {capitulo}.{n}"
+    figura(nombre, f"{etiqueta}. {texto_pie}", ancho=ancho)
+    _INDICE_FIGURAS.append((etiqueta, texto_pie))
+
+
+def tabla_numerada(cabeceras, filas, capitulo: int, texto_pie: str, anchos=None, tam=9.0):
+    """Como tabla(), pero añade un pie numerado 'Tabla {capitulo}.{n}' antes
+    de la tabla y la registra para indice_tablas()."""
+    _CONTADOR_TAB[capitulo] = _CONTADOR_TAB.get(capitulo, 0) + 1
+    n = _CONTADOR_TAB[capitulo]
+    etiqueta = f"Tabla {capitulo}.{n}"
+    p(f"{etiqueta}. {texto_pie}", estilo="PieFigura", antes=6, despues=2)
+    t = tabla(cabeceras, filas, anchos=anchos, tam=tam)
+    _INDICE_TABLAS.append((etiqueta, texto_pie))
+    return t
+
+
+def _render_indice(titulo, items):
+    salto()
+    p(titulo, estilo="Heading 1")
+    if not items:
+        p("(vacío — no se registraron elementos numerados todavía)", color=GRIS)
+        return
+    for etiqueta, texto in items:
+        rico((f"{etiqueta}. ", "b"), (texto, ""))
+
+
+def indice_figuras():
+    _render_indice("Índice de figuras", _INDICE_FIGURAS)
+
+
+def indice_tablas():
+    _render_indice("Índice de tablas", _INDICE_TABLAS)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

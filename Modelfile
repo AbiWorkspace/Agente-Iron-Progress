@@ -1,2 +1,5 @@
-FROM qwen3:32b
+FROM Qwen3.8:27b
+PARAMETER draft_num_predict 0
 PARAMETER num_ctx 16384
+PARAMETER temperature 0.3
+

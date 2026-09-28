@@ -417,6 +417,8 @@ def estimar_rir_por_velocidad(v_ultima_rep: float, perfil: PerfilEjercicio,
     return float(round(min(rir, 8.0), 1))
 
 
+
+
 def estimar_rir_por_vl(vl_pct: Optional[float],
                        n_reps: int = 0) -> Optional[str]:
     """Rango de RIR según la pérdida de velocidad intra-serie.

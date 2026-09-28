@@ -15,7 +15,7 @@ huecos y este es su estado:
 | Hueco | Antes | Ahora | Cómo |
 |---|---|---|---|
 | Historial de entrenamiento | 59 series de un atleta de pruebas | **988 series, 16 semanas** | `sembrar_demo.py` |
-| Biblioteca científica | **0 fragmentos** (2 herramientas muertas) | **3.852 fragmentos** de 1.007 páginas | `crear_base_conocimiento.py`, 66 s |
+| Biblioteca científica | **0 fragmentos** (2 herramientas muertas) | **3.811 fragmentos** de 997 páginas únicas | `crear_base_conocimiento.py` |
 | Bitácora narrativa | **0 documentos**, sin escritor en todo el repo | **6 bitácoras** de mesociclos cerrados | `sembrar_conversacion.py` |
 | Conversación previa | ninguna: el coach saludaba como el primer día | **24 mensajes** de pasado con sus herramientas | `sembrar_conversacion.py` |
 | Cargas del plan | 8 de 18 ejercicios salían *peso por calibrar* | **18 de 18 con kilos reales** | marcas accesorias sembradas |
@@ -158,8 +158,9 @@ una herramienta sobre el plan real.
 
 **Escribe:** `¿cuántas series por grupo muscular debería hacer para hipertrofia?`
 
-Cita la **biblioteca científica**: 3.852 fragmentos de cinco libros (Israetel, Helms, Schoenfeld,
-Rippetoe) indexados localmente.
+Cita la **biblioteca científica**: 3.811 fragmentos de cuatro obras (Israetel et al. sobre dieta,
+Helms/Valdez/Morgan, Schoenfeld, y un artículo de Jovanović sobre el libro de Rippetoe — no el
+libro en sí) indexadas localmente.
 
 **Escribe:** `oye, ya no me molesta nada el hombro`
 
@@ -274,7 +275,7 @@ Para responder sin dudar si preguntan:
 - **≈14 interceptores** deterministas · **6 redes** de validación de salida
 - **7.749 líneas** el orquestador · **≈28.500** el proyecto entero
 - **40.960 tokens** de ventana de contexto
-- **7 tablas** SQLite · **3 colecciones** vectoriales · **3.852 fragmentos** de literatura
+- **7 tablas** SQLite · **3 colecciones** vectoriales · **3.811 fragmentos** de literatura
 - **74 casos** de QA en 22 bloques · **32 suites** deterministas · **72 aserciones** de humo
 - **Latencia:** 71 s el primer turno en frío, 17-52 s después. El decodificado domina
   (medido: prefill 26.150 tokens en 5,9 s a 4.446 tok/s; decodificado 1.348 tokens en 42,7 s a 31,6 tok/s)
