@@ -455,12 +455,12 @@ _MATERIAL = {
     "mancuernas":     ("mancuerna", "dumbbell"),
     "poleas":         ("polea", "cable"),
     "máquinas":       ("m[áa]quinas?", "aparatos"),
-    "barra de dominadas": ("barra de dominadas", "dominadas"),
+    "barra de dominadas": ("barra de dominadas", "barra para dominadas", "tubo de dominadas"),
     "prensa":         ("prensa", "leg\\s*press"),
 }
 _SIN_MATERIAL_RE = re.compile(
-    r"\b(?:no\s+(?:hay|tengo|tiene|cuento\s+con)|sin|carezco\s+de|"
-    r"se\s+(?:da[ñn][óo]|rompi[óo])|est[áa]\s+ocupad[oa])\b", re.IGNORECASE)
+    r"\b(?:no\s+(?:hay|tengo|tiene|cuento\s+con|dispongo\s+de)|carezco\s+de|"
+    r"se\s+(?:da[ñn][óo]|rompi[óo])|est[áa]\s+ocupad[oa]|sin\s+(?:acceso|equipo|barra|rack|mancuerna|banco|polea|maquina|aparato))\b", re.IGNORECASE)
 _SOLO_MATERIAL_RE = re.compile(r"\b(?:solo|s[óo]lo|[úu]nicamente|nada\s+m[áa]s)\s+(?:tengo|hay|cuento\s+con)",
                                re.IGNORECASE)
 
@@ -468,6 +468,14 @@ _SOLO_MATERIAL_RE = re.compile(r"\b(?:solo|s[óo]lo|[úu]nicamente|nada\s+m[áa]
 def detectar_restriccion_material(texto: str) -> str:
     """Frase lista para el expediente, o "" si no declara ninguna limitación."""
     t = str(texto or "")
+    # Blindaje contra telemetría sintética VBT: solo inspeccionar lo que dijo el atleta
+    if "TELEMETRÍA DE VIDEO VBT RECIBIDA" in t:
+        m_orig = re.search(r"Mensaje original del atleta:\s*([^\n]+)", t)
+        if m_orig:
+            t = m_orig.group(1).strip()
+        else:
+            return ""
+
     hay_falta = bool(_SIN_MATERIAL_RE.search(t))
     hay_solo = bool(_SOLO_MATERIAL_RE.search(t))
     if not (hay_falta or hay_solo):
@@ -6051,6 +6059,17 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                 vbt_kg = float(m_carga.group(1)) if m_carga else 0.0
                 vbt_rpe = float(m_rpe.group(1)) if m_rpe else None
 
+                # Métricas cinemáticas VBT del bloque para persistencia completa en SQLite
+                m_vcm = re.search(r"Velocidad Media Concéntrica \(VCM\):\s*([\d\.]+)", mensaje_usuario, re.IGNORECASE)
+                m_vl = re.search(r"Pérdida de Velocidad \(VL\s*%\s*,\s*vs la rep más rápida\):\s*([\d\.]+)%", mensaje_usuario, re.IGNORECASE)
+                m_pico = re.search(r"Pico:\s*_?([\d\.]+)_?\s*m/s", mensaje_usuario, re.IGNORECASE)
+                m_rom = re.search(r"ROM:\s*([\d\.]+)\s*cm", mensaje_usuario, re.IGNORECASE)
+
+                vbt_vcm = float(m_vcm.group(1)) if m_vcm else None
+                vbt_vl = float(m_vl.group(1)) if m_vl else None
+                vbt_pico = float(m_pico.group(1)) if m_pico else None
+                vbt_rom = float(m_rom.group(1)) if m_rom else None
+
                 from services.motor_predictivo import serie_duplicada_reciente
                 is_dup = await asyncio.to_thread(serie_duplicada_reciente, numero_usuario, vbt_ej, vbt_kg, vbt_reps, vbt_rpe)
                 if not is_dup:
@@ -6059,6 +6078,10 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
                         "peso_kg": vbt_kg,
                         "repeticiones": vbt_reps,
                         "rpe_reportado": vbt_rpe,
+                        "vbt_velocidad_media": vbt_vcm,
+                        "vbt_velocidad_pico": vbt_pico,
+                        "vbt_perdida_velocidad": vbt_vl,
+                        "rom_cm": vbt_rom,
                     })
                     if 1 <= vbt_reps <= 15 and vbt_kg > 0:
                         rm_val = _e1rm_de_serie(vbt_kg, vbt_reps, vbt_rpe)

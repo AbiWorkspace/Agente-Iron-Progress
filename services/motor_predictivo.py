@@ -192,17 +192,21 @@ def serie_duplicada_reciente(numero: str, ejercicio: str, peso_kg: float,
 
 
 def guardar_serie_v9(numero: str, ejercicio: str, peso_kg: float,
-                     repeticiones: int, rpe: float, dolor: str = "ninguno") -> None:
-    """Inserción directa con la tríada completa. Si prefieres centralizar en tu
-    db_service.guardar_serie_sql, amplíale la firma con (repeticiones, rpe) y
-    redirige esta función — el resto de v9 no cambia."""
+                     repeticiones: int, rpe: float, dolor: str = "ninguno",
+                     vbt_velocidad_media: float = None,
+                     vbt_velocidad_pico: float = None,
+                     vbt_perdida_velocidad: float = None,
+                     rom_cm: float = None) -> None:
+    """Inserción directa con la tríada completa y métricas VBT opcionales."""
     with _con() as con:
         con.execute(
             f"INSERT INTO {TABLA_SERIES} ({C['usuario']}, {C['ejercicio']}, "
-            f"{C['peso']}, repeticiones, rpe_reportado, {C['dolor']}, {C['fecha']}) "
-            "VALUES (?,?,?,?,?,?,?)",
+            f"{C['peso']}, repeticiones, rpe_reportado, {C['dolor']}, {C['fecha']}, "
+            f"vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (str(numero), canonizar(ejercicio), float(peso_kg), int(repeticiones),
-             float(rpe), str(dolor or "ninguno"), datetime.now().isoformat(" ", "seconds")))
+             float(rpe), str(dolor or "ninguno"), datetime.now().isoformat(" ", "seconds"),
+             vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm))
         con.commit()
 
 

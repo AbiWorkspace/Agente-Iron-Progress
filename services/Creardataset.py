@@ -2698,9 +2698,10 @@ Si la serie tiene múltiples repeticiones, el VL (%) dicta el fenotipo celular:
 [INSTRUCCIONES DE ANÁLISIS EXCLUSIVAS Y ESTILO DE RESPUESTA]
 0. REGISTRO DE SERIE: El bloque [DATOS ESTRUCTURADOS DE LA SERIE PARA GUARDAR EN HISTORIAL] contiene el formato exacto '{resumen_serie_estandar}' (kg + cantidad de reps + RPE + RIR) necesario para invocar la herramienta registrar_serie_completada o guardar la serie en el historial si la conversación lo amerita.
 1. INTENSIDAD DE LA CARGA: ¿Qué tan pesado estuvo? Menciona el %1RM estimado y, si existe, el 1RM de hoy en kg. Si la carga no fue informada, escribe exactamente 'peso por calibrar' y pídele los kg al atleta.
-2. FATIGA Y ESFUERZO: ¿Qué tan cerca del fallo se quedó? Traduce el VL% y di EXPLÍCITAMENTE cuántas reps le quedaban en el tanque ({reps_rest_txt}) y el RPE/RIR.
+2. FATIGA Y ESFUERZO: ¿Qué tan cerca del fallo se quedó? Traduce el VL% y di EXPLÍCITAMENTE cuántas reps le quedaban en el tanque ({reps_rest_txt}) y el RPE/RIR. Si el RPE es 9.5-10 o el VL > 35%, reconoce el agotamiento total de la serie; PROHIBIDO decir 'sin agotarte del todo'.
 3. OBJETIVO LOGRADO: Traduce el tipo de adaptación conseguida con esta serie a palabras simples.
-4. QUÉ HACER AHORA: Da la orden directa del motor para la siguiente serie (carga, corte de reps y prioridad técnica si la hay).
+4. QUÉ HACER AHORA: Da la orden directa del motor para la siguiente serie (carga, corte de reps y prioridad técnica si la hay). Si sugieres bajar la carga, el peso sugerido DEBE ser numéricamente menor al levantado hoy ({carga_txt}).
+5. VARIABILIDAD: Varía tu redacción respecto a turnos anteriores; prohibido repetir frases cliché o plantillas idénticas.
 
 Usa ÚNICAMENTE los 1RMs y pesos que el sistema te proporciona en los bloques anteriores. Si un peso no aparece explícitamente en los datos del sistema, escribe exactamente 'peso por calibrar' y pregúntale al atleta.
 """

@@ -181,7 +181,13 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
             e1_prev = max(e1_prev, e1)
     es_pr = bool(e1_prev) and e1_nuevo > e1_prev + 0.5
 
-    await asyncio.to_thread(mp.guardar_serie_v9, numero, ejercicio, peso, reps, rpe, dolor)
+    vbt_vm = _f(args.get("vbt_velocidad_media") or args.get("velocidad_media"))
+    vbt_vp = _f(args.get("vbt_velocidad_pico") or args.get("velocidad_pico"))
+    vbt_vl = _f(args.get("vbt_perdida_velocidad") or args.get("perdida_velocidad"))
+    rom = _f(args.get("rom_cm") or args.get("rom"))
+
+    await asyncio.to_thread(mp.guardar_serie_v9, numero, ejercicio, peso, reps, rpe, dolor,
+                            vbt_vm, vbt_vp, vbt_vl, rom)
 
     # El nombre que se devuelve al coach es el canónico, el mismo con el que
     # quedó guardado: si el modelo narra "Press Banco Plano" mientras la base
