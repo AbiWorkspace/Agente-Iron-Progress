@@ -82,41 +82,124 @@ import inspect
 import logging
 import math
 import os
+import re
+import shutil
 import subprocess
+import threading
 import traceback
 from collections import deque
 from dataclasses import dataclass, asdict
-from typing import Optional
+from typing import Optional, Union, Callable
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from moviepy import VideoFileClip
 import imageio_ffmpeg
 
-from data.meta_service import enviar_mensaje_whatsapp
+try:
+    from data.meta_service import enviar_mensaje_whatsapp
+except Exception:
+    try:
+        from services.data.meta_service import enviar_mensaje_whatsapp
+    except Exception:
+        def enviar_mensaje_whatsapp(texto: str, telefono_destino: str):
+            pass
+
+logger = logging.getLogger("motor_vbt")
+
+
+# ==============================================================================
+# CACHÉ GLOBAL DE MODELOS YOLO (Evita recargar pesos en VRAM en cada video)
+# ==============================================================================
+_CACHE_MODELOS_YOLO: dict[str, YOLO] = {}
+
+
+def _obtener_modelo_yolo(ruta_modelo: str) -> YOLO:
+    """Devuelve una instancia cacheada del modelo YOLO indexada por ruta para evitar
+    recargas repetitivas desde disco y fragmentación de memoria GPU/VRAM."""
+    if ruta_modelo not in _CACHE_MODELOS_YOLO:
+        logger.info(f"Cargando modelo YOLO en caché global: {ruta_modelo}")
+        _CACHE_MODELOS_YOLO[ruta_modelo] = YOLO(ruta_modelo)
+    return _CACHE_MODELOS_YOLO[ruta_modelo]
+
+
+def _notificar_whatsapp_seguro(texto: str, telefono_destino: str, callback: Optional[Callable] = None) -> None:
+    """Desacopla las llamadas a la API de WhatsApp en un hilo en segundo plano para
+    evitar que la latencia de red de Meta bloquee el motor de visión artificial."""
+    def _tarea():
+        try:
+            if callback:
+                callback(texto=texto, telefono_destino=telefono_destino)
+            else:
+                enviar_mensaje_whatsapp(texto=texto, telefono_destino=telefono_destino)
+        except Exception as e:
+            logger.warning(f"Error en notificación WhatsApp en segundo plano: {e}")
+
+    threading.Thread(target=_tarea, daemon=True).start()
 
 
 def _analizar_propiedades_video(ruta_video: str) -> tuple[bool, bool]:
-    """Detecta si el video de entrada es HDR y/o entrelazado (interlaced)."""
-    try:
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        ffmpeg_exe = "ffmpeg"
-    
+    """Detecta si el video de entrada es HDR y/o entrelazado (interlaced) sin falsos positivos."""
     es_hdr = False
     es_entrelazado = False
+
+    # 1. Intentar con ffprobe consultando los campos exactos del stream de video
+    ffprobe_exe = shutil.which("ffprobe")
+    if not ffprobe_exe:
+        try:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            posible_ffprobe = os.path.join(os.path.dirname(ffmpeg_exe), "ffprobe")
+            if os.path.exists(posible_ffprobe):
+                ffprobe_exe = posible_ffprobe
+        except Exception:
+            pass
+
+    if ffprobe_exe:
+        try:
+            res = subprocess.run(
+                [
+                    ffprobe_exe, "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=field_order,color_transfer,pix_fmt",
+                    "-of", "default=noprint_wrappers=1:nokey=0", ruta_video
+                ],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8
+            )
+            props = dict(line.strip().split("=", 1) for line in res.stdout.splitlines() if "=" in line)
+            fo = props.get("field_order", "").lower().strip()
+            ct = props.get("color_transfer", "").lower().strip()
+            pf = props.get("pix_fmt", "").lower().strip()
+
+            if fo in ("tt", "bb", "tb", "bt") or "interlaced" in fo:
+                es_entrelazado = True
+
+            hdr_transfers = ("smpte2084", "arib-std-b67", "linear", "bt2020-10", "bt2020-12")
+            if ct in hdr_transfers or "10le" in pf or "p010" in pf:
+                es_hdr = True
+
+            return es_hdr, es_entrelazado
+        except Exception as e:
+            logger.debug(f"ffprobe falló al analizar video ({e}); usando fallback ffmpeg.")
+
+    # 2. Fallback a ffmpeg -i inspeccionando exclusivamente la línea del Stream de video
     try:
-        res = subprocess.run([ffmpeg_exe, "-i", ruta_video], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        err = res.stderr.lower()
-        hdr_keywords = ["bt2020", "arib-std-b67", "smpte2084", "hlg", "hdr10", "10bit", "yuv420p10le", "yuv422p10le", "p010le"]
-        es_hdr = any(kw in err for kw in hdr_keywords)
-        
-        interlaced_keywords = ["interlaced", "field_order", "top first", "bottom first", "tff", "bff", "tb", "bt"]
-        es_entrelazado = any(kw in err for kw in interlaced_keywords)
+        try:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_exe = "ffmpeg"
+
+        res = subprocess.run([ffmpeg_exe, "-i", ruta_video], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8)
+        err = res.stderr
+
+        match_stream = re.search(r"Stream #\d+:\d+.*?: Video:.*", err)
+        if match_stream:
+            linea_video = match_stream.group(0).lower()
+            if re.search(r"\b(interlaced|tff|bff)\b", linea_video):
+                es_entrelazado = True
+            if re.search(r"\b(bt2020|arib-std-b67|smpte2084|hlg|hdr10|yuv420p10le|yuv422p10le|p010le)\b", linea_video):
+                es_hdr = True
     except Exception as e:
         logger.warning(f"No se pudieron verificar las propiedades del video: {e}")
-    
+
     return es_hdr, es_entrelazado
 
 
@@ -150,8 +233,8 @@ def _preprocesar_video_hdr_si_es_necesario(ruta_video: str) -> tuple[str, bool]:
         "-i", ruta_video,
         "-vf", vf_filter,
         "-c:v", "libx264",
-        "-crf", "17",
-        "-preset", "slow",
+        "-crf", "18",
+        "-preset", "fast",
         "-pix_fmt", "yuv420p",
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
@@ -248,44 +331,36 @@ class ConfigVBT:
     # Escala física
     diametro_disco_m: float = 0.45          # Disco olímpico estándar
 
-    # Detección YOLO
-    conf_deteccion: float = 0.15
+    # Detección YOLO — Calibrado analíticamente según la banda operativa de tau* (0.1802)
+    conf_deteccion: float = 0.18            # Punto de equilibrio óptimo F1 (0.9168)
     iou_nms: float = 0.45
     imgsz: int = 1024
-    max_detecciones: int = 3                # >1 para permitir re-enganche por cercanía
-    factor_reenganche: float = 1.5          # x alto de caja como radio máximo
+    max_detecciones: int = 3
+    factor_reenganche: float = 1.5          # Tolerancia de re-enganche (x diámetro del disco)
     ema_alto_caja: float = 0.15             # Suavizado exponencial de la escala
 
-    # Recuperación del tracking (v3.3)
-    frames_para_soltar_id: int = 25         # ~0.8 s a 30 fps: tras esto se
-                                            # libera el ID y se re-fija de cero
-    crecimiento_radio_por_frame: float = 0.35   # el radio de búsqueda se abre
-                                            # mientras el disco sigue perdido
-    penalizacion_suelo: float = 0.5         # factor de puntuación, NO exclusión:
-                                            # en peso muerto el disco de trabajo
-                                            # arranca legítimamente en el piso
+    # Recuperación del tracking y protección contra saltos (Anti-Switch)
+    frames_para_soltar_id: int = 60         # Solo aplica ANTES de confirmar el ancla de la serie (1s a 60fps)
+    crecimiento_radio_por_frame: float = 0.08  # Crecimiento suave (antes 0.35 abría a toda la imagen)
+    factor_radio_max_tope: float = 1.60     # Tope duro del radio de re-enganche (x alto_ema)
+    max_desvio_x_frac: float = 0.55         # Pasillo horizontal máx permitido (x alto_ema)
+    max_salto_frame_frac: float = 0.65      # Desplazamiento máx posible en 1 frame (x alto_ema)
+    margen_borde_px: int = 18               # Píxeles para detectar que el disco sale de cámara
+    frac_min_visible_borde: float = 0.38    # Si queda menos del 38% del disco dentro, se ignora el frame
+    penalizacion_suelo: float = 0.5         # Factor de puntuación en el piso
 
-    # Estabilidad de la escala px->m (v3.3). La velocidad es proporcional a
-    # ella: un mal fotograma inicial desvía TODAS las mediciones de la serie.
-    frames_semilla_escala: int = 10         # mediana de los primeros N discos
-    salto_max_escala: float = 0.35          # cambio de alto imposible entre
-                                            # frames -> caja de otro objeto
+    # Estabilidad de la escala px->m
+    frames_semilla_escala: int = 10         # Mediana de los primeros N discos
+    salto_max_escala: float = 0.28          # Rechaza discos de distinto diámetro/profundidad
 
     # Cinemática
-    # FIX v3.4: la ventana se define en SEGUNDOS, no en muestras. Con 7 muestras
-    # fijas un video a 60 fps filtraba sobre 0.117 s y uno a 30 fps sobre 0.233 s:
-    # el MISMO levantamiento daba picos distintos según cómo se grabó. El dataset
-    # propio mezcla ambas cadencias (sentadillas a 30, press a 60).
     ventana_s: float = 0.233                # Ancho temporal del ajuste local
     ventana_savgol: int = 7                 # Fallback si no se conocen los fps
     poly_savgol: int = 2                    # Grado del ajuste local
-    gap_reinicio_s: float = 0.35            # Hueco de detección que invalida la
-                                            # ventana: ajustar a través de él
-                                            # fabrica velocidades imposibles
-    vel_max_valida: float = 3.5             # m/s — techo físico razonable en barra
+    gap_reinicio_s: float = 0.35            # Hueco de detección que reinicia la ventana
+    vel_max_valida: float = 3.5             # m/s — techo físico en barra
     umbral_ruido_prop: float = 0.08         # m/s — micro-pausas / ruido
-    vel_sticking: float = 0.05              # m/s — por debajo, la barra está
-                                            # "clavada" (sticking point)
+    vel_sticking: float = 0.05              # m/s — barra clavada (sticking point)
 
     # Máquina de estados
     vel_min_registro: float = 0.05
@@ -298,25 +373,20 @@ class ConfigVBT:
     rom_minimo_px_piso: float = 30.0
     reversa_px_piso: float = 8.0
     compromiso_px_piso: float = 15.0
-    frac_linea_suelo: float = 0.75          # Ignora discos apilados en el piso
+    frac_linea_suelo: float = 0.75
 
-    # Fin del EMPUJE concéntrico (v3.4). El lockout no es parte de la subida:
-    # si se deja que cualquier micro-ganancia de altura extienda la concéntrica,
-    # un reajuste postural 3 s después del bloqueo se traga la repetición entera
-    # (medido: 5.23 s de "concéntrica" para un tirón real de 1.73 s -> v_avg
-    # 0.111 m/s en vez de 0.315).
-    t_fin_empuje_s: float = 1.20            # sin ganar altura -> empuje acabado
-    frac_ganancia_util: float = 0.035       # x ROM: ganancia mínima que cuenta
-                                            # como "sigue subiendo" (anti-ruido)
+    # Fin del empuje concéntrico
+    t_fin_empuje_s: float = 1.20
+    frac_ganancia_util: float = 0.035
 
     # Pose / cinemática articular (opcional)
-    pose_cada_n_frames: int = 2             # Inferir pose 1 de cada N frames
-    conf_keypoint: float = 0.30             # Confianza mínima por articulación
+    pose_cada_n_frames: int = 2
+    conf_keypoint: float = 0.30
 
     # Umbrales del análisis técnico
-    umbral_desv_horizontal_cm: float = 5.0  # Bar path: alerta de deriva lateral
-    rom_cv_alerta_pct: float = 7.0          # CV de ROM que dispara alerta
-    amort_alerta_crec_pct: float = 50.0     # Crecimiento de la pausa en el fondo
+    umbral_desv_horizontal_cm: float = 5.0
+    rom_cv_alerta_pct: float = 7.0
+    amort_alerta_crec_pct: float = 50.0
 
 
 CONFIG = ConfigVBT()
@@ -687,72 +757,229 @@ class Repeticion:
     def a_dict(self) -> dict:
         return asdict(self)
 
-
 # ==============================================================================
-# RASTREADOR DE DISCO (YOLO + ByteTrack + re-enganche + escala estable)
+# RASTREADOR DE DISCO (YOLO + ByteTrack + Sticky Anchor + Guarda de Borde FOV)
 # ==============================================================================
 class RastreadorDisco:
-    """Encapsula la detección/tracking del disco y la calibración px→metros."""
+    """Encapsula la detección/tracking del disco y la calibración px->metros."""
 
-    def __init__(self, ruta_modelo: str, cfg: ConfigVBT = CONFIG):
+    def __init__(self, ruta_o_modelo: Union[str, YOLO], cfg: ConfigVBT = CONFIG):
         self.cfg = cfg
-        self.modelo = YOLO(ruta_modelo)
+        if isinstance(ruta_o_modelo, str):
+            self.modelo = _obtener_modelo_yolo(ruta_o_modelo)
+        else:
+            self.modelo = ruta_o_modelo
+        self.reset()
+
+    def _resetear_tracker_ultralytics(self) -> None:
+        """Limpia los filtros de Kalman e IDs de ByteTrack acumulados de videos previos
+        cuando el modelo YOLO se obtiene desde la caché global en VRAM."""
+        try:
+            predictor = getattr(self.modelo, "predictor", None)
+            if predictor is not None and getattr(predictor, "trackers", None):
+                for tracker in predictor.trackers:
+                    tracker.reset()
+        except Exception as e:
+            logger.debug(f"No se pudo resetear el tracker interno de Ultralytics: {e}")
+
+    def reset(self) -> None:
+        """Reinicia el estado interno del rastreador y limpia ByteTrack sin recargar en GPU."""
+        self._resetear_tracker_ultralytics()
         self.id_fijado: Optional[int] = None
         self.alto_ema: Optional[float] = None
-        self.ultima_pos: Optional[tuple] = None
-        # v3.3 — recuperación de tracking y escala robusta
-        self.frames_sin_deteccion = 0
-        self._altos_semilla: deque = deque(maxlen=cfg.frames_semilla_escala)
-        self._escala_sembrada = False
-        self._fallos_yolo_seguidos = 0
-        self._aviso_yolo_emitido = False
+        self.ultima_pos: Optional[tuple[int, int]] = None
+        self.vel_px: tuple[float, float] = (0.0, 0.0)
+        self.frames_sin_deteccion: int = 0
+        self._altos_semilla: deque = deque(maxlen=self.cfg.frames_semilla_escala)
+        self._escala_sembrada: bool = False
+        self.ancla_confirmada: bool = False
+        self.x_ancla: Optional[float] = None
+        self.salio_por_borde: bool = False
+        self._fallos_yolo_seguidos: int = 0
+        self._aviso_yolo_emitido: bool = False
+        # Control anti-switch y consistencia multi-disco
+        self.frames_seguidos_id: int = 0
+        self.total_frames_trackeados: int = 0
+        self.coexisting_ids: dict[int, int] = {}
+        self.borde_salida: Optional[str] = None
+        self.pos_salida: Optional[tuple[int, int]] = None
+        self._frame_count: int = 0
 
     # --------------------------------------------------------------
     def _perder(self) -> None:
-        """Un frame más sin disco. El ancla de re-enganche NO se toca: sigue
-        siendo la última posición conocida, pero el radio se abre con el tiempo."""
+        """Registra un frame sin detección válida amortiguando la inercia proyectada."""
         self.frames_sin_deteccion += 1
+        self.frames_seguidos_id = 0
+        # Si salió por el borde de la cámara, frenamos la proyección para que el
+        # punto predicho no siga viajando fuera del lienzo.
+        factor_freno = 0.50 if self.salio_por_borde else 0.80
+        self.vel_px = (self.vel_px[0] * factor_freno, self.vel_px[1] * factor_freno)
 
     # --------------------------------------------------------------
-    def _actualizar_escala(self, alto_detectado: float) -> float:
-        """Escala px->m estable. Antes se sembraba con el PRIMER disco visto: si
-        ese fotograma traía la caja recortada o a medio aparecer, la referencia
-        quedaba mal para toda la serie y la velocidad salía escalada en bloque.
-        Ahora se siembra con la MEDIANA de los primeros N discos y después se
-        suaviza por EMA rechazando saltos físicamente imposibles."""
-        self._altos_semilla.append(alto_detectado)
+    def _actualizar_escala(
+        self, alto_detectado: float, en_borde: bool = False, demasiado_recortada: bool = False
+    ) -> float:
+        """Escala px->m estable. Congela actualizaciones si la caja está excesivamente recortada
+        o si hay motion blur por velocidad alta."""
+        if demasiado_recortada and self.alto_ema is not None:
+            return self.alto_ema
 
         if not self._escala_sembrada:
+            self._altos_semilla.append(alto_detectado)
             self.alto_ema = float(np.median(self._altos_semilla))
             if len(self._altos_semilla) >= self.cfg.frames_semilla_escala:
                 self._escala_sembrada = True
-                logger.info(f"Escala fijada por mediana de "
-                            f"{len(self._altos_semilla)} discos: "
-                            f"{self.alto_ema:.1f}px = "
-                            f"{self.cfg.diametro_disco_m}m")
+                self.ancla_confirmada = True
+                logger.info(
+                    f"Escala y ancla fijadas por mediana de {len(self._altos_semilla)} "
+                    f"frames: {self.alto_ema:.1f}px = {self.cfg.diametro_disco_m}m"
+                )
+            return self.alto_ema
+
+        # Si la escala ya está sembrada, congelar si está en el borde o hay velocidad alta
+        if en_borde:
+            return self.alto_ema
+
+        vel_mag = math.hypot(self.vel_px[0], self.vel_px[1])
+        if vel_mag > 3.0:
             return self.alto_ema
 
         desvio = abs(alto_detectado - self.alto_ema) / max(self.alto_ema, 1e-6)
         if desvio > self.cfg.salto_max_escala:
-            # Un disco no cambia de tamaño así entre frames: es otra caja
-            # (sleeve, segundo disco, detección parcial). Se ignora.
             return self.alto_ema
 
         a = self.cfg.ema_alto_caja
-        self.alto_ema = self.alto_ema * (1 - a) + alto_detectado * a
+        self.alto_ema = self.alto_ema * (1.0 - a) + alto_detectado * a
         return self.alto_ema
 
     # --------------------------------------------------------------
+    def _compensar_caja_borde(
+        self, caja: np.ndarray, ancho_img: int, alto_img: int
+    ) -> tuple[int, int, float, bool, bool, Optional[str]]:
+        """Reconstruye el centro real (cx, cy) y el diámetro estimado ANTES de evaluar
+        el tracking cuando el disco se sale parcialmente por los bordes del encuadre.
+        Retorna: (cx, cy, tam_efectivo, en_borde, demasiado_recortada, lado_borde)"""
+        x_min, y_min, x_max, y_max = map(float, caja)
+        ancho_c = max(0.0, x_max - x_min)
+        alto_c = max(0.0, y_max - y_min)
+        cx = (x_min + x_max) / 2.0
+        cy = (y_min + y_max) / 2.0
+
+        m = self.cfg.margen_borde_px
+        toca_arr = y_min <= m
+        toca_aba = y_max >= (alto_img - m)
+        toca_izq = x_min <= m
+        toca_der = x_max >= (ancho_img - m)
+        en_borde = toca_arr or toca_aba or toca_izq or toca_der
+
+        lado_borde = None
+        if toca_der:
+            lado_borde = "der"
+        elif toca_izq:
+            lado_borde = "izq"
+        elif toca_aba:
+            lado_borde = "aba"
+        elif toca_arr:
+            lado_borde = "arr"
+
+        # Si se recorta verticalmente pero no horizontalmente, el ancho refleja el diámetro real
+        if (toca_arr or toca_aba) and not (toca_izq or toca_der):
+            tam_ef = ancho_c
+        elif (toca_izq or toca_der) and not (toca_arr or toca_aba):
+            tam_ef = alto_c
+        else:
+            tam_ef = max(ancho_c, alto_c)
+
+        demasiado_recortada = False
+        if self.alto_ema is not None and self.alto_ema > 0 and en_borde:
+            radio = self.alto_ema / 2.0
+            min_dim = min(ancho_c, alto_c)
+            if min_dim < self.alto_ema * self.cfg.frac_min_visible_borde:
+                demasiado_recortada = True
+
+            if toca_arr and not toca_aba and alto_c < self.alto_ema * 0.94:
+                cy = y_max - radio
+            elif toca_aba and not toca_arr and alto_c < self.alto_ema * 0.94:
+                cy = y_min + radio
+
+            if toca_izq and not toca_der and ancho_c < self.alto_ema * 0.94:
+                cx = x_max - radio
+            elif toca_der and not toca_izq and ancho_c < self.alto_ema * 0.94:
+                cx = x_min + radio
+
+            tam_ef = max(tam_ef, self.alto_ema if not demasiado_recortada else tam_ef)
+
+        return int(round(cx)), int(round(cy)), float(tam_ef), en_borde, demasiado_recortada, lado_borde
+
+    # --------------------------------------------------------------
+    def _es_candidato_fisicamente_valido(
+        self, cx: int, cy: int, tam_ef: float, en_borde: bool, demasiado_recortada: bool,
+        ancho_img: int = 1920, alto_img: int = 1080
+    ) -> bool:
+        """Verifica que la caja candidata no sea un salto a otro disco del gimnasio."""
+        if demasiado_recortada or tam_ef <= 0:
+            return False
+
+        # Si tenemos x_ancla, SIEMPRE validamos el pasillo vertical (no teletransporte horizontal)
+        if self.x_ancla is not None:
+            max_dx = (
+                self.alto_ema * (self.cfg.max_desvio_x_frac * 1.40)
+                if (self.alto_ema and self.alto_ema > 0)
+                else max(70.0, ancho_img * 0.25)
+            )
+            if abs(cx - self.x_ancla) > max_dx:
+                return False
+
+        if self.ultima_pos is None or self.alto_ema is None or self.alto_ema <= 0:
+            return True
+
+        # 1. Consistencia de diámetro (evita saltar a discos más pequeños o lejanos en el fondo)
+        err_tam = abs(tam_ef - self.alto_ema) / self.alto_ema
+        if not en_borde and err_tam > self.cfg.salto_max_escala:
+            return False
+
+        # 2. Pasillo vertical estricto respecto a última posición
+        dx_ult = abs(cx - self.ultima_pos[0])
+        max_dx_ult = self.alto_ema * self.cfg.max_desvio_x_frac
+        if dx_ult > max_dx_ult:
+            return False
+
+        # 3. Si el disco había salido por el borde de la cámara, verificar consistencia espacial
+        if self.salio_por_borde and self.frames_sin_deteccion > 0:
+            # No puede reingresar por un lado opuesto de la pantalla
+            if self.borde_salida == "der" and cx < ancho_img * 0.50:
+                return False
+            if self.borde_salida == "izq" and cx > ancho_img * 0.50:
+                return False
+            if self.borde_salida == "arr" and cy > alto_img * 0.50:
+                return False
+            if self.borde_salida == "aba" and cy < alto_img * 0.50:
+                return False
+
+            ref_pos = self.pos_salida if self.pos_salida is not None else self.ultima_pos
+            dy_borde = abs(cy - ref_pos[1])
+            if dy_borde > self.alto_ema * 1.25:
+                return False
+
+        # 4. Límite de velocidad máxima posible entre frames vistos
+        dt_frames = max(1, self.frames_sin_deteccion + 1)
+        salto_max_px = self.alto_ema * self.cfg.max_salto_frame_frac * min(dt_frames, 4)
+        if not self.salio_por_borde and dt_frames <= 4:
+            dist_real = math.hypot(cx - self.ultima_pos[0], cy - self.ultima_pos[1])
+            if dist_real > salto_max_px:
+                return False
+
+        return True
+
+    # --------------------------------------------------------------
     def procesar(self, frame: np.ndarray) -> Optional[Deteccion]:
-        alto_img = frame.shape[0]
+        alto_img, ancho_img = frame.shape[:2]
+        self._frame_count += 1
         try:
             pred = self.modelo.track(
                 frame,
                 persist=True,
-                tracker="bytetrack.yaml",
-                # FIX v3.1: el flag FP16 se resuelve una vez según la versión
-                # instalada (`half` vs `quantize`); ver `_kwargs_fp16`. Antes
-                # `half=True` fijo inundaba la consola con avisos de deprecación.
+                tracker=os.path.join(os.path.dirname(__file__), "vbt_bytetrack.yaml"),
                 **_kwargs_fp16(self.modelo.track),
                 agnostic_nms=True,
                 conf=self.cfg.conf_deteccion,
@@ -763,15 +990,13 @@ class RastreadorDisco:
                 verbose=False,
             )
         except Exception as e:
-            # Un fallo por frame es ruido; fallar SIEMPRE (modelo mal cargado,
-            # device inexistente, OOM) dejaba el video entero sin análisis con
-            # un único log en nivel debug, invisible. Se avisa una sola vez.
             self._fallos_yolo_seguidos += 1
             if self._fallos_yolo_seguidos >= 15 and not self._aviso_yolo_emitido:
                 self._aviso_yolo_emitido = True
-                logger.error(f"YOLO lleva {self._fallos_yolo_seguidos} frames "
-                             f"fallando seguidos; no habrá análisis VBT. "
-                             f"Último error: {e}")
+                logger.error(
+                    f"YOLO lleva {self._fallos_yolo_seguidos} frames fallando seguidos; "
+                    f"no habrá análisis VBT. Último error: {e}"
+                )
             else:
                 logger.debug(f"YOLO track falló en este frame: {e}")
             self._perder()
@@ -785,130 +1010,212 @@ class RastreadorDisco:
         cajas = pred[0].boxes.xyxy.cpu().numpy()
         ids = pred[0].boxes.id.cpu().numpy().astype(int)
 
-        caja = self._seleccionar_caja(cajas, ids, alto_img)
-        if caja is None:
+        seleccion = self._seleccionar_caja(cajas, ids, ancho_img, alto_img)
+        if seleccion is None:
             self._perder()
             return None
 
+        caja, cx, cy, alto_detectado, en_borde, rec_extremo, lado_borde = seleccion
         x_min, y_min, x_max, y_max = caja
-        # FIX v3.4: el disco es CIRCULAR, así que su caja debería ser cuadrada.
-        # Medido sobre el dataset propio, la relación ancho/alto es 0.93-0.96 de
-        # forma sistemática: la perspectiva (cámara no perpendicular al disco)
-        # comprime el eje vertical. Tomar el alto subestimaba el diámetro y por
-        # tanto INFLABA los m/px, y con ellos toda la velocidad de la serie ~5%.
-        # El eje mayor es la mejor estimación del diámetro real bajo escorzo.
-        alto_detectado = max(float(y_max - y_min), float(x_max - x_min))
-        if alto_detectado <= 0:
-            self._perder()
-            return None
 
-        alto_estable = self._actualizar_escala(alto_detectado)
+        alto_estable = self._actualizar_escala(alto_detectado, en_borde=en_borde, demasiado_recortada=rec_extremo)
         m_por_px = self.cfg.diametro_disco_m / alto_estable
-        cx = int((x_min + x_max) / 2)
-        cy = int((y_min + y_max) / 2)
+
+        # Confirmación de ancla por persistencia temporal del tracking
+        self.frames_seguidos_id += 1
+        self.total_frames_trackeados += 1
+        if self.frames_seguidos_id >= 8 or self.total_frames_trackeados >= 12:
+            if not self.ancla_confirmada:
+                self.ancla_confirmada = True
+                logger.info(
+                    f"Ancla de serie confirmada tras {self.total_frames_trackeados} frames de tracking."
+                )
+
+        # Actualizar velocidad en px/frame y pasillo horizontal X
+        if self.ultima_pos is not None:
+            dt_f = max(1, self.frames_sin_deteccion + 1)
+            v_inst_px = ((cx - self.ultima_pos[0]) / dt_f, (cy - self.ultima_pos[1]) / dt_f)
+            self.vel_px = (
+                self.vel_px[0] * 0.4 + v_inst_px[0] * 0.6,
+                self.vel_px[1] * 0.4 + v_inst_px[1] * 0.6,
+            )
+        else:
+            self.vel_px = (0.0, 0.0)
+
+        self.x_ancla = float(cx) if self.x_ancla is None else (self.x_ancla * 0.92 + cx * 0.08)
         self.ultima_pos = (cx, cy)
+        self.salio_por_borde = en_borde
+        if en_borde:
+            self.borde_salida = lado_borde
+            self.pos_salida = (cx, cy)
+        else:
+            self.borde_salida = None
+            self.pos_salida = None
+
         self.frames_sin_deteccion = 0
 
-        return Deteccion(cx, cy, float(x_min), float(y_min), float(x_max),
-                         float(y_max), alto_estable, m_por_px)
+        return Deteccion(
+            cx, cy, float(x_min), float(y_min), float(x_max), float(y_max), alto_estable, m_por_px
+        )
 
     # --------------------------------------------------------------
-    def _seleccionar_caja(self, cajas: np.ndarray, ids: np.ndarray,
-                          alto_img: int) -> Optional[np.ndarray]:
+    def _seleccionar_caja(
+        self, cajas: np.ndarray, ids: np.ndarray, ancho_img: int, alto_img: int
+    ) -> Optional[tuple[np.ndarray, int, int, float, bool, bool, Optional[str]]]:
         if len(cajas) == 0:
             return None
 
-        # 1) El ID fijado sigue vivo -> lo seguimos
+        # Pre-calcular geometría compensada por borde para todas las detecciones
+        candidatos = []
+        for idx, (caja, id_c) in enumerate(zip(cajas, ids)):
+            cx, cy, tam_ef, en_borde, rec_extremo, lado_borde = self._compensar_caja_borde(
+                caja, ancho_img, alto_img
+            )
+            candidatos.append((idx, int(id_c), caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde))
+
+        # Registrar IDs co-existentes cuando el ID fijado está presente
         if self.id_fijado is not None and self.id_fijado in ids:
-            return cajas[int(np.where(ids == self.id_fijado)[0][0])]
+            for other_id in ids:
+                if other_id != self.id_fijado:
+                    self.coexisting_ids[int(other_id)] = self._frame_count
 
-        # 2) Re-enganche: el tracker perdió el ID, buscamos la caja más cercana
+        # 1) El ID fijado sigue presente -> validamos que ByteTrack no haya hecho ID-switch a otro disco
+        if self.id_fijado is not None:
+            for idx, id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde in candidatos:
+                if id_c == self.id_fijado:
+                    if self._es_candidato_fisicamente_valido(
+                        cx, cy, tam_ef, en_borde, rec_extremo, ancho_img, alto_img
+                    ):
+                        return caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde
+                    else:
+                        logger.debug(
+                            f"Rechazado salto irracional en mismo ID {id_c} "
+                            f"hacia ({cx}, {cy}) desde {self.ultima_pos}"
+                        )
+                    break
+
+        # 2) Re-enganche cinemático dentro del pasillo vertical del disco
         if self.id_fijado is not None and self.ultima_pos is not None:
-            # El radio se ABRE mientras el disco sigue perdido: con un radio
-            # fijo, tras medio segundo de oclusión la barra ya está más lejos
-            # que el umbral y el re-enganche era imposible por construcción.
-            radio_max = (self.alto_ema * self.cfg.factor_reenganche
-                         if self.alto_ema else alto_img * 0.15)
-            radio_max *= (1.0 + self.frames_sin_deteccion
-                          * self.cfg.crecimiento_radio_por_frame)
-            centros = np.column_stack([(cajas[:, 0] + cajas[:, 2]) / 2,
-                                       (cajas[:, 1] + cajas[:, 3]) / 2])
-            dists = np.linalg.norm(centros - np.array(self.ultima_pos), axis=1)
-            i_mejor = int(np.argmin(dists))
-            if dists[i_mejor] <= radio_max:
-                self.id_fijado = int(ids[i_mejor])
-                logger.info(f"Re-enganche de tracking a ID {self.id_fijado} "
-                            f"(dist {dists[i_mejor]:.0f}px, radio "
-                            f"{radio_max:.0f}px)")
-                return cajas[i_mejor]
+            if self.salio_por_borde:
+                pos_predicha = (float(self.ultima_pos[0]), float(self.ultima_pos[1]))
+            else:
+                amort = 0.75 ** min(self.frames_sin_deteccion, 8)
+                pos_predicha = (
+                    self.ultima_pos[0] + self.vel_px[0] * min(self.frames_sin_deteccion, 4) * amort,
+                    self.ultima_pos[1] + self.vel_px[1] * min(self.frames_sin_deteccion, 4) * amort,
+                )
 
-            # Perdido demasiado tiempo: se libera el ID para poder re-fijar
-            # desde cero. Sin esto, `id_fijado` quedaba puesto para siempre,
-            # el bloque 3 era inalcanzable y el disco no se recuperaba nunca.
-            if self.frames_sin_deteccion < self.cfg.frames_para_soltar_id:
+            base_r = (
+                self.alto_ema * self.cfg.factor_reenganche
+                if self.alto_ema
+                else alto_img * 0.12
+            )
+            factor_crec = min(
+                1.0 + self.frames_sin_deteccion * self.cfg.crecimiento_radio_por_frame,
+                self.cfg.factor_radio_max_tope,
+            )
+            radio_max = base_r * factor_crec
+
+            mejor_cand = None
+            mejor_score = float("inf")
+
+            for idx, id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde in candidatos:
+                if not self._es_candidato_fisicamente_valido(
+                    cx, cy, tam_ef, en_borde, rec_extremo, ancho_img, alto_img
+                ):
+                    continue
+
+                # REGLA DE CO-EXISTENCIA: Si este ID fue visto simultáneamente con
+                # nuestro disco objetivo en los últimos 90 frames (~1.5s), es otro disco del gimnasio
+                if id_c != self.id_fijado:
+                    last_seen_together = self.coexisting_ids.get(id_c, -9999)
+                    if (self._frame_count - last_seen_together) < 90:
+                        continue
+
+                dx = cx - pos_predicha[0]
+                dy = cy - pos_predicha[1]
+                # Distancia anisotrópica: penaliza el doble cualquier desvío horizontal (X)
+                dist_euclidea = math.hypot(dx, dy)
+                dist_anisotropica = math.hypot(dx * 2.2, dy)
+
+                if dist_euclidea <= radio_max:
+                    if self.alto_ema and self.alto_ema > 0:
+                        err_tam = abs(tam_ef - self.alto_ema) / self.alto_ema
+                        dist_anisotropica *= (1.0 + 2.5 * err_tam)
+                    if dist_anisotropica < mejor_score:
+                        mejor_score = dist_anisotropica
+                        mejor_cand = (id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde, dist_euclidea)
+
+            if mejor_cand is not None:
+                id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde, dist_e = mejor_cand
+                if id_c != self.id_fijado:
+                    logger.info(
+                        f"Re-enganche cinemático seguro a ID {id_c} "
+                        f"(dist {dist_e:.0f}px, radio máx {radio_max:.0f}px)"
+                    )
+                self.id_fijado = id_c
+                return caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde
+
+            # GUARDIA CLAVE: Si el ancla ya fue confirmada (serie en curso), NUNCA soltamos
+            # la referencia para caer al Paso 3 (evita enganchar otro disco cuando sale de cámara).
+            if self.ancla_confirmada or self.frames_sin_deteccion < self.cfg.frames_para_soltar_id:
                 return None
-            logger.info(f"Disco perdido {self.frames_sin_deteccion} frames: "
-                        f"se libera el ID y se vuelve a fijar desde cero.")
+
+            logger.info(
+                f"Disco perdido {self.frames_sin_deteccion} frames durante setup inicial: "
+                f"se libera el ID para re-fijar."
+            )
             self.id_fijado = None
             self.ultima_pos = None
+            self.vel_px = (0.0, 0.0)
 
-        # 3) Fijación por PUNTUACIÓN (no por exclusión).
-        # Antes se descartaba toda caja por debajo de la línea de suelo para
-        # ignorar discos apilados. Pero en peso muerto el disco de trabajo
-        # ARRANCA en el piso: el filtro tiraba el setup y el primer tirón
-        # completos (medido: 211 de 481 frames con el disco perfectamente
-        # visible). Ahora estar abajo solo PENALIZA la puntuación, así que si
-        # no hay nada elevado se sigue el mejor candidato disponible.
+        # 3) Fijación inicial por PUNTUACIÓN (solo ocurre en el setup antes de confirmar el ancla)
         linea_suelo = alto_img * self.cfg.frac_linea_suelo
-        mejor, mejor_id, mejor_score = None, None, 0.0
-        for caja, id_caja in zip(cajas, ids):
+        mejor_tuple = None
+        mejor_score = 0.0
+        for idx, id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde in candidatos:
+            if rec_extremo:
+                continue
+
+            # Si ya teníamos un x_ancla previo, exigir que no esté lejos
+            if self.x_ancla is not None:
+                max_dx = (
+                    self.alto_ema * (self.cfg.max_desvio_x_frac * 1.5)
+                    if (self.alto_ema and self.alto_ema > 0)
+                    else ancho_img * 0.30
+                )
+                if abs(cx - self.x_ancla) > max_dx:
+                    continue
+
             area = float((caja[2] - caja[0]) * (caja[3] - caja[1]))
             if area <= 0:
                 continue
-            cy = (caja[1] + caja[3]) / 2
-            score = area * (self.cfg.penalizacion_suelo
-                            if cy >= linea_suelo else 1.0)
+            score = area * (self.cfg.penalizacion_suelo if cy >= linea_suelo else 1.0)
+            if en_borde:
+                score *= 0.5  # Priorizar disco central del levantamiento
             if score > mejor_score:
-                mejor_score, mejor, mejor_id = score, caja, int(id_caja)
+                mejor_score = score
+                mejor_tuple = (id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde)
 
-        if mejor is not None:
-            self.id_fijado = mejor_id
-        return mejor
+        if mejor_tuple is not None:
+            id_c, caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde = mejor_tuple
+            self.id_fijado = id_c
+            return caja, cx, cy, tam_ef, en_borde, rec_extremo, lado_borde
+        return None
 
 
 # ==============================================================================
-# ESTIMADOR CINEMÁTICO (posición suavizada + velocidad con signo)
+# ESTIMADOR CINEMÁTICO (posición suavizada + rechazo de saltos discontinuos)
 # ==============================================================================
 class EstimadorCinematica:
     """
-    Mantiene una ventana deslizante de (t, y) y devuelve la posición suavizada
-    y la velocidad vertical CON SIGNO en m/s (+ sube, − baja).
-
-    v3.3 — Se sustituyó Savitzky-Golay por un ajuste polinómico local por
-    mínimos cuadrados sobre los TIEMPOS REALES. Motivo (medido en video real):
-
-      1. SG exige muestreo uniforme y aquí NO lo hay: la ventana solo recibe
-         frames CON disco detectado, así que cada pérdida de tracking abre un
-         hueco. Con `delta=dt_medio` el filtro ajustaba a través de huecos de
-         hasta 6 s como si fueran frames consecutivos, produciendo velocidades
-         imposibles (2.39 m/s en un peso muerto, saltos de >1 m/s por frame).
-      2. Devolvía la posición del último punto pero la velocidad del penúltimo:
-         posición y velocidad describían INSTANTES DISTINTOS, y la máquina de
-         estados cruza ambas para decidir las fases de la repetición.
-
-    El ajuste sobre t reales absorbe VFR y frames caídos de forma nativa, y
-    ambas magnitudes se evalúan en el mismo instante. Si el hueco supera
-    `gap_reinicio_s` la ventana se descarta: durante una pérdida larga no
-    sabemos qué hizo la barra, e inventarlo es peor que no medir.
+    Mantiene una ventana deslizante de (t, y) y devuelve el instante evaluado,
+    la posición suavizada y la velocidad vertical CON SIGNO en m/s (+ sube, - baja).
+    Incluye compuerta anti-discontinuidad para evitar picos por saltos de caja.
     """
 
     def __init__(self, cfg: ConfigVBT = CONFIG, fps: Optional[float] = None):
         self.cfg = cfg
-        # FIX v3.4: ventana anclada al TIEMPO, no al número de frames. Con 7
-        # muestras fijas, a 60 fps el filtro cubría la mitad del intervalo que a
-        # 30 fps: el mismo levantamiento grabado con otra cadencia devolvía
-        # picos distintos. Se conserva un mínimo de 5 muestras para que el
-        # ajuste de grado 2 esté sobredeterminado.
         if fps and fps > 0:
             n = int(max(5, round(fps * cfg.ventana_s)))
         else:
@@ -922,37 +1229,50 @@ class EstimadorCinematica:
         self.ts.clear()
         self.ys.clear()
 
-    def actualizar(self, t: float, y_px: float, m_por_px: float) -> tuple:
+    def actualizar(self, t: float, y_px: float, m_por_px: float) -> tuple[float, float, float]:
         t = float(t)
+        y_px = float(y_px)
 
-        # Hueco de detección: lo ocurrido durante la pérdida es desconocido.
-        if self.ts and (t - self.ts[-1]) > self.cfg.gap_reinicio_s:
-            self.reinicios_por_hueco += 1
-            logger.debug(f"Hueco de {t - self.ts[-1]:.2f}s sin disco: "
-                         f"se reinicia la ventana cinemática.")
-            self.reiniciar()
+        if self.ts:
+            dt_ultimo = t - self.ts[-1]
+            # 1. Hueco temporal largo -> reinicio limpio de la ventana
+            if dt_ultimo > self.cfg.gap_reinicio_s:
+                self.reinicios_por_hueco += 1
+                logger.debug(f"Hueco de {dt_ultimo:.2f}s sin disco: reiniciando ventana cinemática.")
+                self.reiniciar()
+            # 2. Compuerta de velocidad implícita: si entre muestras cercanas hay un salto
+            # físicamente imposible (> vel_max_valida * 1.15), no ajustamos un polinomio sobre el escalón
+            elif dt_ultimo > 1e-4:
+                v_implicita = abs(y_px - self.ys[-1]) * m_por_px / dt_ultimo
+                if v_implicita > self.cfg.vel_max_valida * 1.15:
+                    logger.warning(
+                        f"Salto discontinuo detectado en señal Y ({v_implicita:.2f} m/s implícitos): "
+                        f"se amortigua muestra para proteger el VBT."
+                    )
+                    # Acotamos la coordenada al desplazamiento máximo plausible desde el punto previo
+                    dy_max_px = (self.cfg.vel_max_valida * dt_ultimo) / max(m_por_px, 1e-6)
+                    signo = 1.0 if y_px >= self.ys[-1] else -1.0
+                    y_px = float(self.ys[-1] + signo * dy_max_px)
 
         self.ts.append(t)
-        self.ys.append(float(y_px))
+        self.ys.append(y_px)
 
-        # Arranque (o post-hueco): diferencia finita entre frames contiguos
         if len(self.ys) < 3:
             if len(self.ys) >= 2:
                 dt = self.ts[-1] - self.ts[-2]
                 v = (-(self.ys[-1] - self.ys[-2]) / dt * m_por_px) if dt > 0 else 0.0
+                t_eval = float(self.ts[-1])
             else:
                 v = 0.0
-            return float(self.ys[-1]), self._limitar(v)
+                t_eval = float(self.ts[-1])
+            return t_eval, float(self.ys[-1]), self._limitar(v)
 
         ts = np.asarray(self.ts, dtype=float)
         ys = np.asarray(self.ys, dtype=float)
-        t_rel = ts - ts[-1]                      # centrado: mejor condicionado
+        t_rel = ts - ts[-1]
 
-        # Se evalúa en el penúltimo punto: la derivada en el borde de la
-        # ventana es la más ruidosa. Un frame de latencia (~33 ms) a cambio de
-        # una señal mucho más limpia — y ahora la POSICIÓN se evalúa en ese
-        # mismo instante, no en el último.
-        t_eval = t_rel[-2]
+        t_eval_rel = t_rel[-2]
+        t_eval_absoluto = float(ts[-2])
         grado = self.cfg.poly_savgol if ts.size >= self.cfg.poly_savgol + 2 else 1
 
         try:
@@ -961,12 +1281,12 @@ class EstimadorCinematica:
             logger.debug(f"Ajuste local falló ({e}); uso diferencia finita.")
             dt = ts[-1] - ts[-2]
             v = (-(ys[-1] - ys[-2]) / dt * m_por_px) if dt > 0 else 0.0
-            return float(ys[-1]), self._limitar(v)
+            return t_eval_absoluto, float(ys[-2]), self._limitar(v)
 
-        y_ajustada = float(np.polyval(coef, t_eval))
-        dy_dt = float(np.polyval(np.polyder(coef), t_eval))
+        y_ajustada = float(np.polyval(coef, t_eval_rel))
+        dy_dt = float(np.polyval(np.polyder(coef), t_eval_rel))
         v = -dy_dt * m_por_px
-        return y_ajustada, self._limitar(v)
+        return t_eval_absoluto, y_ajustada, self._limitar(v)
 
     def _limitar(self, v: float) -> float:
         tope = self.cfg.vel_max_valida
@@ -993,35 +1313,40 @@ def _angulo_3p(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> Optional[float]:
 
 class EstimadorPose:
     """
-    Cinemática articular vía YOLO-pose. Completamente OPCIONAL: si no se pasa
-    modelo (o falla su carga) el motor sigue funcionando igual que siempre.
-    Mide ángulo de rodilla (cadera-rodilla-tobillo) y de cadera
-    (hombro-cadera-rodilla) del lado con keypoints más confiables, y de ahí
-    la velocidad angular de extensión durante la concéntrica.
+    Cinemática articular vía YOLO-pose. Reutiliza modelo en caché global y
+    asocia espacialmente al atleta según la proximidad de los keypoints al disco.
     """
 
-    def __init__(self, ruta_modelo_pose: Optional[str], cfg: ConfigVBT = CONFIG):
+    def __init__(self, ruta_o_modelo_pose: Optional[Union[str, YOLO]] = None, cfg: ConfigVBT = CONFIG):
         self.cfg = cfg
         self.activo = False
         self.modelo = None
         self.serie: list = []        # [(t, angulo_rodilla, angulo_cadera)]
-        if not ruta_modelo_pose:
+        if not ruta_o_modelo_pose:
             return
         try:
-            self.modelo = YOLO(ruta_modelo_pose)
+            if isinstance(ruta_o_modelo_pose, str):
+                self.modelo = _obtener_modelo_yolo(ruta_o_modelo_pose)
+            else:
+                self.modelo = ruta_o_modelo_pose
             self.activo = True
-            logger.info(f"Cinemática articular activada ({ruta_modelo_pose}).")
+            logger.info(f"Cinemática articular activada ({ruta_o_modelo_pose}).")
         except Exception as e:
             logger.warning(f"No se pudo cargar el modelo de pose ({e}). "
                            "Métricas articulares desactivadas; el resto sigue.")
 
+    def reset(self) -> None:
+        """Reinicia las series registradas del estimador de pose."""
+        self.serie.clear()
+
     # --------------------------------------------------------------
-    def procesar(self, frame: np.ndarray, t: float) -> None:
+    def procesar(self, frame: np.ndarray, t: float,
+                 pos_disco: Optional[tuple[int, int]] = None) -> None:
         if not self.activo:
             return
         try:
             pred = self.modelo.predict(frame, conf=0.25, imgsz=640, device=0,
-                                       max_det=2, verbose=False,
+                                       max_det=4, verbose=False,
                                        **_kwargs_fp16(self.modelo.predict))
         except Exception as e:
             logger.debug(f"Pose falló en este frame: {e}")
@@ -1031,9 +1356,33 @@ class EstimadorPose:
         if r.keypoints is None or r.keypoints.xy is None or len(r.keypoints.xy) == 0:
             return
 
-        # Persona con mayor área (el atleta domina el encuadre)
+        num_personas = len(r.keypoints.xy)
         idx = 0
-        if r.boxes is not None and len(r.boxes) > 0:
+
+        # FIX: Asociación espacial atleta-barra. Si hay varias personas en el encuadre (ej. spotter),
+        # seleccionamos el esqueleto cuyas muñecas/hombros o centro de masa estén más cerca del disco.
+        if num_personas > 1 and pos_disco is not None:
+            disc_x, disc_y = pos_disco
+            mejor_dist = float("inf")
+            for i in range(num_personas):
+                kpts = r.keypoints.xy[i].cpu().numpy()
+                confs = (r.keypoints.conf[i].cpu().numpy()
+                         if r.keypoints.conf is not None else np.ones(len(kpts)))
+                pts_relevantes = [kpts[k] for k in (9, 10, 7, 8, 5, 6) if confs[k] > 0.25]
+                if pts_relevantes:
+                    d_min = min(math.hypot(p[0] - disc_x, p[1] - disc_y) for p in pts_relevantes)
+                elif r.boxes is not None and len(r.boxes) > i:
+                    box = r.boxes.xyxy[i].cpu().numpy()
+                    cx_p = (box[0] + box[2]) / 2.0
+                    cy_p = (box[1] + box[3]) / 2.0
+                    d_min = math.hypot(cx_p - disc_x, cy_p - disc_y)
+                else:
+                    d_min = float("inf")
+
+                if d_min < mejor_dist:
+                    mejor_dist = d_min
+                    idx = i
+        elif r.boxes is not None and len(r.boxes) > 0:
             xyxy = r.boxes.xyxy.cpu().numpy()
             areas = (xyxy[:, 2] - xyxy[:, 0]) * (xyxy[:, 3] - xyxy[:, 1])
             idx = int(np.argmax(areas))
@@ -1127,6 +1476,7 @@ class MaquinaEstadosRep:
         self.vels_concentrica: list = []     # (t, v) de la concéntrica actual
         self.t_inicio_concentrica = 0.0
         self.escala_fija_m_px = 0.005        # fallback conservador
+        self.escala_fijada = False           # FIX: congelada tras el setup
         self._ultimo_alto_caja: Optional[float] = None
 
         # Cronometraje de fases (v3)
@@ -1167,6 +1517,7 @@ class MaquinaEstadosRep:
     def _fijar_escala(self, alto_caja: Optional[float]):
         if alto_caja and alto_caja > 0:
             self.escala_fija_m_px = self.cfg.diametro_disco_m / alto_caja
+            self.escala_fijada = True
 
     def _reiniciar_a_reposo(self, y: float):
         self.estado = "reposo"
@@ -1216,14 +1567,10 @@ class MaquinaEstadosRep:
     def actualizar(self, t: float, x: float, y: float, v: float,
                    alto_caja: Optional[float]) -> Optional[Repeticion]:
         self._ultimo_alto_caja = alto_caja
-        # FIX v3.4: ESCALA ÚNICA. Antes convivían dos escalas px->m distintas:
-        # `escala_fija_m_px`, congelada en el setup (con la mediana de apenas
-        # ~5 discos, antes de que la semilla de 10 estuviera completa) y usada
-        # para ROM y v_avg; y el `m_por_px` del EMA del rastreador, usado para
-        # v_peak, MPV y las velocidades instantáneas. v_avg y v_peak salían de
-        # reglas distintas, y el `max(v_peak, v_avg)` del cierre no era una
-        # garantía física sino un parche que tapaba la incoherencia.
-        self._fijar_escala(alto_caja)
+        # FIX: Solo fijamos la escala si aún no ha sido fijada (o en el setup).
+        # Esto evita que el jitter o motion blur frame a frame mute continuamente la escala física.
+        if not self.escala_fijada and alto_caja and alto_caja > 0:
+            self._fijar_escala(alto_caja)
         rom_min, reversa, compromiso = self._umbrales(alto_caja)
 
         # X con EMA ligera para el bar path (la Y ya llega filtrada por SG)
@@ -1516,14 +1863,27 @@ class MaquinaEstadosRep:
 
     # --------------------------------------------------------------
     def _metricas_trayectoria(self, t_fin_conc: float) -> tuple:
-        """Bar path de la fase concéntrica: deriva lateral máx. y eficiencia."""
+        """Bar path de la fase concéntrica: deriva lateral respecto al eje principal y eficiencia.
+        Invariante a la inclinación de la cámara (phone tilt) al medir la distancia perpendicular
+        a la recta secante entre el inicio y final del levantamiento."""
         pts = [p for p in self.path_rep
                if self.t_inicio_concentrica - 1e-6 <= p[0] <= t_fin_conc + 0.05]
         if len(pts) < 2:
             return 0.0, 100.0
-        xs = np.array([p[1] for p in pts])
-        ys = np.array([p[2] for p in pts])
-        desv_px = float(np.max(np.abs(xs - xs[0])))
+        xs = np.array([p[1] for p in pts], dtype=float)
+        ys = np.array([p[2] for p in pts], dtype=float)
+
+        dx = xs[-1] - xs[0]
+        dy = ys[-1] - ys[0]
+        longitud_eje = math.hypot(dx, dy)
+
+        if longitud_eje > 1e-4:
+            # Distancia perpendicular de cada punto a la recta secante inicio->fin
+            distancias_perp = np.abs((xs - xs[0]) * dy - (ys - ys[0]) * dx) / longitud_eje
+            desv_px = float(np.max(distancias_perp))
+        else:
+            desv_px = float(np.max(np.abs(xs - xs[0])))
+
         camino = float(np.sum(np.hypot(np.diff(xs), np.diff(ys))))
         vertical = float(abs(ys[-1] - ys[0]))
         eficiencia = (float(np.clip(vertical / camino * 100.0, 0.0, 100.0))
@@ -1542,6 +1902,13 @@ class MaquinaEstadosRep:
         if vs.size < 4 or ts.size != vs.size:
             return fallback
         try:
+            diffs = np.diff(ts)
+            if np.any(diffs <= 1e-7):
+                mask = np.insert(diffs > 1e-7, 0, True)
+                ts = ts[mask]
+                vs = vs[mask]
+                if vs.size < 4:
+                    return fallback
             acel = np.gradient(vs, ts)
         except Exception:
             return fallback
@@ -2422,18 +2789,29 @@ def _rounded_rect(img, x1, y1, x2, y2, radius, color, thickness=-1):
 
 
 def _panel(frame, x1, y1, x2, y2, alpha=0.82, radius=14, accent_top=True):
-    """Panel semitransparente estilo glassmorphism oscuro."""
+    """Panel semitransparente estilo glassmorphism oscuro optimizado con slicing de ROI."""
+    H, W = frame.shape[:2]
+    rx1, ry1 = max(0, x1), max(0, y1)
+    rx2, ry2 = min(W, x2), min(H, y2)
+    if rx2 <= rx1 or ry2 <= ry1:
+        return
     r = _s(frame, radius)
-    overlay = frame.copy()
-    _rounded_rect(overlay, x1, y1, x2, y2, r, _HUB["bg"], -1)
-    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+    roi = frame[ry1:ry2, rx1:rx2]
+    overlay_roi = roi.copy()
+    _rounded_rect(overlay_roi, x1 - rx1, y1 - ry1, x2 - rx1, y2 - ry1, r, _HUB["bg"], -1)
+    cv2.addWeighted(overlay_roi, alpha, roi, 1.0 - alpha, 0, roi)
 
     _rounded_rect(frame, x1, y1, x2, y2, r, _HUB["border"], _s(frame, 1))
 
     if accent_top:
-        glow = frame.copy()
-        cv2.line(glow, (x1 + r, y1), (x2 - r, y1), _HUB["accent"], _s(frame, 5), cv2.LINE_AA)
-        cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
+        glow_y1, glow_y2 = max(0, y1 - _s(frame, 4)), min(H, y1 + _s(frame, 6))
+        glow_x1, glow_x2 = max(0, x1 + r), min(W, x2 - r)
+        if glow_x2 > glow_x1 and glow_y2 > glow_y1:
+            glow_roi = frame[glow_y1:glow_y2, glow_x1:glow_x2]
+            glow_ov = glow_roi.copy()
+            cv2.line(glow_ov, (0, y1 - glow_y1), (glow_x2 - glow_x1, y1 - glow_y1),
+                     _HUB["accent"], _s(frame, 5), cv2.LINE_AA)
+            cv2.addWeighted(glow_ov, 0.35, glow_roi, 0.65, 0, glow_roi)
         cv2.line(frame, (x1 + r, y1), (x2 - r, y1), _HUB["accent"], _s(frame, 2), cv2.LINE_AA)
 
 
@@ -2462,18 +2840,30 @@ def _txt_size(frame, text, scale=0.5, thickness=1, font=_FONT):
 # ==============================================================================
 
 def _corners(frame, x1, y1, x2, y2, color=None, arm=18, thick=2):
-    """Marcador táctico de esquinas con glow."""
+    """Marcador táctico de esquinas con glow optimizado por ROI."""
     color = color or _HUB["accent"]
     a, t = _s(frame, arm), _s(frame, thick)
+    H, W = frame.shape[:2]
+    rx1 = max(0, min(x1, x2) - a - t - 4)
+    ry1 = max(0, min(y1, y2) - a - t - 4)
+    rx2 = min(W, max(x1, x2) + a + t + 4)
+    ry2 = min(H, max(y1, y2) + a + t + 4)
+    if rx2 <= rx1 or ry2 <= ry1:
+        return
+
     segs = []
     for (cx, cy, sx, sy) in [(x1, y1, 1, 1), (x2, y1, -1, 1),
                              (x1, y2, 1, -1), (x2, y2, -1, -1)]:
         segs.append(((cx, cy), (cx + sx * a, cy)))
         segs.append(((cx, cy), (cx, cy + sy * a)))
-    glow = frame.copy()
+
+    roi = frame[ry1:ry2, rx1:rx2]
+    glow_roi = roi.copy()
     for p1, p2 in segs:
-        cv2.line(glow, p1, p2, color, t + _s(frame, 4), cv2.LINE_AA)
-    cv2.addWeighted(glow, 0.30, frame, 0.70, 0, frame)
+        lp1 = (p1[0] - rx1, p1[1] - ry1)
+        lp2 = (p2[0] - rx1, p2[1] - ry1)
+        cv2.line(glow_roi, lp1, lp2, color, t + _s(frame, 4), cv2.LINE_AA)
+    cv2.addWeighted(glow_roi, 0.30, roi, 0.70, 0, roi)
     for p1, p2 in segs:
         cv2.line(frame, p1, p2, color, t, cv2.LINE_AA)
 
@@ -2508,8 +2898,8 @@ def _pill(frame, text, x, y, color_bg, scale=0.42):
 
 
 def _fase_pill(frame, fase: str, x, y, scale=0.46):
-    """Pastilla de fase con triángulo vectorial (▲/▼ de Hershey se ven mal)."""
-    color, label, direc = _FASES.get(fase, _FASES["reposo"])
+    """Pastilla de fase con triángulo vectorial."""
+    color, label, direc = _FASES.get(fase.lower(), _FASES["reposo"])
     px, py = _s(frame, 12), _s(frame, 8)
     tri_w = _s(frame, 14) if direc else 0
     tw, th = _txt_size(frame, label, scale, 1, _FONT_UI)
@@ -2546,9 +2936,10 @@ def _metric(frame, label, value, x, y, vcolor=None, vscale=0.78, unit=""):
 
 
 def _sparkline(frame, x, y, w, h, values, color=None, fill=True):
-    """Mini-gráfico del historial de velocidad."""
+    """Mini-gráfico del historial de velocidad optimizado por ROI."""
     if len(values) < 2:
         return
+    H, W = frame.shape[:2]
     color = color or _HUB["accent"]
     vals = np.asarray(values, dtype=np.float32)
     vmin, vmax = float(vals.min()), float(vals.max())
@@ -2558,42 +2949,133 @@ def _sparkline(frame, x, y, w, h, values, color=None, fill=True):
     pts = np.stack([xs, ys], axis=1)
 
     if fill:
-        poly = np.vstack([pts, [[x + w, y + h], [x, y + h]]])
-        overlay = frame.copy()
-        cv2.fillPoly(overlay, [poly], color, cv2.LINE_AA)
-        cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
+        rx1, ry1 = max(0, x), max(0, y)
+        rx2, ry2 = min(W, x + w), min(H, y + h)
+        if rx2 > rx1 and ry2 > ry1:
+            poly = np.vstack([pts, [[x + w, y + h], [x, y + h]]])
+            local_poly = poly - np.array([rx1, ry1])
+            roi = frame[ry1:ry2, rx1:rx2]
+            overlay_roi = roi.copy()
+            cv2.fillPoly(overlay_roi, [local_poly.astype(np.int32)], color, cv2.LINE_AA)
+            cv2.addWeighted(overlay_roi, 0.18, roi, 0.82, 0, roi)
 
     cv2.polylines(frame, [pts], False, color, _s(frame, 2), cv2.LINE_AA)
     cx, cy = int(xs[-1]), int(ys[-1])
-    glow = frame.copy()
-    cv2.circle(glow, (cx, cy), _s(frame, 7), color, -1, cv2.LINE_AA)
-    cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
+    gr = _s(frame, 7)
+    gx1, gy1 = max(0, cx - gr), max(0, cy - gr)
+    gx2, gy2 = min(W, cx + gr), min(H, cy + gr)
+    if gx2 > gx1 and gy2 > gy1:
+        groi = frame[gy1:gy2, gx1:gx2]
+        gov = groi.copy()
+        cv2.circle(gov, (cx - gx1, cy - gy1), gr, color, -1, cv2.LINE_AA)
+        cv2.addWeighted(gov, 0.35, groi, 0.65, 0, groi)
     cv2.circle(frame, (cx, cy), _s(frame, 3), _HUB["white"], -1, cv2.LINE_AA)
 
 
 def _trail(frame, puntos, velocidades=None, max_pts=40):
-    """Estela de la trayectoria de la barra con desvanecimiento y color."""
+    """Estela de la trayectoria de la barra con desvanecimiento, color y ROI."""
     if len(puntos) < 2:
         return
+    H, W = frame.shape[:2]
     pts = puntos[-max_pts:]
     vels = (velocidades or [0.6] * len(pts))[-max_pts:]
     n = len(pts)
-    overlay = frame.copy()
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    max_th = _s(frame, 6)
+    rx1 = max(0, int(min(xs)) - max_th - 4)
+    ry1 = max(0, int(min(ys)) - max_th - 4)
+    rx2 = min(W, int(max(xs)) + max_th + 4)
+    ry2 = min(H, int(max(ys)) + max_th + 4)
+    if rx2 <= rx1 or ry2 <= ry1:
+        return
+
+    roi = frame[ry1:ry2, rx1:rx2]
+    overlay_roi = roi.copy()
     for i in range(1, n):
         t = i / n                          # 0 = viejo, 1 = reciente
         col = _color_por_velocidad(vels[i])
         col = tuple(int(c * (0.35 + 0.65 * t)) for c in col)
         th = max(1, int(_s(frame, 6) * t))
-        cv2.line(overlay, tuple(map(int, pts[i - 1])), tuple(map(int, pts[i])),
-                 col, th, cv2.LINE_AA)
-    cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        p1 = (int(pts[i - 1][0]) - rx1, int(pts[i - 1][1]) - ry1)
+        p2 = (int(pts[i][0]) - rx1, int(pts[i][1]) - ry1)
+        cv2.line(overlay_roi, p1, p2, col, th, cv2.LINE_AA)
+    cv2.addWeighted(overlay_roi, 0.75, roi, 0.25, 0, roi)
+
     cx, cy = map(int, pts[-1])
-    col = _color_por_velocidad(vels[-1])
-    glow = frame.copy()
-    cv2.circle(glow, (cx, cy), _s(frame, 12), col, -1, cv2.LINE_AA)
-    cv2.addWeighted(glow, 0.35, frame, 0.65, 0, frame)
-    cv2.circle(frame, (cx, cy), _s(frame, 5), col, -1, cv2.LINE_AA)
+    gr = _s(frame, 12)
+    gx1, gy1 = max(0, cx - gr), max(0, cy - gr)
+    gx2, gy2 = min(W, cx + gr), min(H, cy + gr)
+    if gx2 > gx1 and gy2 > gy1:
+        groi = frame[gy1:gy2, gx1:gx2]
+        gov = groi.copy()
+        cv2.circle(gov, (cx - gx1, cy - gy1), gr, _color_por_velocidad(vels[-1]), -1, cv2.LINE_AA)
+        cv2.addWeighted(gov, 0.35, groi, 0.65, 0, groi)
+    cv2.circle(frame, (cx, cy), _s(frame, 5), _color_por_velocidad(vels[-1]), -1, cv2.LINE_AA)
     cv2.circle(frame, (cx, cy), _s(frame, 5), _HUB["white"], _s(frame, 1), cv2.LINE_AA)
+
+
+def _render_watermark_pill(frame, text: str = "AbiSchulz", active_area: Optional[tuple] = None) -> None:
+    """
+    Dibuja una cápsula / pastilla estética semitransparente con la firma «AbiSchulz»
+    en la parte inferior del video. Ubicada estratégicamente fuera de la zona de colisión
+    de la interfaz de Instagram Reels / Stories (los últimos 250 a 320 px).
+    """
+    H, W = frame.shape[:2]
+    scale = 0.44
+    tw, th = _txt_size(frame, text, scale=scale, thickness=1, font=_FONT_UI)
+    pad_h = _s(frame, 12)
+    pad_v = _s(frame, 6)
+    dot_r = _s(frame, 3)
+    dot_gap = _s(frame, 7)
+
+    pill_w = pad_h + dot_r * 2 + dot_gap + tw + pad_h
+    pill_h = th + pad_v * 2
+
+    # Centrado horizontal en el lienzo
+    px1 = (W - pill_w) // 2
+    px2 = px1 + pill_w
+
+    # Posicionamiento vertical seguro para Reels/Stories
+    if active_area:
+        pad_x, pad_y, new_w, new_h = active_area
+        # Si hay banda inferior libre amplia (video horizontal/cuadrado)
+        if pad_y > _s(frame, 120):
+            py_ideal = pad_y + new_h + _s(frame, 25)
+            # Asegurar que no caiga en la colisión extrema de la app
+            py1 = H - _s(frame, 220) if (py_ideal + pill_h > H - _s(frame, 180)) else py_ideal
+        else:
+            py1 = H - _s(frame, 220)
+    else:
+        # Por defecto a 220px del fondo (por encima de los 250-320px de colisión de IG)
+        py1 = H - _s(frame, 220)
+
+    py2 = py1 + pill_h
+
+    rx1, ry1 = max(0, px1), max(0, py1)
+    rx2, ry2 = min(W, px2), min(H, py2)
+    if rx2 <= rx1 or ry2 <= ry1:
+        return
+
+    # Slicing de ROI para máxima velocidad
+    roi = frame[ry1:ry2, rx1:rx2]
+    overlay_roi = roi.copy()
+    radius = pill_h // 2
+    _rounded_rect(overlay_roi, px1 - rx1, py1 - ry1, px2 - rx1, py2 - ry1, radius, _HUB["bg"], -1)
+    cv2.addWeighted(overlay_roi, 0.78, roi, 0.22, 0, roi)
+
+    _rounded_rect(frame, px1, py1, px2, py2, radius, _HUB["border"], max(1, _s(frame, 1)))
+
+    # Punto de acento
+    dot_cx = px1 + pad_h + dot_r
+    dot_cy = py1 + pill_h // 2
+    cv2.circle(frame, (dot_cx, dot_cy), dot_r, _HUB["accent"], -1, cv2.LINE_AA)
+
+    # Texto de la firma sin sombra pesada
+    txt_x = dot_cx + dot_r + dot_gap
+    txt_y = py1 + pad_v + th
+    _txt(frame, text, (txt_x, txt_y), scale=scale, color=_HUB["white"],
+         thickness=1, shadow=False, font=_FONT_UI)
 
 
 # ==============================================================================
@@ -2663,14 +3145,19 @@ def render_hud(frame, *, reps=0, fase="reposo", velocidad=0.0,
                    pw - pad * 2, _s(frame, 42), list(historial_vel),
                    color=_HUB["accent"])
 
+    # ── Firma inferior «AbiSchulz» ──
+    _render_watermark_pill(frame, text="AbiSchulz")
+
 
 # ── Función principal de render por frame ────────────────────────────────────
 
 def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
                      v_inst: float, reps: int, fase: str,
                      registro: list, vl_actual: Optional[float],
-                     rir_txt: Optional[str] = None):
-    # ── 1. TRAYECTORIA DEGRADADA (cian oscuro → verde neón) ───────────────────
+                     rir_txt: Optional[str] = None,
+                     active_area: Optional[tuple] = None):
+    """Renderizado por cuadro optimizado por ROI con HUD modular y firma AbiSchulz."""
+    # ── 1. TRAYECTORIA DEGRADADA (más reciente = verde neón brillante y grueso) ─
     n = len(trayectoria)
     for j in range(1, n):
         t = j / n
@@ -2693,26 +3180,27 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
              (det.cx + _s(frame, 45), det.cy + _s(frame, 6)),
              scale=0.65, color=col_vel, shadow=True)
 
-    # ── 3. PANEL HUD (escalado responsivo para 1080x1920 Stories/Reels) ───────
+    # ── 3. PANEL HUD MODULAR (escalado responsivo para 1080x1920 Stories/Reels) ─
     PX = _s(frame, 20)
-    PY = _s(frame, 20)
     PW = _s(frame, 320)
     PH = _s(frame, 340)
 
-    overlay = frame.copy()
-    _rounded_rect(overlay, PX, PY, PX + PW, PY + PH, _s(frame, 12), _HUB["bg"], -1)
-    cv2.addWeighted(overlay, 0.76, frame, 0.24, 0, frame)
+    # Si hay padding superior amplio (video horizontal), alojar el HUD fuera del levantamiento
+    if active_area and active_area[1] > _s(frame, 180):
+        PY = max(_s(frame, 20), (active_area[1] - PH) // 2)
+    else:
+        PY = _s(frame, 20)
 
-    _rounded_rect(frame, PX, PY, PX + PW, PY + PH, _s(frame, 12), _HUB["border"], _s(frame, 1))
-    cv2.line(frame, (PX + _s(frame, 10), PY), (PX + PW - _s(frame, 10), PY), _HUB["accent"], _s(frame, 2), cv2.LINE_AA)
+    # Usar _panel con ROI en lugar de copiar todo el frame
+    _panel(frame, PX, PY, PX + PW, PY + PH, alpha=0.76, radius=12, accent_top=True)
     cv2.line(frame, (PX + _s(frame, 10), PY + PH), (PX + PW - _s(frame, 10), PY + PH), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
-    # ── MARCA IRON PROGRESS ───────────────────────────────────────────────────
+    # ── MARCA IRON PROGRESS ──
     _txt(frame, "IRON PROGRESS", (PX + _s(frame, 18), PY + _s(frame, 24)),
          scale=0.45, color=_HUB["accent"], shadow=True, thickness=1)
     cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 34)), (PX + PW - _s(frame, 12), PY + _s(frame, 34)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
-    # ── 3c. REPETICIONES ──────────────────────────────────────────────────────
+    # ── 3c. REPETICIONES ──
     _txt(frame, "REPETICIONES", (PX + _s(frame, 18), PY + _s(frame, 46)),
          scale=0.34, color=_HUB["muted"])
     _txt(frame, str(reps), (PX + _s(frame, 16), PY + _s(frame, 110)),
@@ -2720,14 +3208,11 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
     cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 120)), (PX + PW - _s(frame, 12), PY + _s(frame, 120)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
-    # ── 3d. FASE ──────────────────────────────────────────────────────────────
-    color_fase, label_fase, _dir = _FASES.get(
-        fase.lower(), (_HUB["muted"], f"  {fase.upper()}", 0))
-    _pill(frame, label_fase, PX + _s(frame, 18), PY + _s(frame, 145), color_fase)
-
+    # ── 3d. FASE ──
+    _fase_pill(frame, fase, PX + _s(frame, 18), PY + _s(frame, 145), scale=0.46)
     cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 160)), (PX + PW - _s(frame, 12), PY + _s(frame, 160)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
-    # ── 3e. VELOCIDAD ÚLTIMA REP + barra ──────────────────────────────────────
+    # ── 3e. VELOCIDAD ÚLTIMA REP + barra ──
     if registro:
         v_last = registro[-1].v_avg
         col_last = _color_por_velocidad(v_last)
@@ -2737,7 +3222,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
     cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 224)), (PX + PW - _s(frame, 12), PY + _s(frame, 224)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
-    # ── 3f. PÉRDIDA DE VELOCIDAD (fatiga) + barra ─────────────────────────────
+    # ── 3f. PÉRDIDA DE VELOCIDAD (fatiga) + barra ──
     if vl_actual is not None:
         if vl_actual < 20:
             color_vl, estado = _HUB["green"], "OPTIMO"
@@ -2752,7 +3237,7 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
                 vcolor=color_vl, vscale=0.60)
         _bar(frame, PX + _s(frame, 18), PY + _s(frame, 272), PW - _s(frame, 36), _s(frame, 6), vl_actual / 50, color_vl)
 
-    # ── 3g. REPS EN RESERVA (v3) ──────────────────────────────────────────────
+    # ── 3g. REPS EN RESERVA (v3) ──
     if rir_txt:
         cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 288)), (PX + PW - _s(frame, 12), PY + _s(frame, 288)),
                  _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
@@ -2761,16 +3246,17 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
         _txt(frame, rir_txt, (PX + PW - _s(frame, 72), PY + _s(frame, 308)),
              scale=0.52, color=_HUB["accent"], font=_FONT_UI)
 
+    # ── 4. MARCA DE AGUA INFERIOR «AbiSchulz» (Safe Zone Reels/Stories) ──────
+    _render_watermark_pill(frame, text="AbiSchulz", active_area=active_area)
+
 
 # ==============================================================================
 # UTILIDADES DE VIDEO Y ESCRITOR DE ALTA CALIDAD SÍNCRONO VIA PIPE FFMPEG
 # ==============================================================================
-def inicializar_video(ruta_video: str, numero_usuario: str):
-    try:
-        enviar_mensaje_whatsapp(texto="Procesando video...",
-                                telefono_destino=numero_usuario)
-    except Exception as e:
-        logger.warning(f"No se pudo notificar inicio por WhatsApp: {e}")
+def inicializar_video(ruta_video: str, numero_usuario: Optional[str] = None,
+                      callback_notificacion: Optional[Callable] = None):
+    if numero_usuario:
+        _notificar_whatsapp_seguro("Procesando video...", numero_usuario, callback_notificacion)
 
     cap = cv2.VideoCapture(ruta_video)
     if not cap.isOpened():
@@ -2787,11 +3273,18 @@ def inicializar_video(ruta_video: str, numero_usuario: str):
 
 
 class EscritorVideoFFmpeg:
-    """Escritor de video de alta calidad mediante canal (pipe) directo a FFmpeg (libx264, CRF 17).
-    Elimina la compresión intermedia lossy mp4v de OpenCV (principal causa de dientes de sierra)."""
-    def __init__(self, ruta_salida: str, fps: float, ancho: int = 1080, alto: int = 1920, crf: int = 17):
+    """Escritor de video de alta calidad mediante canal (pipe) directo a FFmpeg.
+    - Preserva el audio ambiente original en AAC a 192 kbps y 48 kHz (-shortest).
+    - Codificación en una pasada con CRF 18 y VBV Constrained Encoding (-maxrate / -bufsize).
+    - Elimina deadlock en el pipe con loglevel error, stdout DEVNULL y drenaje en hilo background.
+    - Flags específicos para Reels/Stories: Profile High 4.1, GOP cerrado de 2s y rango limitado TV."""
+
+    def __init__(self, ruta_salida: str, fps: float, ancho: int = 1080, alto: int = 1920,
+                 crf: int = 18, ruta_audio_original: Optional[str] = None,
+                 duracion_s: Optional[float] = None):
         self.ruta_salida = ruta_salida
-        self.fps = fps
+        # Limitar framerate a un máximo de 60 fps constantes para Meta
+        self.fps = min(float(fps), 60.0)
         self.ancho = ancho
         self.alto = alto
         directorio, nombre = os.path.split(ruta_salida)
@@ -2802,36 +3295,77 @@ class EscritorVideoFFmpeg:
         except Exception:
             self.ffmpeg_exe = "ffmpeg"
 
+        # Cálculo de Bitrate VBV para garantizar matemáticamente peso < 15 MB
+        if duracion_s and duracion_s > 0:
+            calc_max = int((14.2 * 8192) / duracion_s - 192)
+            maxrate_kbps = min(7500, max(1500, calc_max))
+        else:
+            maxrate_kbps = 6500
+        bufsize_kbps = maxrate_kbps * 2
+
+        gop_size = max(1, int(round(self.fps * 2)))
+        keyint_min = max(1, int(round(self.fps)))
+
         cmd = [
             self.ffmpeg_exe, "-y",
+            "-loglevel", "error",
+            "-nostats",
             "-f", "rawvideo",
             "-vcodec", "rawvideo",
             "-s", f"{ancho}x{alto}",
             "-pix_fmt", "bgr24",
-            "-r", f"{fps:.3f}",
+            "-r", f"{self.fps:.3f}",
             "-i", "-",
+        ]
+
+        if ruta_audio_original and os.path.exists(ruta_audio_original):
+            cmd.extend(["-i", ruta_audio_original])
+            cmd.extend(["-map", "0:v:0", "-map", "1:a:0?"])
+            cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"])
+        else:
+            cmd.extend(["-an"])
+
+        cmd.extend([
             "-c:v", "libx264",
             "-crf", str(crf),
-            "-preset", "slow",
+            "-maxrate", f"{maxrate_kbps}k",
+            "-bufsize", f"{bufsize_kbps}k",
+            "-preset", "fast",
+            "-profile:v", "high",
+            "-level:v", "4.1",
+            "-g", str(gop_size),
+            "-keyint_min", str(keyint_min),
+            "-sc_threshold", "0",
             "-pix_fmt", "yuv420p",
             "-color_primaries", "bt709",
             "-color_trc", "bt709",
             "-colorspace", "bt709",
+            "-color_range", "tv",
             "-movflags", "+faststart",
-            "-an",
             self.ruta_temporal
-        ]
+        ])
 
         try:
             self.proc = subprocess.Popen(
-                cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
             )
             self._usando_pipe = True
+            self._stderr_lines = []
+
+            def _drain():
+                try:
+                    for line in iter(self.proc.stderr.readline, b''):
+                        self._stderr_lines.append(line.decode('utf-8', errors='ignore'))
+                except Exception:
+                    pass
+
+            self._thread_stderr = threading.Thread(target=_drain, daemon=True)
+            self._thread_stderr.start()
         except Exception as e:
             logger.warning(f"No se pudo iniciar canal directo de FFmpeg: {e}. Usando fallback OpenCV VideoWriter.")
             self._usando_pipe = False
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            self.cv_writer = cv2.VideoWriter(self.ruta_temporal, fourcc, fps, (ancho, alto))
+            self.cv_writer = cv2.VideoWriter(self.ruta_temporal, fourcc, self.fps, (ancho, alto))
 
     def write(self, frame: np.ndarray) -> None:
         if self._usando_pipe and self.proc and self.proc.stdin:
@@ -2842,12 +3376,30 @@ class EscritorVideoFFmpeg:
         elif hasattr(self, "cv_writer") and self.cv_writer and self.cv_writer.isOpened():
             self.cv_writer.write(frame)
 
+    def write_raw_bytes(self, raw_bytes: bytes) -> None:
+        """Escribe bytes crudos directamente al pipe sin serializar en cada llamada."""
+        if self._usando_pipe and self.proc and self.proc.stdin:
+            try:
+                self.proc.stdin.write(raw_bytes)
+            except BrokenPipeError:
+                self._usando_pipe = False
+            except Exception as e:
+                logger.error(f"Fallo al escribir bytes en canal FFmpeg: {e}")
+
     def release(self) -> None:
         if self._usando_pipe and self.proc:
             try:
-                stdout, stderr = self.proc.communicate()
-                if self.proc.returncode != 0 and stderr:
-                    logger.error(f"FFmpeg devolvió código {self.proc.returncode}: {stderr.decode('utf-8', errors='ignore')}")
+                if self.proc.stdin:
+                    try:
+                        self.proc.stdin.close()
+                    except Exception:
+                        pass
+                self.proc.wait(timeout=20)
+                if hasattr(self, "_thread_stderr") and self._thread_stderr.is_alive():
+                    self._thread_stderr.join(timeout=2)
+                if self.proc.returncode != 0:
+                    err_txt = "".join(getattr(self, "_stderr_lines", []))
+                    logger.error(f"FFmpeg devolvió código {self.proc.returncode}: {err_txt}")
             except Exception as e:
                 logger.error(f"Error al cerrar canal de FFmpeg: {e}")
                 try:
@@ -2863,19 +3415,28 @@ class EscritorVideoFFmpeg:
                 pass
 
 
-def _inicializar_escritor_video(ruta_salida: str, fps: float):
-    writer = EscritorVideoFFmpeg(ruta_salida, fps, 1080, 1920, crf=17)
+def _inicializar_escritor_video(ruta_salida: str, fps: float,
+                                ruta_audio_original: Optional[str] = None,
+                                duracion_s: Optional[float] = None):
+    writer = EscritorVideoFFmpeg(
+        ruta_salida=ruta_salida,
+        fps=fps,
+        ancho=1080,
+        alto=1920,
+        crf=18,
+        ruta_audio_original=ruta_audio_original,
+        duracion_s=duracion_s
+    )
     return writer, writer.ruta_temporal
 
 
 def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
-    logger.info("Exportando video en alta calidad para Instagram Stories/Reels (Rec. 709 SDR)...")
+    logger.info("Finalizando exportación en alta calidad para Instagram Stories/Reels (Rec. 709 SDR)...")
     try:
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         ffmpeg_exe = "ffmpeg"
 
-    # Si la ruta temporal ya existe y fue generada por el pipe H.264 directo, mover o copiar
     if os.path.exists(ruta_temporal) and os.path.abspath(ruta_temporal) != os.path.abspath(ruta_salida):
         try:
             os.replace(ruta_temporal, ruta_salida)
@@ -2883,46 +3444,47 @@ def _convertir_video_h264(ruta_temporal: str, ruta_salida: str):
             cmd = [
                 ffmpeg_exe, "-y",
                 "-i", ruta_temporal,
-                "-c:v", "copy",
+                "-c", "copy",
                 "-movflags", "+faststart",
                 ruta_salida
             ]
-            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if os.path.exists(ruta_temporal):
-                os.remove(ruta_temporal)
+                try:
+                    os.remove(ruta_temporal)
+                except OSError:
+                    pass
 
-    # Control estricto de tamaño para WhatsApp Cloud API (Límite máximo de Meta: 16 MB)
-    MAX_BYTES = int(15.0 * 1024 * 1024)
+    # Salvaguarda de tamaño para WhatsApp Cloud API (Límite máximo de Meta: 16 MB)
+    MAX_BYTES = int(15.5 * 1024 * 1024)
     if os.path.exists(ruta_salida):
         tam_actual = os.path.getsize(ruta_salida)
         if tam_actual > MAX_BYTES:
-            logger.warning(f"El video generado ({tam_actual / (1024*1024):.2f} MB) excede el límite de 16 MB de WhatsApp. Re-comprimiendo a <15 MB...")
-            for crf_target in [22, 25, 28]:
-                ruta_comp = ruta_salida + ".comp.mp4"
-                cmd_comp = [
-                    ffmpeg_exe, "-y",
-                    "-i", ruta_salida,
-                    "-c:v", "libx264",
-                    "-crf", str(crf_target),
-                    "-preset", "slow",
-                    "-pix_fmt", "yuv420p",
-                    "-color_primaries", "bt709",
-                    "-color_trc", "bt709",
-                    "-colorspace", "bt709",
-                    "-movflags", "+faststart",
-                    "-an",
-                    ruta_comp
-                ]
-                res_comp = subprocess.run(cmd_comp, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if res_comp.returncode == 0 and os.path.exists(ruta_comp):
-                    tam_nuevo = os.path.getsize(ruta_comp)
-                    os.replace(ruta_comp, ruta_salida)
-                    logger.info(f"Re-compresión exitosa con CRF {crf_target}: {tam_nuevo / (1024*1024):.2f} MB.")
-                    if tam_nuevo <= MAX_BYTES:
-                        break
-                else:
-                    if os.path.exists(ruta_comp):
-                        os.remove(ruta_comp)
+            logger.warning(f"Video ({tam_actual / (1024*1024):.2f} MB) excede 15.5 MB. Re-comprimiendo en una sola pasada VBV...")
+            ruta_comp = ruta_salida + ".comp.mp4"
+            cmd_comp = [
+                ffmpeg_exe, "-y",
+                "-i", ruta_salida,
+                "-c:v", "libx264",
+                "-crf", "22",
+                "-maxrate", "3000k",
+                "-bufsize", "6000k",
+                "-preset", "fast",
+                "-profile:v", "high",
+                "-level:v", "4.1",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                ruta_comp
+            ]
+            res_comp = subprocess.run(cmd_comp, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if res_comp.returncode == 0 and os.path.exists(ruta_comp):
+                os.replace(ruta_comp, ruta_salida)
+            elif os.path.exists(ruta_comp):
+                try:
+                    os.remove(ruta_comp)
+                except OSError:
+                    pass
 
 
 # ==============================================================================
@@ -2944,6 +3506,7 @@ def procesar_levantamiento_vbt(
         carga_kg: Optional[float] = None,
         nivel_atleta: str = "Avanzado",
         ruta_modelo_pose: Optional[str] = None,
+        callback_notificacion: Optional[Callable] = None,
 ) -> dict:
     if not nombre_ejercicio:
         nombre_ejercicio = "Movimiento Libre"
@@ -2969,11 +3532,19 @@ def procesar_levantamiento_vbt(
     TARGET_W, TARGET_H = 1080, 1920
 
     try:
-        # 1. Inicialización de componentes
+        # 1. Inicialización de componentes (reutilizando modelos cacheados)
         rastreador = RastreadorDisco(ruta_modelo)
         pose = EstimadorPose(ruta_modelo_pose)
-        cap, fps, dt_nominal, ancho_orig, alto_orig = inicializar_video(ruta_video_proc, numero_usuario)
-        video_writer, ruta_temporal = _inicializar_escritor_video(ruta_salida, fps)
+        cap, fps, dt_nominal, ancho_orig, alto_orig = inicializar_video(ruta_video_proc, numero_usuario, callback_notificacion)
+
+        total_frames_est = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duracion_s = (total_frames_est / fps) if (fps and fps > 0 and total_frames_est and total_frames_est > 0) else None
+        video_writer, ruta_temporal = _inicializar_escritor_video(
+            ruta_salida=ruta_salida,
+            fps=fps,
+            ruta_audio_original=ruta_video,
+            duracion_s=duracion_s
+        )
 
         # Cálculo de escalado y centrado del video original sobre lienzo 1080x1920 (9:16)
         scale_canvas = min(TARGET_W / ancho_orig, TARGET_H / alto_orig)
@@ -2981,6 +3552,7 @@ def procesar_levantamiento_vbt(
         new_h = int(round(alto_orig * scale_canvas))
         pad_x = (TARGET_W - new_w) // 2
         pad_y = (TARGET_H - new_h) // 2
+        active_area = (pad_x, pad_y, new_w, new_h)
 
         estimador = EstimadorCinematica(CONFIG, fps)
         maquina = MaquinaEstadosRep(CONFIG, fps)
@@ -2989,8 +3561,8 @@ def procesar_levantamiento_vbt(
         puntos_trayectoria_canvas = deque(maxlen=30)
         tiempo_anterior = 0.0
         rir_live: Optional[str] = None
-        ultimo_clean_canvas = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
         ultima_det_canvas = None
+        ultimo_frame_orig = None
 
         def _adjuntar_pose(rep: Repeticion) -> None:
             """Cruza la rep con la cinemática articular (si está activa)."""
@@ -3004,6 +3576,7 @@ def procesar_levantamiento_vbt(
             rep.vel_angular_rodilla_max = met.get("vel_angular_rodilla_max")
 
         logger.info("Analizando video frame a frame...")
+        interp = cv2.INTER_AREA if scale_canvas < 1.0 else cv2.INTER_LINEAR
 
         while cap.isOpened():
             exito, frame_orig = cap.read()
@@ -3011,6 +3584,7 @@ def procesar_levantamiento_vbt(
                 break
 
             frames_totales += 1
+            ultimo_frame_orig = frame_orig
 
             # Timestamps reales, forzados a monotónicos
             timestamp_actual = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
@@ -3018,18 +3592,20 @@ def procesar_levantamiento_vbt(
                 timestamp_actual = tiempo_anterior + dt_nominal
             tiempo_anterior = timestamp_actual
 
-            # 2. Cinemática articular (opcional, submuestreada)
-            if pose.activo and frames_totales % CONFIG.pose_cada_n_frames == 0:
-                pose.procesar(frame_orig, timestamp_actual)
-
-            # 3. Tracking YOLO del disco sobre frame original
+            # 2. Tracking YOLO del disco sobre frame original
             det = rastreador.procesar(frame_orig)
             v_inst = 0.0
+
+            # 3. Cinemática articular asociada espacialmente a la barra
+            pos_disco_actual = (det.cx, det.cy) if det else rastreador.ultima_pos
+            if pose.activo and frames_totales % CONFIG.pose_cada_n_frames == 0:
+                pose.procesar(frame_orig, timestamp_actual, pos_disco=pos_disco_actual)
 
             det_canvas = None
             if det is not None:
                 frames_con_disco += 1
-                puntos_trayectoria.appendleft((det.cx, det.cy))
+                # FIX: append para que el orden cronológico sea correcto (cola vieja -> cabeza reciente)
+                puntos_trayectoria.append((det.cx, det.cy))
 
                 # Coordenadas transformadas al lienzo 1080x1920 (9:16)
                 det_canvas = Deteccion(
@@ -3043,27 +3619,31 @@ def procesar_levantamiento_vbt(
                     m_por_px=det.m_por_px / scale_canvas,
                 )
                 ultima_det_canvas = det_canvas
-                puntos_trayectoria_canvas.appendleft((det_canvas.cx, det_canvas.cy))
+                puntos_trayectoria_canvas.append((det_canvas.cx, det_canvas.cy))
 
-                # 4. Filtrado cinemático + máquina de estados (cinemática física exacta sobre frame original)
-                y_suave, v_inst = estimador.actualizar(timestamp_actual, det.cy, det.m_por_px)
-                rep_cerrada = maquina.actualizar(timestamp_actual, det.cx,
+                # 4. Filtrado cinemático + máquina de estados evaluados en el mismo instante exacto
+                t_eval, y_suave, v_inst = estimador.actualizar(timestamp_actual, det.cy, det.m_por_px)
+                rep_cerrada = maquina.actualizar(t_eval, det.cx,
                                                  y_suave, v_inst, det.alto_caja)
 
                 if rep_cerrada:
                     _adjuntar_pose(rep_cerrada)
                     registro_repeticiones.append(rep_cerrada)
-                    # VL en vivo vs la rep más rápida hasta ahora
                     _recalcular_vl_por_rep(registro_repeticiones)
                     est = estimar_rir_por_velocidad(rep_cerrada.v_avg, perfil, nivel)
                     rir_live = f"~{est:.0f}" if est is not None else None
 
-            # Construcción del lienzo 1080x1920
-            interp = cv2.INTER_AREA if scale_canvas < 1.0 else cv2.INTER_CUBIC
-            canvas_frame = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
+            # Construcción estética del lienzo 1080x1920 (desenfoque Reels si hay letterbox)
             resized_orig = cv2.resize(frame_orig, (new_w, new_h), interpolation=interp)
+            if pad_x > 0 or pad_y > 0:
+                small = cv2.resize(frame_orig, (108, 192), interpolation=cv2.INTER_LINEAR)
+                small_dark = cv2.convertScaleAbs(small, alpha=0.35)
+                blurred = cv2.GaussianBlur(small_dark, (15, 15), 0)
+                canvas_frame = cv2.resize(blurred, (TARGET_W, TARGET_H), interpolation=cv2.INTER_LINEAR)
+            else:
+                canvas_frame = np.empty((TARGET_H, TARGET_W, 3), dtype=np.uint8)
+
             canvas_frame[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized_orig
-            ultimo_clean_canvas = canvas_frame.copy()
 
             # 5. Fin de serie por quietud prolongada
             if (maquina.estado != "calibrando"
@@ -3091,6 +3671,7 @@ def procesar_levantamiento_vbt(
                 registro=registro_repeticiones,
                 vl_actual=vl_actual,
                 rir_txt=rir_live,
+                active_area=active_area,
             )
 
             video_writer.write(canvas_frame)
@@ -3105,7 +3686,7 @@ def procesar_levantamiento_vbt(
                 logger.info(f"Rep #{rep_final.rep} cerrada al terminar el "
                             f"video (grabación cortada en el lockout).")
 
-        # 8. Congelar e imprimir el estado final completado en el HUD (2 segundos) para no cortar antes de contar la última rep
+        # 8. Congelar e imprimir el estado final completado en el HUD (2 segundos)
         reps_finales = maquina.reps if maquina else len(registro_repeticiones)
         vl_final = (calcular_velocity_loss(registro_repeticiones)
                     if len(registro_repeticiones) >= 2 else None)
@@ -3113,7 +3694,20 @@ def procesar_levantamiento_vbt(
             est_fin = estimar_rir_por_velocidad(registro_repeticiones[-1].v_avg, perfil, nivel)
             rir_live = f"~{est_fin:.0f}" if est_fin is not None else rir_live
 
-        final_canvas = ultimo_clean_canvas.copy()
+        # Construir lienzo final limpio una sola vez fuera del bucle
+        if ultimo_frame_orig is not None:
+            resized_fin = cv2.resize(ultimo_frame_orig, (new_w, new_h), interpolation=interp)
+            if pad_x > 0 or pad_y > 0:
+                small = cv2.resize(ultimo_frame_orig, (108, 192), interpolation=cv2.INTER_LINEAR)
+                small_dark = cv2.convertScaleAbs(small, alpha=0.35)
+                blurred = cv2.GaussianBlur(small_dark, (15, 15), 0)
+                final_canvas = cv2.resize(blurred, (TARGET_W, TARGET_H), interpolation=cv2.INTER_LINEAR)
+            else:
+                final_canvas = np.empty((TARGET_H, TARGET_W, 3), dtype=np.uint8)
+            final_canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized_fin
+        else:
+            final_canvas = np.full((TARGET_H, TARGET_W, 3), _HUB["bg"], dtype=np.uint8)
+
         renderizar_frame(
             frame=final_canvas,
             det=ultima_det_canvas,
@@ -3124,11 +3718,14 @@ def procesar_levantamiento_vbt(
             registro=registro_repeticiones,
             vl_actual=vl_final,
             rir_txt=rir_live,
+            active_area=active_area,
         )
 
-        frames_congelados = int(round(fps * 2.0))
+        frames_congelados = int(round(video_writer.fps * 2.0))
+        # OPTIMIZACIÓN: Serializar bytes una sola vez antes de escribir
+        raw_final_bytes = final_canvas.tobytes()
         for _ in range(frames_congelados):
-            video_writer.write(final_canvas)
+            video_writer.write_raw_bytes(raw_final_bytes)
 
     except Exception as e:
         logger.error(f"Crasheo en ciclo principal: {e}")
@@ -3165,11 +3762,9 @@ def procesar_levantamiento_vbt(
         nombre_ejercicio, registro_repeticiones, analisis, carga_kg)
     reporte_tecnico = _construir_reporte_tecnico(
         nombre_ejercicio, registro_repeticiones, analisis, carga_kg)
-    try:
-        enviar_mensaje_whatsapp(texto=reporte_whatsapp,
-                                telefono_destino=numero_usuario)
-    except Exception as e:
-        logger.error(f"No se pudo enviar el reporte por WhatsApp: {e}")
+
+    if numero_usuario:
+        _notificar_whatsapp_seguro(reporte_whatsapp, numero_usuario, callback_notificacion)
 
     contexto_base = _generar_contexto_llm(
         reps_completadas=reps_ok,

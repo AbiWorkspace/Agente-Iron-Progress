@@ -1,0 +1,11 @@
+¿Se puede reemplazar un encoder lineal de 1,000 USD con solo la cámara de un smartphone y Visión Artificial? 🏋️‍♂️💻
+
+Les comparto un adelanto de Iron Progress, un motor de cinemática avanzada para entrenamiento basado en velocidad (VBT) que desarrollé en Python.
+
+🔹 Computer Vision & Tracking: Detección de disco y pose en tiempo real con YOLO + ByteTrack, tolerante a oclusiones y ángulos de cámara imperfectos.  
+🔹 Física y Cinemática: Suavizado polinómico sin desfase temporal, cálculo exacto de Mean Propulsive Velocity (MPV) y pérdida de velocidad (VL%).  
+🔹 Pipeline de Video: Renderizado HUD dinámico con glassmorphism y exportación directa optimizada con FFmpeg a 60 fps.
+
+Convertir video crudo en telemetría deportiva de alta precisión es el futuro del rendimiento físico. ¡Me encantaría saber qué opinan!
+
+#ComputerVision #SportsTech #ArtificialIntelligence #Python #YOLO #OpenCV #MachineLearning #DeepLearning #VBT

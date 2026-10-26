@@ -1,0 +1,290 @@
+[
+  {
+    "fecha": "2026-09-24 14:10",
+    "ejercicio": "peso muerto",
+    "rm": 240.0,
+    "peso_origen": 240.0
+  },
+  {
+    "fecha": "2026-09-24 14:10",
+    "ejercicio": "peso muerto",
+    "rm": 296.0,
+    "peso_origen": 240.0
+  },
+  {
+    "fecha": "2026-09-28 14:58",
+    "ejercicio": "peso muerto",
+    "rm": 230.0,
+    "peso_origen": 230.0
+  },
+  {
+    "fecha": "2026-09-28 14:58",
+    "ejercicio": "peso muerto",
+    "rm": 256.8,
+    "peso_origen": 230.0
+  },
+  {
+    "fecha": "2026-09-28 15:01",
+    "ejercicio": "peso muerto",
+    "rm": 230.0,
+    "peso_origen": 230.0
+  },
+  {
+    "fecha": "2026-09-28 15:08",
+    "ejercicio": "peso muerto",
+    "rm": 240.0,
+    "peso_origen": 240.0
+  },
+  {
+    "fecha": "2026-09-28 15:08",
+    "ejercicio": "peso muerto",
+    "rm": 249.6,
+    "peso_origen": 240.0
+  },
+  {
+    "fecha": "2026-09-28 21:21",
+    "ejercicio": "press banco plano",
+    "rm": 120.0,
+    "peso_origen": 120.0
+  },
+  {
+    "fecha": "2026-09-28 21:21",
+    "ejercicio": "press banca",
+    "rm": 155.2,
+    "peso_origen": 120.0
+  },
+  {
+    "fecha": "2026-09-28 21:27",
+    "ejercicio": "press banco plano",
+    "rm": 120.0,
+    "peso_origen": 120.0
+  },
+  {
+    "fecha": "2026-09-28 21:27",
+    "ejercicio": "press banca",
+    "rm": 161.6,
+    "peso_origen": 120.0
+  },
+  {
+    "fecha": "2026-10-21 21:47",
+    "ejercicio": "sentadilla",
+    "rm": 160.3,
+    "peso_origen": 130.0
+  },
+  {
+    "fecha": "2026-10-21 21:58",
+    "ejercicio": "peso muerto",
+    "rm": 220.0,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-21 21:58",
+    "ejercicio": "peso muerto",
+    "rm": 256.7,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-21 22:26",
+    "ejercicio": "peso muerto",
+    "rm": 237.8,
+    "peso_origen": 205.0
+  },
+  {
+    "fecha": "2026-10-21 22:33",
+    "ejercicio": "peso muerto",
+    "rm": 197.3,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-21 22:36",
+    "ejercicio": "press banco plano",
+    "rm": 180.0,
+    "peso_origen": 180.0
+  },
+  {
+    "fecha": "2026-10-21 22:36",
+    "ejercicio": "peso muerto",
+    "rm": 228.0,
+    "peso_origen": 180.0
+  },
+  {
+    "fecha": "2026-10-21 22:38",
+    "ejercicio": "sentadilla",
+    "rm": 180.0,
+    "peso_origen": 180.0
+  },
+  {
+    "fecha": "2026-10-21 22:38",
+    "ejercicio": "peso muerto",
+    "rm": 222.0,
+    "peso_origen": 180.0
+  },
+  {
+    "fecha": "2026-10-21 22:41",
+    "ejercicio": "peso muerto",
+    "rm": 205.0,
+    "peso_origen": 205.0
+  },
+  {
+    "fecha": "2026-10-21 22:41",
+    "ejercicio": "peso muerto",
+    "rm": 246.0,
+    "peso_origen": 205.0
+  },
+  {
+    "fecha": "2026-10-21 22:43",
+    "ejercicio": "peso muerto",
+    "rm": 225.0,
+    "peso_origen": 225.0
+  },
+  {
+    "fecha": "2026-10-21 22:43",
+    "ejercicio": "peso muerto",
+    "rm": 253.5,
+    "peso_origen": 225.0
+  },
+  {
+    "fecha": "2026-10-21 22:44",
+    "ejercicio": "peso muerto",
+    "rm": 245.0,
+    "peso_origen": 245.0
+  },
+  {
+    "fecha": "2026-10-21 22:44",
+    "ejercicio": "peso muerto",
+    "rm": 254.8,
+    "peso_origen": 245.0
+  },
+  {
+    "fecha": "2026-10-22 17:00",
+    "ejercicio": "sentadilla",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-22 17:00",
+    "ejercicio": "sentadilla",
+    "rm": 192.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-22 17:04",
+    "ejercicio": "sentadilla",
+    "rm": 170.0,
+    "peso_origen": 170.0
+  },
+  {
+    "fecha": "2026-10-22 17:04",
+    "ejercicio": "sentadilla",
+    "rm": 213.6,
+    "peso_origen": 170.0
+  },
+  {
+    "fecha": "2026-10-22 17:08",
+    "ejercicio": "sentadilla",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-22 21:29",
+    "ejercicio": "sentadilla",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-22 21:29",
+    "ejercicio": "sentadilla",
+    "rm": 210.1,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-22 21:34",
+    "ejercicio": "sentadilla",
+    "rm": 220.0,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-22 21:34",
+    "ejercicio": "peso muerto",
+    "rm": 250.1,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-23 17:31",
+    "ejercicio": "sentadilla",
+    "rm": 220.0,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-23 17:31",
+    "ejercicio": "peso muerto",
+    "rm": 250.1,
+    "peso_origen": 220.0
+  },
+  {
+    "fecha": "2026-10-23 17:38",
+    "ejercicio": "peso muerto",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-23 17:38",
+    "ejercicio": "peso muerto",
+    "rm": 197.3,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-23 17:51",
+    "ejercicio": "sentadilla",
+    "rm": 160.0,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-23 17:51",
+    "ejercicio": "sentadilla",
+    "rm": 210.1,
+    "peso_origen": 160.0
+  },
+  {
+    "fecha": "2026-10-23 18:19",
+    "ejercicio": "dominadas",
+    "rm": 35.7,
+    "peso_origen": 30.0
+  },
+  {
+    "fecha": "2026-10-23 18:22",
+    "ejercicio": "peso muerto",
+    "rm": 222.0,
+    "peso_origen": 180.0
+  },
+  {
+    "fecha": "2026-10-23 18:23",
+    "ejercicio": "peso muerto",
+    "rm": 244.6,
+    "peso_origen": 205.0
+  },
+  {
+    "fecha": "2026-10-23 18:25",
+    "ejercicio": "peso muerto",
+    "rm": 258.0,
+    "peso_origen": 225.0
+  },
+  {
+    "fecha": "2026-10-23 18:26",
+    "ejercicio": "peso muerto",
+    "rm": 245.0,
+    "peso_origen": 245.0
+  },
+  {
+    "fecha": "2026-10-26 11:46",
+    "ejercicio": "peso muerto",
+    "rm": 262.5,
+    "peso_origen": 225.0
+  },
+  {
+    "fecha": "2026-10-26 11:51",
+    "ejercicio": "peso muerto",
+    "rm": 267.6,
+    "peso_origen": 230.0
+  }
+]

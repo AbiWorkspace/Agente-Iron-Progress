@@ -1,0 +1,56 @@
+{
+  "A_sin_kg": [
+    {
+      "done": "length",
+      "thinking": 9206,
+      "contenido": 812,
+      "tools": [],
+      "segundos": 149.4,
+      "mensaje": "[16:38] Quiero que me pongas los pesos que voy"
+    },
+    {
+      "done": "stop",
+      "thinking": 6033,
+      "contenido": 0,
+      "tools": [
+        "predecir_carga_optima"
+      ],
+      "segundos": 71.0,
+      "mensaje": "[17:19] Con que peso le doy entonces?"
+    },
+    {
+      "done": "stop",
+      "thinking": 818,
+      "contenido": 398,
+      "tools": [],
+      "segundos": 23.8,
+      "mensaje": "[18:05] Te odio con toda mi alma"
+    }
+  ],
+  "B_con_kg": [
+    {
+      "done": "stop",
+      "thinking": 2728,
+      "contenido": 841,
+      "tools": [],
+      "segundos": 37.4,
+      "mensaje": "[16:38] Quiero que me pongas los pesos que voy"
+    },
+    {
+      "done": "stop",
+      "thinking": 2716,
+      "contenido": 1070,
+      "tools": [],
+      "segundos": 39.6,
+      "mensaje": "[17:19] Con que peso le doy entonces?"
+    },
+    {
+      "done": "stop",
+      "thinking": 2906,
+      "contenido": 728,
+      "tools": [],
+      "segundos": 36.8,
+      "mensaje": "[18:05] Te odio con toda mi alma"
+    }
+  ]
+}

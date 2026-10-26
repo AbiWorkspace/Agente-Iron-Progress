@@ -1,0 +1,11 @@
+# ByteTrack — Configuración calibrada para Iron Progress VBT
+# Alineada con la banda operativa del modelo best.pt (tau* = 0.1802)
+# Docs: https://docs.ultralytics.com/modes/track
+
+tracker_type: bytetrack  # (str) Tracker backend: bytetrack
+track_high_thresh: 0.35   # Detecciones de alta confianza para asociación directa
+track_low_thresh: 0.12    # Límite inferior de la banda operativa [0.1201] para rescatar frames con blur
+new_track_thresh: 0.45    # Confianza requerida para inicializar una nueva trayectoria (anti-ruido)
+track_buffer: 90          # Frames para mantener tracks perdidos (1.5s a 60fps / 3s a 30fps)
+match_thresh: 0.80        # Umbral de similitud IoU/costo para asociación
+fuse_score: True          # Fusionar score de detección con movimiento/IoU para matching

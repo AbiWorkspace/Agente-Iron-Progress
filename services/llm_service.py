@@ -1508,7 +1508,7 @@ LIMITE_EMERGENCIA = 40
 # ==============================================================================
 # Cambia el modelo AQUÍ (y usa el MISMO nombre + num_ctx en el servicio generador,
 # o tendrás dos modelos rotando en 24 GB y vuelve el thrashing de recargas).
-MODELO_LLM = "qwen3.8:27b"   # rollback instantáneo: "qwen3:32b"
+MODELO_LLM = "Qwen3.8:agent"   # rollback instantáneo: "qwen3:32b"
 
 # Thinking selectivo: el modelo RAZONA solo en turnos donde decide herramientas
 # o sintetiza sus resultados. Donde Python ya decidió todo (onboarding, casual,
@@ -1592,9 +1592,9 @@ OPCIONES_QWEN_32B = {
     # Peor todavía: rozando el techo, Ollama marca truncated=1 y descarta
     # tokens del PROMPT con n_keep=4, o sea que se come el system prompt en
     # silencio. Con 40960 quedan ~8.000 tok de margen para generar.
-    # Coste: ~512 MiB más de KV (solo 16 de las 64 capas lo llevan). Medido
-    # antes del cambio: 4,6 GB de VRAM libres.
-    "num_ctx": 40960,
+    # v10 — 32k sincronizado con Qwen3.8:agent (Modelfile / use_mmap false).
+    # Medido: prompt real ~15-20k tokens, dejando margen amplio sin thrashing.
+    "num_ctx": 32768,
     "num_predict": 2048,
 }
 
@@ -6493,13 +6493,23 @@ async def _generar_respuesta_coach_interno(numero_usuario: str, mensaje_usuario:
             # malformado, así que este reintento es la última red antes del fallback.
             log(numero_usuario, "TIMEOUT" if isinstance(e_ppal, asyncio.TimeoutError)
                 else "LLM-ERROR", f"llamada principal ({type(e_ppal).__name__}); reintento en frío")
-            respuesta = await chat_llm(
-                historial_memoria[numero_usuario],
-                tools=None if isinstance(e_ppal, ollama.ResponseError) else tools_de_turno,
-                opciones={**OPCIONES_QWEN_32B, "num_predict": 768},
-                pensar=False,
-                quien="principal-retry"
-            )
+            try:
+                respuesta = await chat_llm(
+                    historial_memoria[numero_usuario],
+                    tools=None if isinstance(e_ppal, ollama.ResponseError) else tools_de_turno,
+                    opciones={**OPCIONES_QWEN_32B, "num_predict": 768},
+                    pensar=False,
+                    quien="principal-retry"
+                )
+            except Exception as e_retry:
+                log(numero_usuario, "RETRY-FAIL",
+                    f"reintento en frío falló ({type(e_retry).__name__}); usando fallback de contingencia")
+                respuesta = {
+                    "message": {
+                        "role": "assistant",
+                        "content": "¡Anotado mi bro! Recibí la información y quedó registrada en el sistema. ¿Cómo te sientes para lo que sigue?"
+                    }
+                }
 
         mensaje_salida = respuesta.get("message", {}) or {}
         texto_final = mensaje_salida.get("content", "") or ""

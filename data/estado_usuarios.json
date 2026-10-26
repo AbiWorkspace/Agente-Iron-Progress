@@ -48,10 +48,14 @@
     "527291395298": {
         "semana": 1,
         "dia": 1,
-        "fecha_programada": "2026-09-24",
+        "fecha_programada": "2026-10-23",
         "ultima_fecha_completada": "",
         "bienvenida_enviada": 1790280485.0808907,
-        "onboarding_activo": true,
-        "campo_pendiente": "edad"
+        "onboarding_activo": false,
+        "campo_pendiente": "",
+        "estado_generacion": "lista",
+        "generacion_ts": 1792801194.2839644,
+        "cursor_semana": 1,
+        "cursor_dia": 1
     }
 }

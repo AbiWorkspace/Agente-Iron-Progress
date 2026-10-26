@@ -10,3 +10,10 @@ data/chroma_db/
 
 # Salidas generadas del banco de QA (se recrean al correr qa_casos_uso.py)
 services/testbed/qa/
+
+.idea/
+
+# Archivos temporales y backups
+data/*.mp4
+data/temp_vision/
+data/*.bak-*

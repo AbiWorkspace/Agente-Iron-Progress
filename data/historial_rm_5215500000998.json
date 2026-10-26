@@ -1,0 +1,20 @@
+[
+  {
+    "fecha": "2026-07-30 00:12",
+    "ejercicio": "press banco plano",
+    "rm": 104.2,
+    "peso_origen": 90.0
+  },
+  {
+    "fecha": "2026-07-30 00:12",
+    "ejercicio": "sentadilla",
+    "rm": 119.1,
+    "peso_origen": 100.0
+  },
+  {
+    "fecha": "2026-07-30 00:12",
+    "ejercicio": "sentadilla",
+    "rm": 110.0,
+    "peso_origen": 95.0
+  }
+]
