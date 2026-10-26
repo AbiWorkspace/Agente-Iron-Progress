@@ -6,7 +6,7 @@ import httpx
 
 from core.config import settings
 from data.meta_service import enviar_mensaje_whatsapp
-from services.Creardataset import procesar_levantamiento_vbt
+from services.vbt import procesar_levantamiento_vbt
 
 TOKEN_META = settings.ACCESS_TOKEN
 ID_NUMERO_TELEFONO = settings.PHONE_NUMBER_ID
