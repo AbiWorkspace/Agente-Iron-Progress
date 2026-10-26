@@ -270,10 +270,18 @@ async def tool_enviar_grafica_progreso(numero: str, args: dict) -> dict:
                                                        caption=args.get("caption"))
 
 
+async def tool_consultar_historial_series(numero: str, args: dict) -> dict:
+    from services.db_service import consultar_series_atleta
+    ejercicio = args.get("ejercicio")
+    limite = int(_f(args.get("limite"), 20))
+    return await asyncio.to_thread(consultar_series_atleta, numero, ejercicio, limite)
+
+
 DISPATCHER_V9 = {
     "registrar_serie_completada": tool_registrar_serie_completada,
     "predecir_carga_optima":      tool_predecir_carga_optima,
     "analizar_mrv":               tool_analizar_mrv,
     "autorregular_dia":           tool_autorregular_dia,
     "enviar_grafica_progreso":    tool_enviar_grafica_progreso,
+    "consultar_historial_series": tool_consultar_historial_series,
 }

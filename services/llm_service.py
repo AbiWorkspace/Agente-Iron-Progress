@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import aiofiles
-from core.ejercicios import canonizar   # identidad del movimiento, una sola fuente
+from core.ejercicios import canonizar, detectar   # identidad del movimiento, una sola fuente
 from services.handlers_v9 import (DISPATCHER_V9, fijar_ejercicio_confirmado,
                                   leer_ejercicio_confirmado)
 from services.db_service import guardar_serie_sql, inicializar_db, obtener_dashboard_analitico
@@ -3562,6 +3562,10 @@ _ALIAS_ARGS: dict[str, dict[str, str]] = {
     "consultar_progreso": {
         "métrica": "metrica", "tipo": "metrica", "nombre_ejercicio": "ejercicio",
     },
+    "consultar_historial_series": {
+        "nombre_ejercicio": "ejercicio", "nombre": "ejercicio", "movimiento": "ejercicio",
+        "levantamiento": "ejercicio", "limit": "limite", "cantidad": "limite", "n": "limite",
+    },
     "explicar_tecnica_ejercicio": {
         "nombre_ejercicio": "ejercicio", "movimiento": "ejercicio",
     },
@@ -4064,6 +4068,26 @@ async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> s
         bloques.append(f"[HISTORIAL NARRATIVO]:\n{historial}")
     if "No se encontró" not in ciencia and "Error" not in ciencia:
         bloques.append(f"[EVIDENCIA CIENTÍFICA]:\n{ciencia}")
+
+    # RAG / RECUPERACIÓN SOBRE SERIES SQL: Si el mensaje nombra un ejercicio o pide revisar registros/series
+    ej_detectado = detectar(texto_busqueda)
+    pide_registros = bool(re.search(
+        r"\b(registr\w*|series?|historial|marcas?|pesos?|avance|progres\w*|r[eé]cords?|"
+        r"c[oó]mo voy|qu[eé] tal|cu[aá]nto levant\w*|cu[aá]nto hac\w*|revis\w*)\b",
+        texto_busqueda, re.IGNORECASE))
+
+    if ej_detectado or pide_registros:
+        try:
+            from services.db_service import consultar_series_atleta
+            res_series = await asyncio.to_thread(consultar_series_atleta, numero_usuario, ej_detectado, 20)
+            if res_series and res_series.get("ok") and res_series.get("total_series", 0) > 0:
+                bloques.append(
+                    f"[REGISTRO HISTÓRICO DE SERIES EN SQL — DIARIO DEL ATLETA]:\n"
+                    f"{res_series['resumen_texto']}"
+                )
+        except Exception as e_s:
+            print(f"[RAG-SERIES-ERROR]: {e_s}")
+
     if not bloques:
         return ""
     # v2: nota anti-loro — el bot repetía la nota de la rodilla en CADA mensaje
@@ -4552,7 +4576,8 @@ _NOMBRES_TOOLS_RE = re.compile(
     r"autorregular_dia|enviar_grafica_progreso|consultar_rutina_futura|"
     r"sustituir_ejercicio|aplicar_descarga|consultar_progreso|"
     r"explicar_tecnica_ejercicio|registrar_peso_corporal|pausar_plan|"
-    r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm|consultar_volumen_plan)[`'\"]?",
+    r"reanudar_plan|evaluar_nivel_fuerza|actualizar_1rm|consultar_volumen_plan|"
+    r"consultar_historial_series)[`'\"]?",
     re.IGNORECASE)
 # v13 — "el sistema" es la palabra que más se le escapa al modelo pese a estar
 # PROHIBIDA en <secreto_profesional>: 5 veces en los 74 turnos del QA del

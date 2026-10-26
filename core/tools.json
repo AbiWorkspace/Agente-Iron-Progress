@@ -425,5 +425,26 @@
         "required": []
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "consultar_historial_series",
+      "description": "Consulta en la base de datos SQL el historial real de series completadas por el atleta de uno o más ejercicios (pesos, repeticiones, RPE, telemetría VBT, velocidad y fechas). USA CUANDO: el atleta pregunte por sus series anteriores, su historial o desempeño en un movimiento específico (ej. '¿cómo me ha ido en peso muerto?', 'revisa mis registros de sentadilla', '¿qué pesos he manejado en banca?'), o cuando quieras evaluar su tendencia de series antes de prescribir o ajustar cargas. Soporta un ejercicio o varios separados por coma (ej. 'peso muerto, sentadilla'). NO LA USES CUANDO: solo quiera ver el plan futuro (eso es 'consultar_rutina_futura').",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ejercicio": {
+            "type": "string",
+            "description": "Nombre de uno o más ejercicios a consultar (ej. 'peso muerto', 'sentadilla', 'press banca'). Si se omite, devuelve las últimas series generales."
+          },
+          "limite": {
+            "type": "integer",
+            "description": "Cantidad máxima de series a recuperar (por defecto 20, máximo 50)."
+          }
+        },
+        "required": ["ejercicio"]
+      }
+    }
   }
 ]

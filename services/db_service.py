@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -410,6 +411,150 @@ def obtener_dashboard_analitico(numero_usuario: str) -> str:
     except Exception as e:
         print(f"[ERROR SQL ANALÍTICO]: Fallo al generar dashboard -> {e}")
         return "Error al leer la telemetría analítica."
+
+
+def consultar_series_atleta(numero_usuario: str, ejercicio: str | None = None, limite: int = 25) -> dict:
+    """Consulta el historial detallado de series en SQLite para uno o varios ejercicios.
+
+    Permite al LLM o al RAG consultar todas las series de un movimiento específico
+    (ej. 'peso muerto' o 'sentadilla, press banca') con su cinemática VBT, repeticiones,
+    RPE y estimación de 1RM sin perder información.
+    """
+    try:
+        inicializar_db()
+        from core.ejercicios import canonizar, para_mostrar
+
+        limite = max(1, min(int(limite or 25), 100))
+
+        # Parsear si vienen varios ejercicios (separados por coma o 'y')
+        filtros_ej = []
+        if ejercicio and str(ejercicio).strip():
+            partes_raw = re.split(r"[,y]\s*", str(ejercicio).strip())
+            filtros_ej = [canonizar(p) for p in partes_raw if canonizar(p)]
+
+        with conexion_db(solo_lectura=True) as conexion:
+            cursor = conexion.execute('''
+                SELECT id, fecha_hora, ejercicio, peso_kg, repeticiones,
+                       rpe_reportado, vbt_velocidad_media, vbt_velocidad_pico,
+                       vbt_perdida_velocidad, rom_cm, dolor_articular, calidad_tecnica
+                FROM series_log
+                WHERE numero_usuario = ?
+                ORDER BY fecha_hora DESC
+            ''', (str(numero_usuario),))
+            filas_raw = cursor.fetchall()
+
+        if not filas_raw:
+            return {
+                "ok": True,
+                "total_series": 0,
+                "mensaje": f"No hay series registradas en la base de datos para el usuario {numero_usuario}.",
+                "resumen_texto": "Sin series registradas en el historial.",
+                "series": []
+            }
+
+        series_filtradas = []
+        for r in filas_raw:
+            sid, f_h, ej_raw, peso, reps, rpe, vm, vp, vl, rom, dolor, calidad = r
+            c_ej = canonizar(ej_raw)
+            if filtros_ej:
+                coincide = any(f == c_ej or f in c_ej or c_ej in f for f in filtros_ej)
+                if not coincide:
+                    continue
+
+            # Estimación de 1RM para contextualizar la serie
+            e1rm = None
+            if peso and reps:
+                rpe_ef = rpe if rpe is not None else 10.0
+                rir = max(0.0, 10.0 - rpe_ef)
+                reps_ef = reps + rir
+                e1rm = round(peso * (1.0 + reps_ef / 30.0), 1)
+
+            series_filtradas.append({
+                "id": sid,
+                "fecha_hora": f_h,
+                "ejercicio": para_mostrar(c_ej),
+                "ejercicio_canonico": c_ej,
+                "peso_kg": peso,
+                "repeticiones": reps,
+                "rpe": rpe,
+                "vbt_velocidad_media": vm,
+                "vbt_velocidad_pico": vp,
+                "vbt_perdida_velocidad": vl,
+                "rom_cm": rom,
+                "dolor_articular": dolor,
+                "calidad_tecnica": calidad,
+                "e1rm_estimado_kg": e1rm
+            })
+
+            if len(series_filtradas) >= limite:
+                break
+
+        if not series_filtradas:
+            ej_txt = ", ".join(filtros_ej) if filtros_ej else "especificado"
+            return {
+                "ok": True,
+                "total_series": 0,
+                "mensaje": f"No se encontraron series para el ejercicio: {ej_txt}.",
+                "resumen_texto": f"No hay registros de series previas de {ej_txt}.",
+                "series": []
+            }
+
+        lineas = []
+        ejercicios_unicos = {s["ejercicio"] for s in series_filtradas}
+        for ej_nombre in sorted(ejercicios_unicos):
+            sub = [s for s in series_filtradas if s["ejercicio"] == ej_nombre]
+            mejor_peso = max(s["peso_kg"] for s in sub)
+            mejor_e1rm = max((s["e1rm_estimado_kg"] or 0) for s in sub)
+            mejor_serie = max(sub, key=lambda s: (s["peso_kg"], s["repeticiones"]))
+
+            lineas.append(f"HISTORIAL DE SERIES: {ej_nombre.upper()} ({len(sub)} series encontradas):")
+            lineas.append(f"  · Carga máxima levantada: {mejor_peso:g} kg")
+            lineas.append(f"  · Mejor serie: {mejor_serie['peso_kg']:g}kg x {mejor_serie['repeticiones']} reps "
+                          f"@RPE {mejor_serie['rpe'] or 'N/A'}")
+            if mejor_e1rm > 0:
+                lineas.append(f"  · Mejor 1RM estimado: {mejor_e1rm:g} kg")
+
+            lineas.append("  · Detalle de series (más recientes primero):")
+            for s in sub:
+                f_corta = s["fecha_hora"][:16] if s["fecha_hora"] else "N/A"
+                rpe_str = f"@RPE {s['rpe']:g}" if s["rpe"] is not None else "RPE N/A"
+                vbt_parts = []
+                if s["vbt_velocidad_media"] is not None:
+                    vbt_parts.append(f"Vmed: {s['vbt_velocidad_media']:.3f} m/s")
+                if s["vbt_velocidad_pico"] is not None:
+                    vbt_parts.append(f"Vpico: {s['vbt_velocidad_pico']:.3f} m/s")
+                if s["vbt_perdida_velocidad"] is not None:
+                    vbt_parts.append(f"VL: {s['vbt_perdida_velocidad']:.1f}%")
+                if s["rom_cm"] is not None:
+                    vbt_parts.append(f"ROM: {s['rom_cm']:.1f}cm")
+                if s["calidad_tecnica"]:
+                    vbt_parts.append(f"Técnica: {s['calidad_tecnica']}")
+                if s["dolor_articular"] and str(s["dolor_articular"]).lower() not in ("ninguno", ""):
+                    vbt_parts.append(f"Dolor: {s['dolor_articular']}")
+
+                vbt_txt = f" ({', '.join(vbt_parts)})" if vbt_parts else ""
+                e1rm_txt = f" [1RM est: {s['e1rm_estimado_kg']:g} kg]" if s["e1rm_estimado_kg"] else ""
+                lineas.append(f"    - {f_corta} | {s['peso_kg']:g}kg x {s['repeticiones']} {rpe_str}{vbt_txt}{e1rm_txt}")
+            lineas.append("")
+
+        resumen_texto = "\n".join(lineas).strip()
+
+        return {
+            "ok": True,
+            "total_series": len(series_filtradas),
+            "ejercicios_encontrados": list(ejercicios_unicos),
+            "resumen_texto": resumen_texto,
+            "series": series_filtradas
+        }
+
+    except Exception as e:
+        print(f"[ERROR SQL CONSULTA SERIES]: {e}")
+        return {
+            "ok": False,
+            "error": str(e),
+            "resumen_texto": f"Error consultando series: {e}",
+            "series": []
+        }
 
 
 def diagnostico_multi_usuario():
