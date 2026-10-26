@@ -264,6 +264,18 @@ BLOQUES: dict[str, list[Caso]] = {
              regla="1 / rectificación"),
     ],
 
+    # ── Regla 18: Consulta de Historial de Series ────────────────────────────
+    "historial": [
+        Caso("revisa mis registros de peso muerto a ver cómo he ido",
+             "consultar_historial_series con peso muerto para ver series reales",
+             tools_esperadas=("consultar_historial_series", "consultar_progreso"),
+             regla="18 / historial_series"),
+        Caso("cuáles fueron mis últimas series de sentadilla?",
+             "consultar_historial_series con sentadilla",
+             tools_esperadas=("consultar_historial_series",),
+             regla="18"),
+    ],
+
     # ── Límites del plan: semanas y días que no existen ─────────────────────
     "limites": [
         # OJO: el plan de este atleta son 81 semanas reales (3 mesociclos x 27),

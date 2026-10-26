@@ -429,7 +429,7 @@ def consultar_series_atleta(numero_usuario: str, ejercicio: str | None = None, l
         # Parsear si vienen varios ejercicios (separados por coma o 'y')
         filtros_ej = []
         if ejercicio and str(ejercicio).strip():
-            partes_raw = re.split(r"[,y]\s*", str(ejercicio).strip())
+            partes_raw = re.split(r",\s*|\s+y\s+", str(ejercicio).strip(), flags=re.I)
             filtros_ej = [canonizar(p) for p in partes_raw if canonizar(p)]
 
         with conexion_db(solo_lectura=True) as conexion:
@@ -452,13 +452,22 @@ def consultar_series_atleta(numero_usuario: str, ejercicio: str | None = None, l
                 "series": []
             }
 
+        conteo_por_filtro = {f: 0 for f in filtros_ej}
+        max_por_filtro = max(5, limite // len(filtros_ej)) if len(filtros_ej) > 1 else limite
         series_filtradas = []
         for r in filas_raw:
             sid, f_h, ej_raw, peso, reps, rpe, vm, vp, vl, rom, dolor, calidad = r
             c_ej = canonizar(ej_raw)
+            ej_coincidente = None
             if filtros_ej:
-                coincide = any(f == c_ej or f in c_ej or c_ej in f for f in filtros_ej)
-                if not coincide:
+                for f in filtros_ej:
+                    if f == c_ej or f in c_ej or c_ej in f:
+                        ej_coincidente = f
+                        break
+                if not ej_coincidente:
+                    continue
+
+                if len(filtros_ej) > 1 and conteo_por_filtro[ej_coincidente] >= max_por_filtro:
                     continue
 
             # Estimación de 1RM para contextualizar la serie
@@ -486,7 +495,13 @@ def consultar_series_atleta(numero_usuario: str, ejercicio: str | None = None, l
                 "e1rm_estimado_kg": e1rm
             })
 
-            if len(series_filtradas) >= limite:
+            if ej_coincidente:
+                conteo_por_filtro[ej_coincidente] += 1
+
+            if len(filtros_ej) > 1:
+                if all(c >= max_por_filtro for c in conteo_por_filtro.values()):
+                    break
+            elif len(series_filtradas) >= limite:
                 break
 
         if not series_filtradas:
