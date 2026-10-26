@@ -3156,8 +3156,10 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
                      v_inst: float, reps: int, fase: str,
                      registro: list, vl_actual: Optional[float],
                      rir_txt: Optional[str] = None,
-                     active_area: Optional[tuple] = None):
-    """Renderizado por cuadro optimizado por ROI con HUD modular y firma AbiSchulz."""
+                     active_area: Optional[tuple] = None,
+                     nombre_ejercicio: Optional[str] = None,
+                     carga_kg: Optional[float] = None):
+    """Renderizado por cuadro optimizado por ROI con HUD modular, ejercicio confirmado y firma AbiSchulz."""
     # ── 1. TRAYECTORIA DEGRADADA (más reciente = verde neón brillante y grueso) ─
     n = len(trayectoria)
     for j in range(1, n):
@@ -3183,8 +3185,8 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
     # ── 3. PANEL HUD MODULAR (escalado responsivo para 1080x1920 Stories/Reels) ─
     PX = _s(frame, 20)
-    PW = _s(frame, 320)
-    PH = _s(frame, 340)
+    PW = _s(frame, 330)
+    PH = _s(frame, 355)
 
     # Si hay padding superior amplio (video horizontal), alojar el HUD fuera del levantamiento
     if active_area and active_area[1] > _s(frame, 180):
@@ -3197,31 +3199,52 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
     cv2.line(frame, (PX + _s(frame, 10), PY + PH), (PX + PW - _s(frame, 10), PY + PH), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── MARCA IRON PROGRESS ──
-    _txt(frame, "IRON PROGRESS", (PX + _s(frame, 18), PY + _s(frame, 24)),
-         scale=0.45, color=_HUB["accent"], shadow=True, thickness=1)
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 34)), (PX + PW - _s(frame, 12), PY + _s(frame, 34)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
+    _txt(frame, "IRON PROGRESS", (PX + _s(frame, 18), PY + _s(frame, 22)),
+         scale=0.42, color=_HUB["accent"], shadow=True, thickness=1)
+
+    # ── 3b. EJERCICIO CONFIRMADO Y CARGA ──
+    txt_ej = ""
+    if nombre_ejercicio and str(nombre_ejercicio).strip() and str(nombre_ejercicio).strip().lower() not in ("ejercicio no especificado", "movimiento libre", "no_reconocido"):
+        txt_ej = str(nombre_ejercicio).strip().upper()
+        if carga_kg and float(carga_kg) > 0:
+            txt_ej += f" · {float(carga_kg):g} KG"
+    elif carga_kg and float(carga_kg) > 0:
+        txt_ej = f"{float(carga_kg):g} KG"
+    else:
+        txt_ej = "VBT TRACKER"
+
+    scale_ej = 0.44
+    max_w_ej = PW - _s(frame, 36)
+    (tw_ej, _), _ = cv2.getTextSize(txt_ej, _FONT_UI, scale_ej, 1)
+    if tw_ej > max_w_ej and tw_ej > 0:
+        scale_ej = max(0.28, scale_ej * (max_w_ej / tw_ej))
+
+    _txt(frame, txt_ej, (PX + _s(frame, 18), PY + _s(frame, 38)),
+         scale=scale_ej, color=_HUB["white"], shadow=True, thickness=1, font=_FONT_UI)
+
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 46)), (PX + PW - _s(frame, 12), PY + _s(frame, 46)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3c. REPETICIONES ──
-    _txt(frame, "REPETICIONES", (PX + _s(frame, 18), PY + _s(frame, 46)),
+    _txt(frame, "REPETICIONES", (PX + _s(frame, 18), PY + _s(frame, 58)),
          scale=0.34, color=_HUB["muted"])
-    _txt(frame, str(reps), (PX + _s(frame, 16), PY + _s(frame, 110)),
+    _txt(frame, str(reps), (PX + _s(frame, 16), PY + _s(frame, 122)),
          scale=2.5, color=_HUB["green"], thickness=2, shadow=True)
 
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 120)), (PX + PW - _s(frame, 12), PY + _s(frame, 120)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 132)), (PX + PW - _s(frame, 12), PY + _s(frame, 132)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3d. FASE ──
-    _fase_pill(frame, fase, PX + _s(frame, 18), PY + _s(frame, 145), scale=0.46)
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 160)), (PX + PW - _s(frame, 12), PY + _s(frame, 160)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
+    _fase_pill(frame, fase, PX + _s(frame, 18), PY + _s(frame, 157), scale=0.46)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 172)), (PX + PW - _s(frame, 12), PY + _s(frame, 172)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3e. VELOCIDAD ÚLTIMA REP + barra ──
     if registro:
         v_last = registro[-1].v_avg
         col_last = _color_por_velocidad(v_last)
         _metric(frame, "Ultima rep", f"{v_last:.2f} m/s",
-                PX + _s(frame, 18), PY + _s(frame, 178), vcolor=col_last)
-        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 208), PW - _s(frame, 36), _s(frame, 6), v_last / 1.5, col_last)
+                PX + _s(frame, 18), PY + _s(frame, 190), vcolor=col_last)
+        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 220), PW - _s(frame, 36), _s(frame, 6), v_last / 1.5, col_last)
 
-    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 224)), (PX + PW - _s(frame, 12), PY + _s(frame, 224)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
+    cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 236)), (PX + PW - _s(frame, 12), PY + _s(frame, 236)), _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
 
     # ── 3f. PÉRDIDA DE VELOCIDAD (fatiga) + barra ──
     if vl_actual is not None:
@@ -3234,17 +3257,17 @@ def renderizar_frame(frame, det: Optional['Deteccion'], trayectoria: deque,
 
         _metric(frame, "Perdida de velocidad",
                 f"{vl_actual:.1f}%   {estado}",
-                PX + _s(frame, 18), PY + _s(frame, 242),
+                PX + _s(frame, 18), PY + _s(frame, 254),
                 vcolor=color_vl, vscale=0.60)
-        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 272), PW - _s(frame, 36), _s(frame, 6), vl_actual / 50, color_vl)
+        _bar(frame, PX + _s(frame, 18), PY + _s(frame, 284), PW - _s(frame, 36), _s(frame, 6), vl_actual / 50, color_vl)
 
     # ── 3g. REPS EN RESERVA (v3) ──
     if rir_txt:
-        cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 288)), (PX + PW - _s(frame, 12), PY + _s(frame, 288)),
+        cv2.line(frame, (PX + _s(frame, 12), PY + _s(frame, 300)), (PX + PW - _s(frame, 12), PY + _s(frame, 300)),
                  _HUB["sep"], _s(frame, 1), cv2.LINE_AA)
-        _txt(frame, "EN RESERVA (RIR est.)", (PX + _s(frame, 18), PY + _s(frame, 306)),
+        _txt(frame, "EN RESERVA (RIR est.)", (PX + _s(frame, 18), PY + _s(frame, 318)),
              scale=0.34, color=_HUB["muted"], shadow=False, font=_FONT_UI)
-        _txt(frame, rir_txt, (PX + PW - _s(frame, 72), PY + _s(frame, 308)),
+        _txt(frame, rir_txt, (PX + PW - _s(frame, 72), PY + _s(frame, 320)),
              scale=0.52, color=_HUB["accent"], font=_FONT_UI)
 
     # ── 4. MARCA DE AGUA INFERIOR «AbiSchulz» (Safe Zone Reels/Stories) ──────
@@ -3673,6 +3696,8 @@ def procesar_levantamiento_vbt(
                 vl_actual=vl_actual,
                 rir_txt=rir_live,
                 active_area=active_area,
+                nombre_ejercicio=nombre_ejercicio,
+                carga_kg=carga_kg,
             )
 
             video_writer.write(canvas_frame)
@@ -3720,6 +3745,8 @@ def procesar_levantamiento_vbt(
             vl_actual=vl_final,
             rir_txt=rir_live,
             active_area=active_area,
+            nombre_ejercicio=nombre_ejercicio,
+            carga_kg=carga_kg,
         )
 
         frames_congelados = int(round(video_writer.fps * 2.0))

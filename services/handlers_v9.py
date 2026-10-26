@@ -185,9 +185,21 @@ async def tool_registrar_serie_completada(numero: str, args: dict) -> dict:
     vbt_vp = _f(args.get("vbt_velocidad_pico") or args.get("velocidad_pico"))
     vbt_vl = _f(args.get("vbt_perdida_velocidad") or args.get("perdida_velocidad"))
     rom = _f(args.get("rom_cm") or args.get("rom"))
+    calidad = str(args.get("calidad_tecnica") or args.get("calidad") or "").strip() or None
 
-    await asyncio.to_thread(mp.guardar_serie_v9, numero, ejercicio, peso, reps, rpe, dolor,
-                            vbt_vm, vbt_vp, vbt_vl, rom)
+    kwargs_extra = {}
+    if vbt_vm is not None:
+        kwargs_extra["vbt_velocidad_media"] = vbt_vm
+    if vbt_vp is not None:
+        kwargs_extra["vbt_velocidad_pico"] = vbt_vp
+    if vbt_vl is not None:
+        kwargs_extra["vbt_perdida_velocidad"] = vbt_vl
+    if rom is not None:
+        kwargs_extra["rom_cm"] = rom
+    if calidad:
+        kwargs_extra["calidad_tecnica"] = calidad
+
+    await asyncio.to_thread(mp.guardar_serie_v9, numero, ejercicio, peso, reps, rpe, dolor, **kwargs_extra)
 
     # El nombre que se devuelve al coach es el canónico, el mismo con el que
     # quedó guardado: si el modelo narra "Press Banco Plano" mientras la base

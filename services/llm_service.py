@@ -3985,7 +3985,7 @@ def consultar_literatura_cientifica(pregunta: str, vector=None) -> str:
 def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str, vector=None) -> str:
     if not db_memoria_atleta: return "Error: Base de datos histórica no disponible."
     try:
-        resultados = _buscar(db_memoria_atleta, pregunta, 3,
+        resultados = _buscar(db_memoria_atleta, pregunta, 5,
                              {"numero_usuario": str(numero_usuario)}, vector)
         vistos, textos = set(), []
         for doc, score in resultados:
@@ -4000,7 +4000,7 @@ def consultar_memoria_historica_atleta(numero_usuario: str, pregunta: str, vecto
 def consultar_expediente_atleta(numero_usuario: str, concepto: str, vector=None) -> str:
     if not db_perfil_atleta: return "Error: base de datos no disponible."
     try:
-        resultados = _buscar(db_perfil_atleta, concepto, 3,
+        resultados = _buscar(db_perfil_atleta, concepto, 6,
                              {"numero_usuario": {"$eq": str(numero_usuario)}}, vector)
         vistos, textos = set(), []
         for doc, score in resultados:
@@ -4038,12 +4038,24 @@ def guardar_dato_en_expediente(numero_usuario: str, texto_dato: str):
 async def construir_contexto_enriquecido(numero_usuario: str, mensaje: str) -> str:
     if not (db_perfil_atleta or db_memoria_atleta or db_cientifica):
         return ""
+
+    # Si viene de telemetría sintética de video, buscar sobre el texto real del atleta
+    # para evitar que 2000 caracteres de fórmulas y tablas diluyan el vector
+    texto_busqueda = mensaje
+    if "TELEMETRÍA DE VIDEO VBT RECIBIDA." in mensaje:
+        m_orig = re.search(r"Mensaje original del atleta:\s*(.*?)(?=\n\n|\Z)", mensaje, re.DOTALL)
+        if m_orig and m_orig.group(1).strip() and m_orig.group(1).strip() != "Datos no especificados":
+            texto_busqueda = m_orig.group(1).strip()
+        else:
+            m_ej = re.search(r"EJERCICIO CONFIRMADO POR EL ATLETA:\s*(.*?)(?=\.|\n|\Z)", mensaje)
+            texto_busqueda = m_ej.group(1).strip() if m_ej else "entrenamiento de fuerza"
+
     # UN solo embedding para las tres colecciones (antes: tres idénticos).
-    vector = await asyncio.to_thread(_embebe, mensaje)
+    vector = await asyncio.to_thread(_embebe, texto_busqueda)
     expediente, historial, ciencia = await asyncio.gather(
-        asyncio.to_thread(consultar_expediente_atleta, numero_usuario, mensaje, vector),
-        asyncio.to_thread(consultar_memoria_historica_atleta, numero_usuario, mensaje, vector),
-        asyncio.to_thread(consultar_literatura_cientifica, mensaje, vector),
+        asyncio.to_thread(consultar_expediente_atleta, numero_usuario, texto_busqueda, vector),
+        asyncio.to_thread(consultar_memoria_historica_atleta, numero_usuario, texto_busqueda, vector),
+        asyncio.to_thread(consultar_literatura_cientifica, texto_busqueda, vector),
     )
     bloques = []
     if "Sin datos" not in expediente and "Error" not in expediente:
@@ -4899,9 +4911,9 @@ def _resumen_perfil_humano(numero_usuario: str) -> str:
     if p.get("porcentaje_grasa"): partes.append(f"{p['porcentaje_grasa']:g}% grasa")
     if p.get("dias_semana"): partes.append(f"{p['dias_semana']} días/semana")
     if p.get("meta"): partes.append(f"meta {p['meta']}")
-    for nombre in ("press banco plano", "sentadilla", "peso muerto", "dominadas"):
-        if nombre in r:
-            partes.append(f"1RM {nombre}: {r[nombre]:g} kg")
+    if p.get("incremento_kg"): partes.append(f"salto mín barra {p['incremento_kg']:g} kg")
+    for nombre, rm in sorted(r.items()):
+        partes.append(f"1RM {nombre}: {rm:g} kg")
     return ", ".join(partes) if partes else "nada todavía"
 
 # ==============================================================================

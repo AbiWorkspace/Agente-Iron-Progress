@@ -302,14 +302,15 @@ LIMITE_SERIES_DASHBOARD = 14
 
 
 def obtener_dashboard_analitico(numero_usuario: str) -> str:
-    """Últimas series de ESTE atleta, con el recuento de hoy, para el contexto del LLM."""
+    """Últimas series de ESTE atleta con telemetría VBT completa, recuento de hoy y estado biofísico."""
     try:
         inicializar_db()
 
         with conexion_db(solo_lectura=True) as conexion:
             resultados = conexion.execute('''
                 SELECT fecha_hora, ejercicio, peso_kg, repeticiones,
-                       rpe_reportado, vbt_velocidad_media
+                       rpe_reportado, vbt_velocidad_media, vbt_velocidad_pico,
+                       vbt_perdida_velocidad, rom_cm, dolor_articular, calidad_tecnica
                 FROM series_log
                 WHERE numero_usuario = ?
                 ORDER BY fecha_hora DESC
@@ -324,16 +325,56 @@ def obtener_dashboard_analitico(numero_usuario: str) -> str:
                 ORDER BY n DESC
             ''', (str(numero_usuario), hoy)).fetchall()
 
-        if not resultados:
+            # Consultar readiness reciente (hoy o último registrado)
+            readiness_reciente = None
+            try:
+                readiness_reciente = conexion.execute('''
+                    SELECT fecha, score, sueno_horas, sueno_calidad, estres, dolor, fuente
+                    FROM readiness
+                    WHERE numero_usuario = ?
+                    ORDER BY fecha DESC
+                    LIMIT 1
+                ''', (str(numero_usuario),)).fetchone()
+            except Exception:
+                pass
+
+            # Consultar eventos de autorregulación recientes (últimos 3 días)
+            eventos_recientes = []
+            try:
+                eventos_recientes = conexion.execute('''
+                    SELECT fecha, tipo, ejercicio, detalle_json
+                    FROM eventos_autorregulacion
+                    WHERE numero_usuario = ?
+                    ORDER BY fecha DESC
+                    LIMIT 3
+                ''', (str(numero_usuario),)).fetchall()
+            except Exception:
+                pass
+
+        if not resultados and not readiness_reciente:
             return "Sin datos históricos recientes en la base de datos SQL."
 
         partes = [f"--- ÚLTIMAS {len(resultados)} SERIES REGISTRADAS (TELEMETRÍA SQL) ---"]
-        for fecha, ej, peso, reps, rpe, vel in resultados:
+        for fecha, ej, peso, reps, rpe, vm, vp, vl, rom, dolor, calidad in resultados:
             fecha_corta = fecha[:10] if fecha else "N/A"
-            rpe_str = f"RPE {rpe}" if rpe is not None else "RPE N/A"
-            vel_str = f"({vel} m/s)" if vel is not None else ""
-            partes.append(f"· {fecha_corta} | {str(ej).title()}: {peso}kg x {reps} "
-                          f"{vel_str} | {rpe_str}")
+            rpe_str = f"RPE {rpe:g}" if rpe is not None else "RPE N/A"
+
+            telemetria_items = []
+            if vm is not None:
+                telemetria_items.append(f"Vmed: {vm:.3f} m/s")
+            if vp is not None:
+                telemetria_items.append(f"Vpico: {vp:.3f} m/s")
+            if vl is not None:
+                telemetria_items.append(f"VL: {vl:.1f}%")
+            if rom is not None:
+                telemetria_items.append(f"ROM: {rom:.1f}cm")
+            if calidad and str(calidad).strip():
+                telemetria_items.append(f"Técnica: {calidad}")
+            if dolor and str(dolor).strip().lower() not in ("ninguno", ""):
+                telemetria_items.append(f"Dolor: {dolor}")
+
+            tel_str = f" ({', '.join(telemetria_items)})" if telemetria_items else ""
+            partes.append(f"· {fecha_corta} | {str(ej).title()}: {peso:g}kg x {reps}{tel_str} | {rpe_str}")
 
         if resumen_hoy:
             total = sum(n for _, n in resumen_hoy)
@@ -342,6 +383,27 @@ def obtener_dashboard_analitico(numero_usuario: str) -> str:
                           "Esto es lo que consta APUNTADO, no lo que prescribe el plan.")
         else:
             partes.append("SERIES REGISTRADAS HOY: ninguna todavía.")
+
+        if readiness_reciente:
+            f_r, score_r, s_h, s_q, estres_r, dolor_r, fuente_r = readiness_reciente
+            estado_r = "ÓPTIMO" if score_r >= 0.8 else ("MODERADO" if score_r >= 0.6 else "FATIGADO")
+            detalles_r = [f"Score {score_r * 100:.0f}% ({estado_r})"]
+            if s_h is not None:
+                cal_txt = f", calidad {s_q}/5" if s_q is not None else ""
+                detalles_r.append(f"Sueño {s_h:g}h{cal_txt}")
+            if estres_r is not None:
+                detalles_r.append(f"Estrés {estres_r}/5")
+            if dolor_r and str(dolor_r).strip().lower() not in ("ninguno", ""):
+                detalles_r.append(f"Molestia: {dolor_r}")
+            partes.append(f"ESTADO DE READINESS ({f_r}): {', '.join(detalles_r)}")
+
+        if eventos_recientes:
+            ev_list = []
+            for ev_f, ev_tipo, ev_ej, ev_det in eventos_recientes:
+                f_corta = ev_f[:10] if ev_f else ""
+                ej_str = f" [{str(ev_ej).title()}]" if ev_ej else ""
+                ev_list.append(f"{f_corta}: {ev_tipo}{ej_str}")
+            partes.append(f"AUTORREGULACIONES RECIENTES DEL SISTEMA: {'; '.join(ev_list)}")
 
         return "\n".join(partes) + "\n"
 

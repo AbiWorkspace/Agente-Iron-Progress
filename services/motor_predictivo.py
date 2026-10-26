@@ -119,11 +119,13 @@ def _norm(txt: str) -> str:
 
 
 def leer_series(numero: str, ejercicio: str | None = None, dias: int = 180) -> list[dict]:
-    """Series con tríada completa (las históricas sin reps/RPE se excluyen: son
+    """Series con tríada completa y telemetría cinemática (las históricas sin reps/RPE se excluyen: son
     pre-v9 y no sirven para e1RM ni para el modelo)."""
     desde = (date.today() - timedelta(days=dias)).isoformat()
     q = (f"SELECT {C['fecha']} AS f, {C['ejercicio']} AS e, {C['peso']} AS w, "
-         f"{C['reps']} AS r, {C['rpe']} AS rpe, {C['dolor']} AS dolor "
+         f"{C['reps']} AS r, {C['rpe']} AS rpe, {C['dolor']} AS dolor, "
+         f"vbt_velocidad_media AS vm, vbt_velocidad_pico AS vp, "
+         f"vbt_perdida_velocidad AS vl, rom_cm AS rom, calidad_tecnica AS calidad "
          f"FROM {TABLA_SERIES} WHERE {C['usuario']}=? AND {C['fecha']}>=? "
          f"AND {C['peso']} IS NOT NULL AND {C['reps']} IS NOT NULL "
          f"AND {C['rpe']} IS NOT NULL")
@@ -196,17 +198,20 @@ def guardar_serie_v9(numero: str, ejercicio: str, peso_kg: float,
                      vbt_velocidad_media: float = None,
                      vbt_velocidad_pico: float = None,
                      vbt_perdida_velocidad: float = None,
-                     rom_cm: float = None) -> None:
-    """Inserción directa con la tríada completa y métricas VBT opcionales."""
+                     rom_cm: float = None,
+                     calidad_tecnica: str = None,
+                     **kwargs) -> None:
+    """Inserción directa con la tríada completa y métricas VBT/técnicas opcionales."""
     with _con() as con:
         con.execute(
             f"INSERT INTO {TABLA_SERIES} ({C['usuario']}, {C['ejercicio']}, "
             f"{C['peso']}, repeticiones, rpe_reportado, {C['dolor']}, {C['fecha']}, "
-            f"vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            f"vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm, calidad_tecnica) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(numero), canonizar(ejercicio), float(peso_kg), int(repeticiones),
              float(rpe), str(dolor or "ninguno"), datetime.now().isoformat(" ", "seconds"),
-             vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm))
+             vbt_velocidad_media, vbt_velocidad_pico, vbt_perdida_velocidad, rom_cm,
+             str(calidad_tecnica) if calidad_tecnica else None))
         con.commit()
 
 
